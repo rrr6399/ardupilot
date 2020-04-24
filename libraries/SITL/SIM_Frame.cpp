@@ -322,9 +322,9 @@ float Frame::get_air_density(float alt_amsl) const
     return air_pressure / (ISA_GAS_CONSTANT * (C_TO_KELVIN + model.refTempC));
 }
 
-/*
+    /*
   load frame specific parameters from a json file if available
- */
+    */
 void Frame::load_frame_params(const char *model_json)
 {
     char *fname = nullptr;
@@ -355,10 +355,12 @@ void Frame::load_frame_params(const char *model_json)
     char *start = strchr(buf, '{');
     if (!start) {
         AP_HAL::panic("Invalid json %s", model_json);
-    }
+
+//printf("mass = %f, motors = %d, thrust_scale = %f, hover throttle = %f\n",_mass, num_motors,thrust_scale,hover_throttle);
+}
     free(fname);
 
-    /*
+/*
       remove comments, as not allowed by the parser
      */
     for (char *p = strchr(start,'#'); p; p=strchr(p+1, '#')) {
@@ -537,10 +539,12 @@ void Frame::calculate_forces(const Aircraft &aircraft,
         // simulate motor rpm
         if (!is_zero(AP::sitl()->vibe_motor)) {
             rpm[i] = motors[i].get_command() * AP::sitl()->vibe_motor * 60.0f;
-        }
+    }
     }
 
     body_accel = thrust/aircraft.gross_mass();
+
+//printf("body accel = %f, thrust = %f, mass = %f\n",body_accel, thrust, aircraft.gross_mass());
 
     if (terminal_rotation_rate > 0) {
         // rotational air resistance
@@ -557,7 +561,7 @@ void Frame::calculate_forces(const Aircraft &aircraft,
                     model.mdrag_coef * fabsf(vel_air_bf.x) * sqrtf(fabsf(thrust.z) * air_density * model.disc_area);
         if (is_positive(vel_air_bf.x)) {
             drag_bf.x = -drag_bf.x;
-        }
+    }
 
         drag_bf.y = areaCd * 0.5f * air_density * sq(vel_air_bf.y) +
                     model.mdrag_coef * fabsf(vel_air_bf.y) * sqrtf(fabsf(thrust.z) * air_density * model.disc_area);
