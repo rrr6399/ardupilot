@@ -26,7 +26,7 @@
 
 using namespace SITL;
 
-#define USE_VISION_POSITION_ESTIMATE 1
+#define USE_VISION_POSITION_ESTIMATE 1  // 1 = send VISION_POSITION_ESTIMATE messages, 0 = send VICON_POSITION_ESTIMATE
 
 
 Vicon::Vicon() :
@@ -116,6 +116,9 @@ void Vicon::update_vicon_position_estimate(const Location &loc,
         vicon_yaw_rot.from_euler(0, 0, -vicon_yaw_rad);
         pos_corrected = vicon_yaw_rot * pos_corrected;
     }
+
+    // add yaw error reported to vehicle
+    yaw = wrap_PI(yaw + radians(_sitl->vicon_yaw_error.get()));
 
 #if USE_VISION_POSITION_ESTIMATE
     // use the more recent VISION_POSITION_ESTIMATE message

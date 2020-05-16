@@ -234,7 +234,6 @@ void NavEKF2_core::setAidingMode()
 
         // Check if the loss of position accuracy has become critical
         bool posAidLossCritical = false;
-        bool posAidLossPending = false;
         if (!posAiding ) {
             uint16_t maxLossTime_ms;
             if (!velAiding) {
@@ -245,9 +244,6 @@ void NavEKF2_core::setAidingMode()
             posAidLossCritical = (imuSampleTime_ms - lastRngBcnPassTime_ms > maxLossTime_ms) &&
                                  (imuSampleTime_ms - lastExtNavPassTime_ms > maxLossTime_ms) &&
                                  (imuSampleTime_ms - lastPosPassTime_ms > maxLossTime_ms);
-            posAidLossPending = (imuSampleTime_ms - lastRngBcnPassTime_ms > (uint32_t)frontend->_gsfResetDelay) &&
-                                (imuSampleTime_ms - lastExtNavPassTime_ms > (uint32_t)frontend->_gsfResetDelay) &&
-                                (imuSampleTime_ms - lastPosPassTime_ms > (uint32_t)frontend->_gsfResetDelay);
         }
 
         if (attAidLossCritical) {
@@ -267,9 +263,6 @@ void NavEKF2_core::setAidingMode()
             velTimeout = true;
             rngBcnTimeout = true;
             gpsNotAvailable = true;
-        } else if (posAidLossPending) {
-            // attempt to reset the yaw to the estimate from the EKF-GSF algorithm
-            EKFGSF_yaw_reset_request_ms = imuSampleTime_ms;
         }
         break;
     }
@@ -329,9 +322,11 @@ void NavEKF2_core::setAidingMode()
             if (canUseExtNav) {
                 gcs().send_text(MAV_SEVERITY_INFO, "EKF2 IMU%u is using external nav data",(unsigned)imu_index);
                 gcs().send_text(MAV_SEVERITY_INFO, "EKF2 IMU%u initial pos NED = %3.1f,%3.1f,%3.1f (m)",(unsigned)imu_index,(double)extNavDataDelayed.pos.x,(double)extNavDataDelayed.pos.y,(double)extNavDataDelayed.pos.z);
-                // handle yaw reset as special case
-                extNavYawResetRequest = true;
-                controlMagYawReset();
+                //handle yaw reset as special case only if compass is disabled
+                if (!use_compass()) {
+                    extNavYawResetRequest = true;
+                    controlMagYawReset();
+                }
                 // handle height reset as special case
                 hgtMea = -extNavDataDelayed.pos.z;
                 posDownObsNoise = sq(constrain_float(extNavDataDelayed.posErr, 0.1f, 10.0f));
