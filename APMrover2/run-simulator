@@ -1,0 +1,2 @@
+python3 ../Tools/autotest/sim_vehicle.py --map --console -L keywest --instance 2
+#python3 ../Tools/autotest/sim_vehicle.py --map --console -L Home --instance 1
