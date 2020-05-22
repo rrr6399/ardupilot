@@ -2302,7 +2302,8 @@ class AutoTest(ABC):
         while True:
             delta = self.get_sim_time_cached() - tstart
             if delta > timeout:
-                raise AutoTestTimeoutException("Failed to DISARM")
+                raise AutoTestTimeoutException("Failed to DISARM within %fs" %
+                                               (timeout,))
             self.wait_heartbeat()
             self.progress("Got heartbeat")
             if not self.mav.motors_armed():
@@ -2577,6 +2578,8 @@ class AutoTest(ABC):
         if target_compid is None:
             target_compid = 1
 
+        self.get_sim_time() # required for timeout in run_cmd_get_ack to work
+
         """Send a MAVLink command int."""
         self.mav.mav.command_int_send(target_sysid,
                                       target_compid,
@@ -2652,6 +2655,7 @@ class AutoTest(ABC):
                 target_compid=None,
                 timeout=10,
                 quiet=False):
+        self.get_sim_time() # required for timeout in run_cmd_get_ack to work
         self.send_cmd(command,
                       p1,
                       p2,
@@ -2666,6 +2670,8 @@ class AutoTest(ABC):
         self.run_cmd_get_ack(command, want_result, timeout, quiet=quiet)
 
     def run_cmd_get_ack(self, command, want_result, timeout, quiet=False):
+        # note that the caller should ensure that this cached
+        # timestamp is reasonably up-to-date!
         tstart = self.get_sim_time_cached()
         while True:
             delta_time = self.get_sim_time_cached() - tstart
@@ -3001,6 +3007,7 @@ class AutoTest(ABC):
     #################################################
     def delay_sim_time(self, seconds_to_wait):
         """Wait some second in SITL time."""
+        self.drain_mav_unparsed()
         tstart = self.get_sim_time()
         tnow = tstart
         self.progress("Delaying %f seconds" % (seconds_to_wait,))
@@ -3375,6 +3382,7 @@ class AutoTest(ABC):
 
     def wait_ekf_flags(self, required_value, error_bits, timeout=30):
         self.progress("Waiting for EKF value %u" % required_value)
+        self.drain_mav_unparsed()
         last_print_time = 0
         tstart = self.get_sim_time()
         while timeout is None or self.get_sim_time_cached() < tstart + timeout:
