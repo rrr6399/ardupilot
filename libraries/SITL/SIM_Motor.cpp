@@ -114,7 +114,7 @@ uint16_t Motor::update_servo(uint16_t demand, uint64_t time_usec, float &last_va
 
 
 // calculate current and voltage
-void Motor::current_and_voltage(const struct sitl_input &input, float &voltage, float &current,
+void Motor::current_and_voltage(const Aircraft::sitl_input &input, float &voltage, float &current,
                                 uint8_t motor_offset)
 {
     // get motor speed from 0 to 1

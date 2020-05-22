@@ -246,7 +246,7 @@ void Frame::calculate_forces(const Aircraft &aircraft,
 }
 
 // calculate current and voltage
-void Frame::current_and_voltage(const struct sitl_input &input, float &voltage, float &current)
+void Frame::current_and_voltage(const Aircraft::sitl_input &input, float &voltage, float &current)
 {
     voltage = 0;
     current = 0;
