@@ -27,9 +27,11 @@ MultiCopter::MultiCopter(const char *home_str, const char *frame_str) :
     Aircraft(home_str, frame_str),
     frame(nullptr)
 {
-    mass = 1.5f;
-
+    //mass = 1.5f;
     gripper.set_aircraft(this);
+
+    float lb2kg = 0.453592;
+    mass = 34.5f*lb2kg;
 
     frame = Frame::find_frame(frame_str);
     if (frame == nullptr) {
@@ -41,7 +43,8 @@ MultiCopter::MultiCopter(const char *home_str, const char *frame_str) :
     if (strstr(frame_str, "-fast")) {
         frame->init(gross_mass(), 0.5, 85, 4*radians(360));
     } else {
-        frame->init(gross_mass(), 0.51, 15, 4*radians(360));
+        //frame->init(gross_mass(), 0.51, 15, 4*radians(360));
+        frame->init(gross_mass(), 0.64, 15, 4*radians(360));
     }
     frame_height = 0.1;
     ground_behavior = GROUND_BEHAVIOR_NO_MOVEMENT;
@@ -65,6 +68,8 @@ void MultiCopter::update(const struct sitl_input &input)
 
     calculate_forces(input, rot_accel, accel_body);
 
+    // estimate voltage and current
+    frame->current_and_voltage(input, battery_voltage, battery_current);
     update_dynamics(rot_accel);
 
     // update lat/lon/altitude
