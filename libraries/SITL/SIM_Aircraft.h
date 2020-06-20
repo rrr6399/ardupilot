@@ -152,8 +152,6 @@ protected:
     float frame_height;
     Matrix3f dcm;                        // rotation matrix, APM conventions, from body to earth
     Vector3f gyro;                       // rad/s
-    Vector3f gyro_prev;                  // rad/s
-    Vector3f ang_accel;                  // rad/s/s
     Vector3f velocity_ef;                // m/s, earth frame
     Vector3f wind_ef;                    // m/s, earth frame
     Vector3f velocity_air_ef;            // velocity relative to airmass, earth frame
@@ -190,11 +188,12 @@ protected:
     const float gyro_noise;
     const float accel_noise;
     float rate_hz;
-    float achieved_rate_hz;
     float target_speedup;
     uint64_t frame_time_us;
-    float scaled_frame_time_us;
     uint64_t last_wall_time_us;
+    uint32_t last_fps_report_ms;
+    int64_t sleep_debt_us;
+    uint32_t last_frame_count;
     uint8_t instance;
     const char *autotest_dir;
     const char *frame;
@@ -248,7 +247,7 @@ protected:
     /* add noise based on throttle level (from 0..1) */
     void add_noise(float throttle);
 
-    /* return wall clock time in microseconds since 1970 */
+    /* return a monotonic wall clock time in microseconds */
     uint64_t get_wall_time_us(void) const;
 
     // update attitude and relative position
@@ -281,7 +280,6 @@ private:
     const uint32_t min_sleep_time;
 
     struct {
-        bool enabled;
         Vector3f accel_body;
         Vector3f gyro;
         Matrix3f rotation_b2e;

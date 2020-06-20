@@ -15,9 +15,6 @@ bool Plane::start_command(const AP_Mission::Mission_Command& cmd)
 
     // special handling for nav vs non-nav commands
     if (AP_Mission::is_nav_cmd(cmd)) {
-        // set land_complete to false to stop us zeroing the throttle
-        auto_state.sink_rate = 0;
-
         // set takeoff_complete to true so we don't add extra elevator
         // except in a takeoff
         auto_state.takeoff_complete = true;
@@ -660,14 +657,8 @@ bool Plane::verify_nav_wp(const AP_Mission::Mission_Command& cmd)
 
 bool Plane::verify_loiter_unlim(const AP_Mission::Mission_Command &cmd)
 {
-    if (cmd.p1 <= 1 && abs(g.rtl_radius) > 1) {
-        // if mission radius is 0,1, and rtl_radius is valid, use rtl_radius.
-        loiter.direction = (g.rtl_radius < 0) ? -1 : 1;
-        update_loiter(abs(g.rtl_radius));
-    } else {
-        // else use mission radius
-        update_loiter(cmd.p1);
-    }
+    // else use mission radius
+    update_loiter(cmd.p1);
     return false;
 }
 

@@ -167,7 +167,7 @@ public:
     };
 
     // set the output value as a pwm value
-    void set_output_pwm(uint16_t pwm);
+    void set_output_pwm(uint16_t pwm, bool force = false);
 
     // get the output value as a pwm value
     uint16_t get_output_pwm(void) const { return output_pwm; }
@@ -291,6 +291,11 @@ private:
     // specify that small rcinput changes should be ignored during passthrough
     // used by DO_SET_SERVO commands
     bool ign_small_rcin_changes;
+
+    // if true we should ignore all imputs on this channel
+    bool override_active;
+
+    void set_override(bool b) {override_active = b;};
 };
 
 /*
@@ -316,6 +321,9 @@ public:
 
     // set output value for a specific function channel as a pwm value
     static void set_output_pwm_chan(uint8_t chan, uint16_t value);
+
+    // set output value for a specific function channel as a pwm value for specified override time in ms
+    static void set_output_pwm_chan_timeout(uint8_t chan, uint16_t value, uint16_t timeout_ms);
 
     // set output value for a function channel as a scaled value. This
     // calls calc_pwm() to also set the pwm value
@@ -531,6 +539,9 @@ private:
 
     SRV_Channel obj_channels[NUM_SERVO_CHANNELS];
 
+    // override loop counter
+    static uint16_t override_counter[NUM_SERVO_CHANNELS];
+
     static struct srv_function {
         // mask of what channels this applies to
         SRV_Channel::servo_mask_t channel_mask;
@@ -548,4 +559,7 @@ private:
     }
 
     static bool emergency_stop;
+
+    // semaphore for multi-thread use of override_counter array
+    HAL_Semaphore override_counter_sem;
 };

@@ -64,7 +64,7 @@ const uint32_t AP_GPS::_baudrates[] = {9600U, 115200U, 4800U, 19200U, 38400U, 57
 
 // initialisation blobs to send to the GPS to try to get it into the
 // right mode
-const char AP_GPS::_initialisation_blob[] = UBLOX_SET_BINARY MTK_SET_BINARY SIRF_SET_BINARY;
+const char AP_GPS::_initialisation_blob[] = UBLOX_SET_BINARY_230400 MTK_SET_BINARY SIRF_SET_BINARY;
 
 AP_GPS *AP_GPS::_singleton;
 
@@ -565,13 +565,13 @@ void AP_GPS::detect_instance(uint8_t instance)
           running a uBlox at less than 38400 will lead to packet
           corruption, as we can't receive the packets in the 200ms
           window for 5Hz fixes. The NMEA startup message should force
-          the uBlox into 115200 no matter what rate it is configured
+          the uBlox into 230400 no matter what rate it is configured
           for.
         */
         if ((_type[instance] == GPS_TYPE_AUTO ||
              _type[instance] == GPS_TYPE_UBLOX) &&
             ((!_auto_config && _baudrates[dstate->current_baud] >= 38400) ||
-             _baudrates[dstate->current_baud] == 115200) &&
+             _baudrates[dstate->current_baud] == 230400) &&
             AP_GPS_UBLOX::_detect(dstate->ublox_detect_state, data)) {
             new_gps = new AP_GPS_UBLOX(*this, state[instance], _port[instance], GPS_ROLE_NORMAL);
         }
@@ -884,6 +884,29 @@ void AP_GPS::update_primary(void)
         if (_type[i] == GPS_TYPE_UBLOX_RTK_ROVER &&
             state[i].status == GPS_OK_FIX_3D_RTK_FIXED &&
             state[i].have_gps_yaw) {
+            if (primary_instance != i) {
+                _last_instance_swap_ms = now;
+                primary_instance = i;
+            }
+            return;
+        }
+        /*
+          if this is a BASE and the other GPS is a MB rover, then we
+          should force the use of the BASE GPS if the rover doesn't
+          have a yaw lock. This is important as when the rover doesn't
+          have a lock it will often report a higher status than the
+          base (eg. status=4), but the velocity and position data can
+          be very bad. As the rover is getting it's base position from
+          the base GPS then the position and velocity are expected to
+          be worse than the base GPS unless it has a full moving
+          baseline lock
+         */
+        const uint8_t i2 = i^1; // the other GPS in the pair
+        if (_type[i] == GPS_TYPE_UBLOX_RTK_BASE &&
+            state[i].status >= GPS_OK_FIX_3D &&
+            _type[i2] == GPS_TYPE_UBLOX_RTK_ROVER &&
+            (state[i2].status != GPS_OK_FIX_3D_RTK_FIXED ||
+             !state[i2].have_gps_yaw)) {
             if (primary_instance != i) {
                 _last_instance_swap_ms = now;
                 primary_instance = i;

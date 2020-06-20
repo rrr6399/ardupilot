@@ -72,7 +72,7 @@
 
 extern const AP_HAL::HAL& hal;
 
-uint32_t GCS_MAVLINK::last_radio_status_remrssi_ms;
+struct GCS_MAVLINK::LastRadioStatus GCS_MAVLINK::last_radio_status;
 uint8_t GCS_MAVLINK::mavlink_active = 0;
 uint8_t GCS_MAVLINK::chan_is_streaming = 0;
 uint32_t GCS_MAVLINK::reserve_param_space_start_ms;
@@ -586,15 +586,33 @@ void GCS_MAVLINK::send_text(MAV_SEVERITY severity, const char *fmt, ...) const
     va_end(arg_list);
 }
 
+float GCS_MAVLINK::telemetry_radio_rssi()
+{
+    if (AP_HAL::millis() - last_radio_status.received_ms > 5000) {
+        // telemetry radio has disappeared?!
+        return 0;
+    }
+    if (last_radio_status.rssi == 255) {
+        // see RADIO_STATUS packet definition
+        return 0;
+    }
+    return last_radio_status.rssi/254.0f;
+}
+
 void GCS_MAVLINK::handle_radio_status(const mavlink_message_t &msg, bool log_radio)
 {
     mavlink_radio_t packet;
     mavlink_msg_radio_decode(&msg, &packet);
 
+    const uint32_t now = AP_HAL::millis();
+
+    last_radio_status.received_ms = now;
+    last_radio_status.rssi = packet.rssi;
+
     // record if the GCS has been receiving radio messages from
     // the aircraft
     if (packet.remrssi != 0) {
-        last_radio_status_remrssi_ms = AP_HAL::millis();
+        last_radio_status.remrssi_ms = now;
     }
 
     // use the state of the transmit buffer in the radio to
@@ -1262,10 +1280,7 @@ void GCS_MAVLINK::packetReceived(const mavlink_status_t &status,
     // we exclude radio packets because we historically used this to
     // make it possible to use the CLI over the radio
     if (msg.msgid != MAVLINK_MSG_ID_RADIO && msg.msgid != MAVLINK_MSG_ID_RADIO_STATUS) {
-        const uint8_t mask = (1U<<(chan-MAVLINK_COMM_0));
-        if (!(mask & mavlink_private)) {
-            mavlink_active |= mask;
-        }
+        mavlink_active |= (1U<<(chan-MAVLINK_COMM_0));
     }
     if (!(status.flags & MAVLINK_STATUS_FLAG_IN_MAVLINK1) &&
         (status.flags & MAVLINK_STATUS_FLAG_OUT_MAVLINK1) &&
@@ -1787,7 +1802,7 @@ void GCS::send_textv(MAV_SEVERITY severity, const char *fmt, va_list arg_list, u
         // filter destination ports to only allow active ports.
         statustext_t statustext{};
         if (update_send_has_been_called) {
-            statustext.bitmask = (GCS_MAVLINK::active_channel_mask()  | GCS_MAVLINK::streaming_channel_mask() );
+            statustext.bitmask = statustext_send_channel_mask();
         } else {
             // we have not yet initialised the streaming-channel-mask,
             // which is done as part of the update() call.  So just send
@@ -1881,7 +1896,7 @@ void GCS::service_statustext(void)
     // is if you have a super slow link mixed with a faster port, if there are _status_capacity
     // strings in the slow queue then the next item can not be queued for the faster link
 
-    if (_statustext_queue.empty()) {
+    if (_statustext_queue.is_empty()) {
         // nothing to do
         return;
     }
@@ -2630,8 +2645,13 @@ MAV_RESULT GCS_MAVLINK::handle_preflight_reboot(const mavlink_command_long_t &pa
     // flush pending parameter writes
     AP_Param::flush();
 
+    // do not process incoming mavlink messages while we delay:
+    hal.scheduler->register_delay_callback(nullptr, 5);
+
+    // delay to give the ACK a chance to get out, the LEDs to flash,
+    // the IO board safety to be forced on, the parameters to flush, ...
     hal.scheduler->delay(200);
-    
+
     // when packet.param1 == 3 we reboot to hold in bootloader
     const bool hold_in_bootloader = is_equal(packet.param1, 3.0f);
     hal.scheduler->reboot(hold_in_bootloader);
@@ -2926,7 +2946,7 @@ void GCS_MAVLINK::handle_vision_position_estimate(const mavlink_message_t &msg)
     mavlink_vision_position_estimate_t m;
     mavlink_msg_vision_position_estimate_decode(&msg, &m);
 
-    handle_common_vision_position_estimate_data(m.usec, m.x, m.y, m.z, m.roll, m.pitch, m.yaw, m.reset_counter,
+    handle_common_vision_position_estimate_data(m.usec, m.x, m.y, m.z, m.roll, m.pitch, m.yaw, m.covariance, m.reset_counter,
                                                 PAYLOAD_SIZE(chan, VISION_POSITION_ESTIMATE));
 }
 
@@ -2935,7 +2955,7 @@ void GCS_MAVLINK::handle_global_vision_position_estimate(const mavlink_message_t
     mavlink_global_vision_position_estimate_t m;
     mavlink_msg_global_vision_position_estimate_decode(&msg, &m);
 
-    handle_common_vision_position_estimate_data(m.usec, m.x, m.y, m.z, m.roll, m.pitch, m.yaw, m.reset_counter,
+    handle_common_vision_position_estimate_data(m.usec, m.x, m.y, m.z, m.roll, m.pitch, m.yaw, m.covariance, m.reset_counter,
                                                 PAYLOAD_SIZE(chan, GLOBAL_VISION_POSITION_ESTIMATE));
 }
 
@@ -2945,7 +2965,7 @@ void GCS_MAVLINK::handle_vicon_position_estimate(const mavlink_message_t &msg)
     mavlink_msg_vicon_position_estimate_decode(&msg, &m);
 
     // vicon position estimate does not include reset counter
-    handle_common_vision_position_estimate_data(m.usec, m.x, m.y, m.z, m.roll, m.pitch, m.yaw, 0,
+    handle_common_vision_position_estimate_data(m.usec, m.x, m.y, m.z, m.roll, m.pitch, m.yaw, m.covariance, 0,
                                                 PAYLOAD_SIZE(chan, VICON_POSITION_ESTIMATE));
 }
 
@@ -2959,10 +2979,13 @@ void GCS_MAVLINK::handle_common_vision_position_estimate_data(const uint64_t use
                                                               const float roll,
                                                               const float pitch,
                                                               const float yaw,
+                                                              const float covariance[21],
                                                               const uint8_t reset_counter,
                                                               const uint16_t payload_size)
 {
 #if HAL_VISUALODOM_ENABLED
+    float posErr = 0;
+    float angErr = 0;
     // correct offboard timestamp to be in local ms since boot
     uint32_t timestamp_ms = correct_offboard_timestamp_usec_to_ms(usec, payload_size);
 
@@ -2970,7 +2993,13 @@ void GCS_MAVLINK::handle_common_vision_position_estimate_data(const uint64_t use
     if (visual_odom == nullptr) {
         return;
     }
-    visual_odom->handle_vision_position_estimate(usec, timestamp_ms, x, y, z, roll, pitch, yaw, reset_counter);
+
+    if (!isnan(covariance[0])) {
+        posErr = cbrtf(sq(covariance[0])+sq(covariance[6])+sq(covariance[11]));
+        angErr = cbrtf(sq(covariance[15])+sq(covariance[18])+sq(covariance[20]));
+    }
+
+    visual_odom->handle_vision_position_estimate(usec, timestamp_ms, x, y, z, roll, pitch, yaw, posErr, angErr, reset_counter);
 #endif
 }
 
@@ -2989,6 +3018,21 @@ void GCS_MAVLINK::handle_att_pos_mocap(const mavlink_message_t &msg)
     }
     // note: att_pos_mocap does not include reset counter
     visual_odom->handle_vision_position_estimate(m.time_usec, timestamp_ms, m.x, m.y, m.z, m.q, 0);
+#endif
+}
+
+void GCS_MAVLINK::handle_vision_speed_estimate(const mavlink_message_t &msg)
+{
+#if HAL_VISUALODOM_ENABLED
+    AP_VisualOdom *visual_odom = AP::visualodom();
+    if (visual_odom == nullptr) {
+        return;
+    }
+    mavlink_vision_speed_estimate_t m;
+    mavlink_msg_vision_speed_estimate_decode(&msg, &m);
+    const Vector3f vel = {m.x, m.y, m.z};
+    uint32_t timestamp_ms = correct_offboard_timestamp_usec_to_ms(m.usec, PAYLOAD_SIZE(chan, VISION_SPEED_ESTIMATE));
+    visual_odom->handle_vision_speed_estimate(m.usec, timestamp_ms, vel, m.reset_counter);
 #endif
 }
 
@@ -3245,6 +3289,10 @@ void GCS_MAVLINK::handle_common_message(const mavlink_message_t &msg)
 
     case MAVLINK_MSG_ID_ATT_POS_MOCAP:
         handle_att_pos_mocap(msg);
+        break;
+
+    case MAVLINK_MSG_ID_VISION_SPEED_ESTIMATE:
+        handle_vision_speed_estimate(msg);
         break;
 
     case MAVLINK_MSG_ID_SYSTEM_TIME:

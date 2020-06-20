@@ -17,6 +17,7 @@ import operator
 import numpy
 import socket
 import struct
+import random
 
 from MAVProxy.modules.lib import mp_util
 
@@ -708,6 +709,7 @@ class AutoTest(ABC):
                  viewerip=None,
                  use_map=False,
                  _show_test_timings=False,
+                 logs_dir=None,
                  force_ahrs_type=None):
 
         self.start_time = time.time()
@@ -749,6 +751,7 @@ class AutoTest(ABC):
         self.force_ahrs_type = force_ahrs_type
         if self.force_ahrs_type is not None:
             self.force_ahrs_type = int(self.force_ahrs_type)
+        self.logs_dir = logs_dir
 
     @staticmethod
     def progress(text):
@@ -976,15 +979,18 @@ class AutoTest(ABC):
 
         self.initialise_after_reboot_sitl()
 
-    def set_streamrate(self, streamrate):
+    def set_streamrate(self, streamrate, timeout=10):
         tstart = time.time()
         while True:
-            if time.time() - tstart > 10:
+            if time.time() - tstart > timeout:
                 raise AutoTestTimeoutException("stream rate change failed")
 
             self.mavproxy.send("set streamrate %u\n" % (streamrate))
             self.mavproxy.send("set streamrate\n")
-            self.mavproxy.expect('.*streamrate ((?:-)?[0-9]+)', timeout=1)
+            try:
+                self.mavproxy.expect('.*streamrate ((?:-)?[0-9]+)', timeout=1)
+            except pexpect.TIMEOUT:
+                continue
             rate = self.mavproxy.match.group(1)
             print("rate: %s" % str(rate))
             if int(rate) == int(streamrate):
@@ -993,13 +999,20 @@ class AutoTest(ABC):
         if streamrate <= 0:
             return
 
-        self.drain_mav()
-        m = self.mav.recv_match(type='SYSTEM_TIME',
-                                blocking=True,
-                                timeout=10)
-        print("Received (%s)" % str(m))
-        if m is None:
-            raise NotAchievedException("Did not get SYSTEM_TIME")
+        self.progress("Waiting for SYSTEM_TIME for confirmation streams are working")
+        self.drain_mav_unparsed()
+        timeout = 60
+        tstart = time.time()
+        while True:
+            self.drain_all_pexpects()
+            if time.time() - tstart > timeout:
+                raise NotAchievedException("Did not get SYSTEM_TIME within %f seconds" % timeout)
+            m = self.mav.recv_match(timeout=0.1)
+            if m is None:
+                continue
+#            self.progress("Received (%s)" % str(m))
+            if m.get_type() == 'SYSTEM_TIME':
+                break
         self.drain_mav()
 
     def htree_from_xml(self, xml_filepath):
@@ -1432,7 +1445,9 @@ class AutoTest(ABC):
             self.mavproxy.send("module unload map\n")
             self.mavproxy.expect("Unloaded module map")
 
-        self.mav.close()
+        if self.mav is not None:
+            self.mav.close()
+            self.mav = None
         util.pexpect_close(self.mavproxy)
         self.stop_SITL()
 
@@ -1498,7 +1513,9 @@ class AutoTest(ABC):
                 continue
             util.pexpect_drain(p)
 
-    def drain_mav_unparsed(self, quiet=False):
+    def drain_mav_unparsed(self, mav=None, quiet=False, freshen_sim_time=False):
+        if mav is None:
+            mav = self.mav
         count = 0
         tstart = time.time()
         while True:
@@ -1514,8 +1531,12 @@ class AutoTest(ABC):
         else:
             rate = "%f/s" % (count/float(tdelta),)
         self.progress("Drained %u bytes from mav (%s).  These were unparsed." % (count, rate))
+        if freshen_sim_time:
+            self.get_sim_time()
 
-    def drain_mav(self, mav=None):
+    def drain_mav(self, mav=None, unparsed=False, quiet=False):
+        if unparsed:
+            return self.drain_mav_unparsed(quiet=quiet, mav=mav)
         if mav is None:
             mav = self.mav
         count = 0
@@ -1530,6 +1551,250 @@ class AutoTest(ABC):
 
         self.progress("Drained %u messages from mav (%s)" % (count, rate))
 
+    def log_filepath(self, lognum):
+        '''return filepath to lognum (where lognum comes from LOG_ENTRY'''
+        log_list = sorted(self.log_list())
+        return log_list[lognum-1]
+
+    def assert_bytes_equal(self, bytes1, bytes2):
+        for i in range(0,len(bytes1)):
+            if bytes1[i] != bytes2[i]:
+                raise NotAchievedException("differ at offset %u" % i)
+
+    def test_log_download(self):
+        if self.is_tracker():
+            # tracker starts armed, which is annoying
+            return
+        self.progress("Ensuring we have contents we care about")
+        self.set_parameter("LOG_FILE_DSRMROT", 1)
+        self.set_parameter("LOG_DISARMED", 0)
+        self.reboot_sitl()
+        original_log_list = self.log_list()
+        for i in range(0,10):
+            self.wait_ready_to_arm()
+            self.arm_vehicle()
+            self.delay_sim_time(1)
+            self.disarm_vehicle()
+        new_log_list = self.log_list()
+        new_log_count = len(new_log_list) - len(original_log_list)
+        if new_log_count != 10:
+            raise NotAchievedException("Expected exactly 10 new logs got %u (%s) to (%s)" %
+                                       (new_log_count, original_log_list, new_log_list))
+        self.progress("Directory contents: %s" % str(new_log_list))
+
+        tstart = self.get_sim_time()
+        self.mav.mav.log_request_list_send(self.sysid_thismav(),
+                                           1, # target component
+                                           0,
+                                           0xff)
+        logs = []
+        last_id = None
+        num_logs = None
+        while True:
+            now = self.get_sim_time_cached()
+            if now - tstart > 5:
+                raise NotAchievedException("Did not download list")
+            m = self.mav.recv_match(type='LOG_ENTRY',
+                                    blocking=True,
+                                    timeout=1)
+            print("Received (%s)" % str(m))
+            if m is None:
+                continue
+            logs.append(m)
+            if last_id is None:
+                if m.num_logs == 0:
+                    # caller to guarantee this works:
+                    raise NotAchievedException("num_logs is zero")
+                num_logs = m.num_logs
+            else:
+                if m.id != last_id + 1:
+                    raise NotAchievedException("Sequence not increasing")
+                if m.num_logs != num_logs:
+                    raise NotAchievedException("Number of logs changed")
+                if m.time_utc < 1000:
+                    raise NotAchievedException("Bad timestamp")
+                if m.id != m.last_log_num:
+                    if m.size == 0:
+                        raise NotAchievedException("Zero-sized log")
+            last_id = m.id
+            if m.id == m.last_log_num:
+                self.progress("Got all logs")
+                break
+
+        # ensure we don't get any extras:
+        m = self.mav.recv_match(type='LOG_ENTRY',
+                                blocking=True,
+                                timeout=2)
+        if m is not None:
+            raise NotAchievedException("Received extra LOG_ENTRY?!")
+
+        # download  the 6th and seventh byte of the fifth log
+        log_id = 5
+        ofs = 6
+        count = 2
+        self.mav.mav.log_request_data_send(self.sysid_thismav(),
+                                           1, # target component
+                                           log_id,
+                                           ofs,
+                                           count
+        )
+        m = self.mav.recv_match(type='LOG_DATA',
+                                blocking=True,
+                                timeout=2)
+        if m is None:
+            raise NotAchievedException("Did not get log data")
+        if m.ofs != ofs:
+            raise NotAchievedException("Incorrect offset")
+        if m.count != count:
+            raise NotAchievedException("Did not get correct number of bytes")
+        log_filepath = self.log_filepath(log_id)
+        self.progress("Checking against log_filepath (%s)" % str(log_filepath))
+        with open(log_filepath, "rb") as bob:
+            bob.seek(ofs)
+            actual_bytes = bob.read(2)
+            actual_bytes = bytearray(actual_bytes)
+        if m.data[0] != actual_bytes[0]:
+            raise NotAchievedException("Bad first byte got=(0x%02x) want=(0x%02x)" %
+                                       (m.data[0], actual_bytes[0]))
+        if m.data[1] != actual_bytes[1]:
+            raise NotAchievedException("Bad second byte")
+
+        # make file contents available
+        # download an entire file
+        log_id = 7
+        log_filepath = self.log_filepath(log_id)
+        with open(log_filepath, "rb") as bob:
+            actual_bytes = bytearray(bob.read())
+
+        # get the size first
+        self.mav.mav.log_request_list_send(self.sysid_thismav(),
+                                           1, # target component
+                                           log_id,
+                                           log_id)
+        log_entry = self.mav.recv_match(type='LOG_ENTRY',
+                                        blocking=True,
+                                        timeout=2)
+        if log_entry.size != len(actual_bytes):
+            raise NotAchievedException("Incorrect bytecount")
+        self.progress("Using log entry (%s)" % str(log_entry))
+        if log_entry.id != log_id:
+            raise NotAchievedException("Incorrect log id received")
+
+        # download the log file in the normal way:
+        bytes_to_fetch = 10000000
+        self.progress("Sending request for %u bytes at offset 0" % (bytes_to_fetch,))
+        tstart = self.get_sim_time()
+        self.mav.mav.log_request_data_send(
+            self.sysid_thismav(),
+            1, # target component
+            log_id,
+            0,
+            bytes_to_fetch
+        )
+        bytes_to_read = log_entry.size
+        data_downloaded = []
+        bytes_read = 0
+        last_print = 0
+        while True:
+            if bytes_read >= bytes_to_read:
+                break
+            if self.get_sim_time_cached() - tstart > 120:
+                raise NotAchievedException("Did not download log in good time")
+            m = self.mav.recv_match(type='LOG_DATA',
+                                    blocking=True,
+                                    timeout=2)
+            if m is None:
+                raise NotAchievedException("Did not get data")
+            if m.ofs != bytes_read:
+                raise NotAchievedException("Unexpected offset")
+            if m.id != log_id:
+                raise NotAchievedException("Unexpected id")
+            data_downloaded.extend(m.data[0:m.count])
+            bytes_read += m.count
+            #self.progress("Read %u bytes at offset %u" % (m.count, m.ofs))
+            if time.time() - last_print > 10:
+                last_print = time.time()
+                self.progress("Read %u/%u" % (bytes_read, bytes_to_read))
+
+        self.progress("actual_bytes_len=%u data_downloaded_len=%u" %
+                      (len(actual_bytes), len(data_downloaded)))
+        self.assert_bytes_equal(actual_bytes, data_downloaded)
+
+        if False:
+            bytes_to_read = log_entry.size
+            bytes_read = 0
+            data_downloaded = []
+            while bytes_read < bytes_to_read:
+                bytes_to_fetch = int(random.random() * 100)
+                if bytes_to_fetch > 90:
+                    bytes_to_fetch = 90
+                self.progress("Sending request for %u bytes at offset %u" % (bytes_to_fetch, bytes_read))
+                self.mav.mav.log_request_data_send(
+                    self.sysid_thismav(),
+                    1, # target component
+                    log_id,
+                    bytes_read,
+                    bytes_to_fetch
+                )
+                m = self.mav.recv_match(type='LOG_DATA',
+                                        blocking=True,
+                                        timeout=2)
+                if m is None:
+                    raise NotAchievedException("Did not get reply")
+                self.progress("Read %u bytes at offset %u" % (m.count, m.ofs))
+                if m.ofs != bytes_read:
+                    raise NotAchievedException("Incorrect offset in reply want=%u got=%u (%s)" % (bytes_read, m.ofs, str(m)))
+                stuff = m.data[0:m.count]
+                data_downloaded.extend(stuff)
+                bytes_read += m.count
+                if len(data_downloaded) != bytes_read:
+                    raise NotAchievedException("extend fail")
+
+            if len(actual_bytes) != len(data_downloaded):
+                raise NotAchievedException("Incorrect length: disk:%u downloaded: %u" %
+                                           (len(actual_bytes), len(data_downloaded)))
+            self.assert_bytes_equal(actual_bytes, data_downloaded)
+
+        # ... and now download it reading backwards...
+        bytes_to_read = log_entry.size
+        bytes_read = 0
+        backwards_data_downloaded = []
+        last_print = 0
+        while bytes_read < bytes_to_read:
+            bytes_to_fetch = int(random.random() * 100)
+            if bytes_to_fetch > 90:
+                bytes_to_fetch = 90
+            if bytes_to_fetch > bytes_to_read - bytes_read:
+                bytes_to_fetch = bytes_to_read - bytes_read
+            ofs = bytes_to_read - bytes_read - bytes_to_fetch
+            # self.progress("bytes_to_read=%u bytes_read=%u bytes_to_fetch=%u ofs=%d" % (bytes_to_read, bytes_read, bytes_to_fetch, ofs))
+            self.mav.mav.log_request_data_send(
+                self.sysid_thismav(),
+                1, # target component
+                log_id,
+                ofs,
+                bytes_to_fetch
+            )
+            m = self.mav.recv_match(type='LOG_DATA',
+                                    blocking=True,
+                                    timeout=2)
+            if m is None:
+                raise NotAchievedException("Did not get reply")
+            stuff = m.data[0:m.count]
+            stuff.extend(backwards_data_downloaded)
+            backwards_data_downloaded = stuff
+            bytes_read += m.count
+            # self.progress("Read %u bytes at offset %u" % (m.count, m.ofs))
+            if time.time() - last_print > 10:
+                last_print = time.time()
+                self.progress("Read %u/%u" % (bytes_read, bytes_to_read))
+
+        self.assert_bytes_equal(actual_bytes, backwards_data_downloaded)
+        if len(actual_bytes) != len(backwards_data_downloaded):
+            raise NotAchievedException("Size delta: actual=%u vs downloaded=%u" %
+                                       (len(actual_bytes), len(backwards_data_downloaded)))
+
+
     #################################################
     # SIM UTILITIES
     #################################################
@@ -1537,7 +1802,7 @@ class AutoTest(ABC):
         """Get SITL time in seconds."""
         m = self.mav.recv_match(type='SYSTEM_TIME', blocking=True, timeout=timeout)
         if m is None:
-            raise AutoTestTimeoutException("Did not get SYSTEM_TIME message")
+            raise AutoTestTimeoutException("Did not get SYSTEM_TIME message after %f seconds" % timeout)
         return m.time_boot_ms * 1.0e-3
 
     def get_sim_time_cached(self):
@@ -1740,9 +2005,9 @@ class AutoTest(ABC):
         self.onboard_logging_not_log_disarmed()
 
 
-    def log_download(self, filename, timeout=360, upload_logs=False):
+    def test_log_download_mavproxy(self, upload_logs=False):
         """Download latest log."""
-        self.wait_heartbeat()
+        filename = "MAVProxy-downloaded-log.BIN"
         self.mavproxy.send("module load log\n")
         self.mavproxy.expect("Loaded module log")
         self.mavproxy.send("log list\n")
@@ -1751,18 +2016,17 @@ class AutoTest(ABC):
         self.wait_heartbeat()
         self.mavproxy.send("set shownoise 0\n")
         self.mavproxy.send("log download latest %s\n" % filename)
-        self.mavproxy.expect("Finished downloading", timeout=timeout)
+        self.mavproxy.expect("Finished downloading", timeout=120)
         self.mavproxy.send("module unload log\n")
         self.mavproxy.expect("Unloaded module log")
-        self.drain_mav_unparsed()
-        self.wait_heartbeat()
-        self.wait_heartbeat()
-        if upload_logs and os.getenv("AUTOTEST_UPLOAD"):
+
+    def log_upload(self):
+        if len(self.fail_list) > 0 and os.getenv("AUTOTEST_UPLOAD"):
             # optionally upload logs to server so we can see travis failure logs
             import datetime
             import glob
             import subprocess
-            logdir = os.path.dirname(filename)
+            logdir = self.buildlogs_dirpath()
             datedir = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M")
             flist = glob.glob("logs/*.BIN")
             for e in ['BIN', 'bin', 'tlog']:
@@ -2251,6 +2515,33 @@ class AutoTest(ABC):
                      0,
                      timeout=timeout)
 
+    def try_arm(self, result=True, expect_msg=None, timeout=60):
+        """Send Arming command, wait for the expected result and statustext."""
+        self.progress("Try arming and wait for expected result")
+        self.drain_mav()
+        self.run_cmd(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+                     1,  # ARM
+                     0,
+                     0,
+                     0,
+                     0,
+                     0,
+                     0,
+                     want_result=mavutil.mavlink.MAV_RESULT_ACCEPTED if result else mavutil.mavlink.MAV_RESULT_FAILED,
+                     timeout=timeout)
+        if expect_msg is not None:
+            self.wait_statustext(expect_msg, timeout=timeout, the_function=lambda: self.send_cmd(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+                                                                                                 1,  # ARM
+                                                                                                 0,
+                                                                                                 0,
+                                                                                                 0,
+                                                                                                 0,
+                                                                                                 0,
+                                                                                                 0,
+                                                                                                 target_sysid=None,
+                                                                                                 target_compid=None,
+                                                                                                 ))
+
     def arm_vehicle(self, timeout=20):
         """Arm vehicle with mavlink arm message."""
         self.progress("Arm motors with MAVLink cmd")
@@ -2690,12 +2981,11 @@ class AutoTest(ABC):
                                                              m.result))
                 break
 
-    def verify_parameter_values(self, parameter_stuff):
+    def verify_parameter_values(self, parameter_stuff, max_delta=0.0):
         bad = ""
         for param in parameter_stuff:
             fetched_value = self.get_parameter(param)
             wanted_value = parameter_stuff[param]
-            max_delta = 0.0
             if type(wanted_value) == tuple:
                 max_delta = wanted_value[1]
                 wanted_value = wanted_value[0]
@@ -3195,8 +3485,8 @@ class AutoTest(ABC):
             if m is None:
                 continue
             m_value = getattr(m, channel_field)
-            self.progress("RC_CHANNELS.%s=%u want=%u" %
-                          (channel_field, m_value, value))
+            self.progress("RC_CHANNELS.%s=%u want=%u time_boot_ms=%u" %
+                          (channel_field, m_value, value, m.time_boot_ms))
             if m_value is None:
                 raise ValueError("message (%s) has no field %s" %
                                  (str(m), channel_field))
@@ -3492,6 +3782,34 @@ class AutoTest(ABC):
             return ret
         return traceback.format_exc(e)
 
+    def bin_logs(self):
+        return glob.glob("logs/*.BIN")
+
+    def remove_bin_logs(self):
+        util.run_cmd('/bin/rm -f logs/*.BIN logs/LASTLOG.TXT')
+
+    def check_logs(self, name):
+        '''called to move relevant log files from our working directory to the
+        buildlogs directory'''
+        to_dir = self.logs_dir
+        # move binary log files
+        for log in self.bin_logs():
+            bname = os.path.basename(log)
+            newname = os.path.join(to_dir, "%s-%s-%s" % (self.log_name(), name, bname))
+            print("Renaming %s to %s" % (log, newname))
+            shutil.move(log, newname)
+        # move core files
+        save_binaries = False
+        for log in glob.glob("core*"):
+            bname = os.path.basename(log)
+            newname = os.path.join(to_dir, "%s-%s-%s" % (bname, self.log_name(), name))
+            print("Renaming %s to %s" % (log, newname))
+            shutil.move(log, newname)
+            save_binaries = True
+        if save_binaries:
+            util.run_cmd('/bin/cp build/sitl/bin/* %s' % to_dir,
+                         directory=util.reltopdir('.'))
+
     def run_one_test(self, name, desc, test_function, interact=False):
         '''new-style run-one-test used by run_tests'''
         test_output_filename = self.buildlogs_path("%s-%s.txt" %
@@ -3537,6 +3855,19 @@ class AutoTest(ABC):
             self.progress("Force-resetting SITL")
             self.reboot_sitl() # that'll learn it
             passed = False
+
+        corefiles = glob.glob("core*")
+        if corefiles:
+            self.progress('Corefiles detected: %s' % str(corefiles))
+            passed = False
+
+        if passed:
+#            self.remove_bin_logs() # can't do this as one of the binlogs is probably open for writing by the SITL process.  If we force a rotate before running tests then we can do this.
+            pass
+        else:
+            if self.logs_dir is not None:
+                # stash the binary logs and corefiles away for later analysis
+                self.check_logs(name)
 
         if passed:
             self.progress('PASSED: "%s"' % prettyname)
@@ -3638,12 +3969,12 @@ class AutoTest(ABC):
         self.progress("Starting MAVLink connection")
         self.get_mavlink_connection_going()
 
-        self.apply_defaultfile_parameters()
-
         util.expect_setup_callback(self.mavproxy, self.expect_callback)
 
         self.expect_list_clear()
         self.expect_list_extend([self.sitl, self.mavproxy])
+
+        self.apply_defaultfile_parameters()
 
         self.progress("Ready to start testing!")
 
@@ -3969,14 +4300,417 @@ class AutoTest(ABC):
             self.disarm_vehicle(force=True)
         self.reboot_sitl()
 
+    def zero_mag_offset_parameters(self, compass_count=3):
+        self.progress("Zeroing Mag OFS parameters")
+        self.drain_mav()
+        self.get_sim_time()
+        self.run_cmd(mavutil.mavlink.MAV_CMD_PREFLIGHT_SET_SENSOR_OFFSETS,
+                     2, # param1 (compass0)
+                     0, # param2
+                     0, # param3
+                     0, # param4
+                     0, # param5
+                     0, # param6
+                     0 # param7
+                     )
+        self.run_cmd(mavutil.mavlink.MAV_CMD_PREFLIGHT_SET_SENSOR_OFFSETS,
+                     5, # param1 (compass1)
+                     0, # param2
+                     0, # param3
+                     0, # param4
+                     0, # param5
+                     0, # param6
+                     0 # param7
+                     )
+        self.run_cmd(mavutil.mavlink.MAV_CMD_PREFLIGHT_SET_SENSOR_OFFSETS,
+                     6, # param1 (compass2)
+                     0, # param2
+                     0, # param3
+                     0, # param4
+                     0, # param5
+                     0, # param6
+                     0 # param7
+                     )
+        self.progress("zeroed mag parameters")
+        params = [
+            [("SIM_MAG_OFS_X", "COMPASS_OFS_X", 0),
+             ("SIM_MAG_OFS_Y", "COMPASS_OFS_Y", 0),
+             ("SIM_MAG_OFS_Z", "COMPASS_OFS_Z", 0), ],
+        ]
+        for count in range(2, compass_count + 1):
+            params += [
+                [("SIM_MAG%d_OFS_X" % count, "COMPASS_OFS%d_X" % count, 0),
+                 ("SIM_MAG%d_OFS_Y" % count, "COMPASS_OFS%d_Y" % count, 0),
+                 ("SIM_MAG%d_OFS_Z" % count, "COMPASS_OFS%d_Z" % count, 0), ],
+                ]
+        self.check_zero_mag_parameters(params)
+
+    def forty_two_mag_dia_odi_parameters(self, compass_count=3):
+        self.progress("Forty twoing Mag DIA and ODI parameters")
+        self.drain_mav()
+        self.get_sim_time()
+        params = [
+            [("SIM_MAG_DIA_X", "COMPASS_DIA_X", 42.0),
+             ("SIM_MAG_DIA_Y", "COMPASS_DIA_Y", 42.0),
+             ("SIM_MAG_DIA_Z", "COMPASS_DIA_Z", 42.0),
+             ("SIM_MAG_ODI_X", "COMPASS_ODI_X", 42.0),
+             ("SIM_MAG_ODI_Y", "COMPASS_ODI_Y", 42.0),
+             ("SIM_MAG_ODI_Z", "COMPASS_ODI_Z", 42.0), ],
+        ]
+        for count in range(2, compass_count + 1):
+            params += [
+                [("SIM_MAG%d_DIA_X" % count, "COMPASS_DIA%d_X" % count, 42.0),
+                 ("SIM_MAG%d_DIA_Y" % count, "COMPASS_DIA%d_Y" % count, 42.0),
+                 ("SIM_MAG%d_DIA_Z" % count, "COMPASS_DIA%d_Z" % count, 42.0),
+                 ("SIM_MAG%d_ODI_X" % count, "COMPASS_ODI%d_X" % count, 42.0),
+                 ("SIM_MAG%d_ODI_Y" % count, "COMPASS_ODI%d_Y" % count, 42.0),
+                 ("SIM_MAG%d_ODI_Z" % count, "COMPASS_ODI%d_Z" % count, 42.0), ],
+            ]
+        self.wait_heartbeat()
+        for param_set in params:
+            for param in param_set:
+                (_, _out, value) = param
+                self.set_parameter(_out, value)
+        self.check_zero_mag_parameters(params)
+
+    def check_mag_parameters(self, parameter_stuff, compass_number):
+        self.progress("Checking that Mag parameter")
+        for idx in range(0, compass_number, 1):
+            for param in parameter_stuff[idx]:
+                (_in, _out, value) = param
+                got_value = self.get_parameter(_out)
+                if abs(got_value - value) > abs(value) * 0.15:
+                    raise NotAchievedException("%s/%s not within 15%%; got %f want=%f" % (_in, _out, got_value, value))
+
+    def check_zero_mag_parameters(self, parameter_stuff):
+        self.progress("Checking that Mag OFS are zero")
+        for param_set in parameter_stuff:
+            for param in param_set:
+                (_in, _out, _) = param
+                got_value = self.get_parameter(_out)
+                max = 0.15
+                if "DIA" in _out or "ODI" in _out:
+                    max += 42.0
+                if abs(got_value) > max:
+                    raise NotAchievedException("%s/%s not within 15%%; got %f want=%f" % (_in, _out, got_value, 0.0 if max > 1 else 42.0))
+
+    def check_zeros_mag_orient(self, compass_count=3):
+        self.progress("zeroed mag parameters")
+        self.verify_parameter_values({"COMPASS_ORIENT": 0})
+        for count in range(2, compass_count + 1):
+            self.verify_parameter_values({"COMPASS_ORIENT%d" % count: 0})
+
+    def test_mag_calibration(self, compass_count=3, timeout=1000):
+        ex = None
+        self.set_parameter("AHRS_EKF_TYPE", 10)
+        self.set_parameter("SIM_GND_BEHAV", 0)
+
+        def reset_pos_and_start_magcal(tmask):
+            self.mavproxy.send("sitl_stop\n")
+            self.mavproxy.send("sitl_attitude 0 0 0\n")
+            self.drain_mav()
+            self.get_sim_time()
+            self.run_cmd(mavutil.mavlink.MAV_CMD_DO_START_MAG_CAL,
+                         tmask, # p1: mag_mask
+                         0, # p2: retry
+                         0, # p3: autosave
+                         0, # p4: delay
+                         0, # param5
+                         0, # param6
+                         0, # param7
+                         want_result=mavutil.mavlink.MAV_RESULT_ACCEPTED,
+                         timeout=20,
+                         )
+            self.mavproxy.send("sitl_magcal\n")
+
+        def do_prep_mag_cal_test(params):
+            self.progress("Preparing the vehicle for magcal")
+            MAG_OFS = 100
+            MAG_DIA = 1.0
+            MAG_ODI = 0.004
+            params += [
+                [("SIM_MAG_OFS_X", "COMPASS_OFS_X", MAG_OFS),
+                 ("SIM_MAG_OFS_Y", "COMPASS_OFS_Y", MAG_OFS + 100),
+                 ("SIM_MAG_OFS_Z", "COMPASS_OFS_Z", MAG_OFS + 200),
+                 ("SIM_MAG_DIA_X", "COMPASS_DIA_X", MAG_DIA),
+                 ("SIM_MAG_DIA_Y", "COMPASS_DIA_Y", MAG_DIA + 0.1),
+                 ("SIM_MAG_DIA_Z", "COMPASS_DIA_Z", MAG_DIA + 0.2),
+                 ("SIM_MAG_ODI_X", "COMPASS_ODI_X", MAG_ODI),
+                 ("SIM_MAG_ODI_Y", "COMPASS_ODI_Y", MAG_ODI + 0.001),
+                 ("SIM_MAG_ODI_Z", "COMPASS_ODI_Z", MAG_ODI + 0.001), ],
+            ]
+            for count in range(2, compass_count + 1):
+                params += [
+                    [("SIM_MAG%d_OFS_X" % count, "COMPASS_OFS%d_X" % count, MAG_OFS + 100 * ((count+2) % compass_count)),
+                     ("SIM_MAG%d_OFS_Y" % count, "COMPASS_OFS%d_Y" % count, MAG_OFS + 100 * ((count+3) % compass_count)),
+                     ("SIM_MAG%d_OFS_Z" % count, "COMPASS_OFS%d_Z" % count, MAG_OFS + 100 * ((count+1) % compass_count)),
+                     ("SIM_MAG%d_DIA_X" % count, "COMPASS_DIA%d_X" % count, MAG_DIA + 0.1 * ((count+2) % compass_count)),
+                     ("SIM_MAG%d_DIA_Y" % count, "COMPASS_DIA%d_Y" % count, MAG_DIA + 0.1 * ((count+3) % compass_count)),
+                     ("SIM_MAG%d_DIA_Z" % count, "COMPASS_DIA%d_Z" % count, MAG_DIA + 0.1 * ((count+1) % compass_count)),
+                     ("SIM_MAG%d_ODI_X" % count, "COMPASS_ODI%d_X" % count, MAG_ODI + 0.001 * ((count+2) % compass_count)),
+                     ("SIM_MAG%d_ODI_Y" % count, "COMPASS_ODI%d_Y" % count, MAG_ODI + 0.001 * ((count+3) % compass_count)),
+                     ("SIM_MAG%d_ODI_Z" % count, "COMPASS_ODI%d_Z" % count, MAG_ODI + 0.001 * ((count+1) % compass_count)), ],
+                ]
+            self.progress("Setting calibration mode")
+            self.wait_heartbeat()
+            self.customise_SITL_commandline(["-M", "calibration"])
+            self.mavproxy_load_module("sitl_calibration")
+            self.mavproxy_load_module("calibration")
+            self.mavproxy_load_module("relay")
+            self.mavproxy.expect("is using GPS")
+            self.mavproxy.send("accelcalsimple\n")
+            self.mavproxy.expect("Calibrated")
+            # disable it to not interfert with calibration acceptation
+            self.mavproxy_unload_module("calibration")
+            if self.is_copter():
+                # set frame class to pass arming check on copter
+                self.set_parameter("FRAME_CLASS", 1)
+            self.drain_mav()
+            self.progress("Setting SITL Magnetometer model value")
+            MAG_ORIENT = 4
+            self.set_parameter("SIM_MAG_ORIENT", MAG_ORIENT)
+            for count in range(2, compass_count + 1):
+                self.set_parameter("SIM_MAG%d_ORIENT" % count, MAG_ORIENT * (count % 41))
+                # set compass external to check that orientation is found and auto set
+                self.set_parameter("COMPASS_EXTERN%d" % count, 1)
+            for param_set in params:
+                for param in param_set:
+                    (_in, _out, value) = param
+                    self.set_parameter(_in, value)
+                    self.set_parameter(_out, value)
+            self.start_subtest("Zeroing Mag OFS parameters with Mavlink")
+            self.zero_mag_offset_parameters()
+            self.progress("=========================================")
+            # Change the default value to unexpected 42
+            self.forty_two_mag_dia_odi_parameters()
+            self.progress("Zeroing Mags orientations")
+            self.set_parameter("COMPASS_ORIENT", 0)
+            for count in range(2, compass_count + 1):
+                self.set_parameter("COMPASS_ORIENT%d" % count, 0)
+
+            # Only care about compass prearm
+            self.set_parameter("ARMING_CHECK", 4)
+
+        #################################################
+        def do_test_mag_cal(params, compass_tnumber):
+            self.start_subtest("Try magcal and make it stop around 30%")
+            self.progress("Compass mask is %s" % "{0:b}".format(target_mask))
+            reset_pos_and_start_magcal(target_mask)
+            tstart = self.get_sim_time()
+            reached_pct = [0] * compass_tnumber
+            tstop = None
+            while True:
+                if self.get_sim_time_cached() - tstart > timeout:
+                    raise NotAchievedException("Cannot receive enough MAG_CAL_PROGRESS")
+                m = self.mav.recv_match(type='MAG_CAL_PROGRESS', blocking=True, timeout=5)
+                if m is None:
+                    if tstop is not None:
+                        # wait 3 second to unsure that the calibration is well stopped
+                        if self.get_sim_time_cached() - tstop > 10:
+                            if reached_pct[0] > 33:
+                                raise NotAchievedException("Mag calibration didn't stop")
+                            else:
+                                break
+                        else:
+                            continue
+                    else:
+                        continue
+                if m is not None:
+                    cid = m.compass_id
+                    new_pct = int(m.completion_pct)
+                    if new_pct != reached_pct[cid]:
+                        if new_pct < reached_pct[cid]:
+                            raise NotAchievedException("Mag calibration restart when it shouldn't")
+                        reached_pct[cid] = new_pct
+                        self.progress("Calibration progress compass ID %d: %s" % (cid, str(reached_pct[cid])))
+                        if cid == 0 and 13 <= reached_pct[0] <= 15:
+                            self.progress("Request again to start calibration, it shouldn't restart from 0")
+                            self.run_cmd(mavutil.mavlink.MAV_CMD_DO_START_MAG_CAL,
+                                         target_mask,
+                                         0,
+                                         0,
+                                         0,
+                                         0,
+                                         0,
+                                         0,
+                                         want_result=mavutil.mavlink.MAV_RESULT_ACCEPTED,
+                                         timeout=20,
+                                         )
+
+                if reached_pct[0] > 30:
+                    self.run_cmd(mavutil.mavlink.MAV_CMD_DO_CANCEL_MAG_CAL,
+                                 target_mask,  # p1: mag_mask
+                                 0,  # param2
+                                 0,  # param3
+                                 0,  # param4
+                                 0,  # param5
+                                 0,  # param6
+                                 0,  # param7
+                                 want_result=mavutil.mavlink.MAV_RESULT_ACCEPTED,
+                                 )
+                    if tstop is None:
+                        tstop = self.get_sim_time_cached()
+                if tstop is not None:
+                    # wait 3 second to unsure that the calibration is well stopped
+                    if self.get_sim_time_cached() - tstop > 3:
+                        raise NotAchievedException("Mag calibration didn't stop")
+            self.check_zero_mag_parameters(params)
+            self.check_zeros_mag_orient()
+
+            #################################################
+            self.start_subtest("Try magcal and make it failed")
+            self.progress("Compass mask is %s" % "{0:b}".format(target_mask))
+            old_cal_fit = self.get_parameter("COMPASS_CAL_FIT")
+            self.set_parameter("COMPASS_CAL_FIT", 0.001, add_to_context=False)
+            reset_pos_and_start_magcal(target_mask)
+            tstart = self.get_sim_time()
+            reached_pct = [0] * compass_tnumber
+            report_get = [0] * compass_tnumber
+            while True:
+                if self.get_sim_time_cached() - tstart > timeout:
+                    raise NotAchievedException("Cannot receive enough MAG_CAL_PROGRESS")
+                m = self.mav.recv_match(type=["MAG_CAL_PROGRESS", "MAG_CAL_REPORT"], blocking=True, timeout=5)
+                if m.get_type() == "MAG_CAL_REPORT":
+                    if report_get[m.compass_id] == 0:
+                        self.progress("Report: %s" % str(m))
+                        if m.cal_status == mavutil.mavlink.MAG_CAL_FAILED:
+                            report_get[m.compass_id] = 1
+                        else:
+                            raise NotAchievedException("Mag calibration didn't failed")
+                    if all(ele >= 1 for ele in report_get):
+                        self.progress("All Mag report failure")
+                        break
+                if m is not None and m.get_type() == "MAG_CAL_PROGRESS":
+                    cid = m.compass_id
+                    new_pct = int(m.completion_pct)
+                    if new_pct != reached_pct[cid]:
+                        reached_pct[cid] = new_pct
+                        self.progress("Calibration progress compass ID %d: %s" % (cid, str(reached_pct[cid])))
+                        if cid == 0 and 49 <= reached_pct[0] <= 50:
+                            self.progress("Try arming during calibration, should failed")
+                            self.try_arm(False, "Compass calibration running")
+
+            self.check_zero_mag_parameters(params)
+            self.check_zeros_mag_orient()
+            self.set_parameter("COMPASS_CAL_FIT", old_cal_fit, add_to_context=False)
+
+            #################################################
+            self.start_subtest("Try magcal and wait success")
+            self.progress("Compass mask is %s" % "{0:b}".format(target_mask))
+            reset_pos_and_start_magcal(target_mask)
+            reached_pct = [0] * compass_tnumber
+            report_get = [0] * compass_tnumber
+            tstart = self.get_sim_time()
+            while True:
+                if self.get_sim_time_cached() - tstart > timeout:
+                    raise NotAchievedException("Cannot receive enough MAG_CAL_PROGRESS")
+                m = self.mav.recv_match(type=["MAG_CAL_PROGRESS", "MAG_CAL_REPORT"], blocking=True, timeout=5)
+                if m.get_type() == "MAG_CAL_REPORT":
+                    if report_get[m.compass_id] == 0:
+                        self.progress("Report: %s" % str(m))
+                        if m.cal_status == mavutil.mavlink.MAG_CAL_SUCCESS:
+                            if reached_pct[m.compass_id] < 99:
+                                raise NotAchievedException("Mag calibration report SUCCESS without 100%% completion")
+                            report_get[m.compass_id] = 1
+                        else:
+                            raise NotAchievedException("Mag calibration didn't SUCCESS")
+                    if all(ele >= 1 for ele in report_get):
+                        self.progress("All Mag report SUCCESS")
+                        break
+                if m is not None and m.get_type() == "MAG_CAL_PROGRESS":
+                    cid = m.compass_id
+                    new_pct = int(m.completion_pct)
+                    if new_pct != reached_pct[cid]:
+                        reached_pct[cid] = new_pct
+                        self.progress("Calibration progress compass ID %d: %s" % (cid, str(reached_pct[cid])))
+            self.mavproxy.send("sitl_stop\n")
+            self.mavproxy.send("sitl_attitude 0 0 0\n")
+            self.progress("Checking that value aren't changed without acceptation")
+            self.check_zero_mag_parameters(params)
+            self.check_zeros_mag_orient()
+            self.progress("Send acceptation and check value")
+            self.wait_heartbeat()
+            self.run_cmd(mavutil.mavlink.MAV_CMD_DO_ACCEPT_MAG_CAL,
+                         target_mask, # p1: mag_mask
+                         0,
+                         0,
+                         0,
+                         0,
+                         0,
+                         0,
+                         want_result=mavutil.mavlink.MAV_RESULT_ACCEPTED,
+                         timeout=20,
+                         )
+            self.check_mag_parameters(params, compass_tnumber)
+            self.verify_parameter_values({"COMPASS_ORIENT": self.get_parameter("SIM_MAG_ORIENT")})
+            for count in range(2, compass_tnumber + 1):
+                self.verify_parameter_values({"COMPASS_ORIENT%d" % count: self.get_parameter("SIM_MAG%d_ORIENT" % count)})
+            self.try_arm(False, "Compass calibrated requires reboot")
+
+            # test buzzer/notify ?
+            self.progress("Rebooting and making sure we could arm with these values")
+            self.drain_mav()
+            self.reboot_sitl()
+            self.wait_ready_to_arm(timeout=60)
+            self.progress("Setting manually the parameter for other sensor to avoid compass consistency error")
+            for idx in range(compass_tnumber, compass_count, 1):
+                for param in params[idx]:
+                    (_in, _out, value) = param
+                    self.set_parameter(_out, value)
+            for count in range(compass_tnumber + 1, compass_count + 1):
+                self.set_parameter("COMPASS_ORIENT%d" % count, self.get_parameter("SIM_MAG%d_ORIENT" % count))
+            self.arm_vehicle()
+            self.progress("Test calibration rejection when armed")
+            self.run_cmd(mavutil.mavlink.MAV_CMD_DO_START_MAG_CAL,
+                         target_mask, # p1: mag_mask
+                         0, # p2: retry
+                         0, # p3: autosave
+                         0, # p4: delay
+                         0, # param5
+                         0, # param6
+                         0, # param7
+                         want_result=mavutil.mavlink.MAV_RESULT_FAILED,
+                         timeout=20,
+                         )
+            self.disarm_vehicle()
+            self.mavproxy_unload_module("relay")
+            self.mavproxy_unload_module("sitl_calibration")
+
+        try:
+            curr_params = []
+            target_mask = 0
+            # we test all bitmask plus 0 for all
+            for run in range(-1, compass_count, 1):
+                ntest_compass = compass_count
+                if run < 0:
+                    # use bitmask 0 for all compass
+                    target_mask = 0
+                else:
+                    target_mask |= (1 << run)
+                    ntest_compass = run + 1
+                do_prep_mag_cal_test(curr_params)
+                do_test_mag_cal(curr_params, ntest_compass)
+
+        except Exception as e:
+            self.progress("Caught exception: %s" %
+                          self.get_exception_stacktrace(e))
+            ex = e
+            self.mavproxy_unload_module("relay")
+            self.mavproxy_unload_module("sitl_calibration")
+        if ex is not None:
+            raise ex
+
     def test_fixed_yaw_calibration(self):
         self.context_push()
         ex = None
         try:
+            MAG_OFS_X = 100
+            MAG_OFS_Y = 200
+            MAG_OFS_Z = 300
             wanted = {
-                "COMPASS_OFS_X": (100, 3.0),
-                "COMPASS_OFS_Y": (200, 3.0),
-                "COMPASS_OFS_Z": (300, 3.0),
+                "COMPASS_OFS_X": (MAG_OFS_X, 3.0),
+                "COMPASS_OFS_Y": (MAG_OFS_Y, 3.0),
+                "COMPASS_OFS_Z": (MAG_OFS_Z, 3.0),
                 "COMPASS_DIA_X": 1,
                 "COMPASS_DIA_Y": 1,
                 "COMPASS_DIA_Z": 1,
@@ -3984,9 +4718,9 @@ class AutoTest(ABC):
                 "COMPASS_ODI_Y": 0,
                 "COMPASS_ODI_Z": 0,
 
-                "COMPASS_OFS2_X": (100, 3.0),
-                "COMPASS_OFS2_Y": (200, 3.0),
-                "COMPASS_OFS2_Z": (300, 3.0),
+                "COMPASS_OFS2_X": (MAG_OFS_X, 3.0),
+                "COMPASS_OFS2_Y": (MAG_OFS_Y, 3.0),
+                "COMPASS_OFS2_Z": (MAG_OFS_Z, 3.0),
                 "COMPASS_DIA2_X": 1,
                 "COMPASS_DIA2_Y": 1,
                 "COMPASS_DIA2_Z": 1,
@@ -3994,20 +4728,27 @@ class AutoTest(ABC):
                 "COMPASS_ODI2_Y": 0,
                 "COMPASS_ODI2_Z": 0,
 
-                "COMPASS_OFS3_X": (100, 3.0),
-                "COMPASS_OFS3_Y": (200, 3.0),
-                "COMPASS_OFS3_Z": (300, 3.0),
+                "COMPASS_OFS3_X": (MAG_OFS_X, 3.0),
+                "COMPASS_OFS3_Y": (MAG_OFS_Y, 3.0),
+                "COMPASS_OFS3_Z": (MAG_OFS_Z, 3.0),
                 "COMPASS_DIA3_X": 1,
                 "COMPASS_DIA3_Y": 1,
                 "COMPASS_DIA3_Z": 1,
-                "COMPASS_ODI2_X": 0,
-                "COMPASS_ODI2_Y": 0,
-                "COMPASS_ODI2_Z": 0,
+                "COMPASS_ODI3_X": 0,
+                "COMPASS_ODI3_Y": 0,
+                "COMPASS_ODI3_Z": 0,
             }
-            self.set_parameter("SIM_MAG_OFS_X", 100)
-            self.set_parameter("SIM_MAG_OFS_Y", 200)
-            self.set_parameter("SIM_MAG_OFS_Z", 300)
+            self.set_parameter("SIM_MAG_OFS_X", MAG_OFS_X)
+            self.set_parameter("SIM_MAG_OFS_Y", MAG_OFS_Y)
+            self.set_parameter("SIM_MAG_OFS_Z", MAG_OFS_Z)
 
+            self.set_parameter("SIM_MAG2_OFS_X", MAG_OFS_X)
+            self.set_parameter("SIM_MAG2_OFS_Y", MAG_OFS_Y)
+            self.set_parameter("SIM_MAG2_OFS_Z", MAG_OFS_Z)
+
+            self.set_parameter("SIM_MAG3_OFS_X", MAG_OFS_X)
+            self.set_parameter("SIM_MAG3_OFS_Y", MAG_OFS_Y)
+            self.set_parameter("SIM_MAG3_OFS_Z", MAG_OFS_Z)
             # set to some sensible-ish initial values.  If your initial
             # offsets are way, way off you can get some very odd effects.
             for param in wanted:
@@ -4017,28 +4758,9 @@ class AutoTest(ABC):
                 elif "ODI" in param:
                     value = 0.001
                 self.set_parameter(param, value)
-            # zero the parameters:
-            self.progress("zeroing parameters")
-            self.drain_mav()  # these two lines are odd....
-            self.get_sim_time()
-            self.run_cmd(mavutil.mavlink.MAV_CMD_PREFLIGHT_SET_SENSOR_OFFSETS,
-                         2, # param1 (compass0)
-                         0, # param2
-                         0, # param3
-                         0, # param4
-                         0, # param5
-                         0, # param6
-                         0 # param7
-            )
-            self.progress("zeroed parameters")
-            # ensure these are all zero; note that we don't set the DIA or
-            # ODI in SET_SENSOR_OFFSETS...
-            for axis in "X", "Y", "Z":
-                name = "COMPASS_OFS_%s" % axis
-                value = self.get_parameter(name)
-                if value != 0.0:
-                    raise NotAchievedException("Failed to zero %s; got %f" %
-                                               (name, value))
+
+            self.zero_mag_offset_parameters()
+
             self.change_mode('LOITER')
             self.wait_ready_to_arm() # so we definitely have position
             ss = self.mav.recv_match(type='SIMSTATE', blocking=True, timeout=1)
@@ -4862,12 +5584,19 @@ switch value'''
     def last_onboard_log(self):
         '''return number of last onboard log'''
         self.mavproxy.send("module load log\n")
-        self.mavproxy.expect("Loaded module log")
+        loaded_module = False
+        self.mavproxy.expect(["Loaded module log", "module log already loaded"])
+        if self.mavproxy.match.group(0) == "Loaded module log":
+            loaded_module = True
         self.mavproxy.send("log list\n")
-        self.mavproxy.expect("lastLog ([0-9]+)")
-        num_log = int(self.mavproxy.match.group(1))
-        self.mavproxy.send("module unload log\n")
-        self.mavproxy.expect("Unloaded module log")
+        self.mavproxy.expect(["lastLog ([0-9]+)", "No logs"])
+        if self.mavproxy.match.group(1) == "No logs":
+            num_log = None
+        else:
+            num_log = int(self.mavproxy.match.group(1))
+        if loaded_module:
+            self.mavproxy.send("module unload log\n")
+            self.mavproxy.expect("Unloaded module log")
         return num_log
 
     def current_onboard_log_filepath(self):
@@ -4890,11 +5619,11 @@ switch value'''
             raise ValueError("run_tests called twice")
         self.run_tests_called = True
 
-        self.init()
-
         self.fail_list = []
 
         try:
+            self.init()
+
             self.progress("Waiting for a heartbeat with mavlink protocol %s"
                           % self.mav.WIRE_PROTOCOL_VERSION)
             self.wait_heartbeat()
@@ -4912,6 +5641,9 @@ switch value'''
         except pexpect.TIMEOUT:
             self.progress("Failed with timeout")
             self.fail_list.append(["Failed with timeout", None, None])
+            if self.logs_dir:
+                if glob.glob("core*"):
+                    self.check_logs("FRAMEWORK")
         self.close()
 
         if len(self.skip_list):
@@ -4973,6 +5705,7 @@ switch value'''
                                                    (str(count), str(expected_count), len(seen_ids.keys())))
                 elif attempt_count != 0:
                     self.progress("Download failed; retrying")
+                    self.delay_sim_time(1)
                 self.drain_mav()
                 self.mav.mav.param_request_list_send(target_system, target_component)
                 attempt_count += 1
@@ -5491,7 +6224,7 @@ switch value'''
         m = self.mav.recv_match(type='GLOBAL_POSITION_INT', blocking=True, timeout=1)
         if m is None:
             raise NotAchievedException("Did not receive GLOBAL_POSITION_INT")
-        gpi_abs_alt = int(m.alt / 1000) # mm -> m
+        gpi_abs_alt = int((m.alt+500) / 1000) # mm -> m
         tstart = self.get_sim_time_cached()
         while True:
             t2 = self.get_sim_time_cached()

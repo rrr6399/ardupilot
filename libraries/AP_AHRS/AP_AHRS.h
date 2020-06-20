@@ -543,12 +543,22 @@ public:
 
     // rotate a 2D vector from earth frame to body frame
     // in result, x is forward, y is right
-    Vector2f rotate_earth_to_body2D(const Vector2f &ef_vector) const;
+    Vector2f earth_to_body2D(const Vector2f &ef_vector) const;
 
     // rotate a 2D vector from earth frame to body frame
     // in input, x is forward, y is right
-    Vector2f rotate_body_to_earth2D(const Vector2f &bf) const;
+    Vector2f body_to_earth2D(const Vector2f &bf) const;
 
+    // convert a vector from body to earth frame
+    Vector3f body_to_earth(const Vector3f &v) const {
+        return v * get_rotation_body_to_ned();
+    }
+
+    // convert a vector from earth to body frame
+    Vector3f earth_to_body(const Vector3f &v) const {
+        return get_rotation_body_to_ned().mul_transpose(v);
+    }
+    
     virtual void update_AOA_SSA(void);
 
     // get_hgt_ctrl_limit - get maximum height to be observed by the
@@ -558,6 +568,9 @@ public:
 
     // Write position and quaternion data from an external navigation system
     virtual void writeExtNavData(const Vector3f &pos, const Quaternion &quat, float posErr, float angErr, uint32_t timeStamp_ms, uint16_t delay_ms, uint32_t resetTime_ms) { }
+
+    // Write velocity data from an external navigation system
+    virtual void writeExtNavVelData(const Vector3f &vel, float err, uint32_t timeStamp_ms, uint16_t delay_ms) { }
 
     // return current vibration vector for primary IMU
     Vector3f get_vibration(void) const;

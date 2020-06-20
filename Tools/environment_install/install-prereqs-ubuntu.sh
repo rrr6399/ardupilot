@@ -40,8 +40,12 @@ fi
 # update apt package list
 $APT_GET update
 
+function package_is_installed() {
+    dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -c "ok installed"
+}
+
 # Install lsb-release as it is needed to check Ubuntu version
-if ! dpkg-query -l "lsb-release"; then
+if package_is_installed "lsb-release" -eq 1; then
     echo "$sep"
     echo "Installing lsb-release"
     echo "$sep"
@@ -52,6 +56,8 @@ fi
 # Checking Ubuntu release to adapt software version to install
 RELEASE_CODENAME=$(lsb_release -c -s)
 PYTHON_V="python"  # starting from ubuntu 20.04, python isn't symlink to default python interpreter
+PIP=pip2
+
 if [ ${RELEASE_CODENAME} == 'xenial' ]; then
     SITLFML_VERSION="2.3v5"
     SITLCFML_VERSION="2.3"
@@ -65,6 +71,7 @@ elif [ ${RELEASE_CODENAME} == 'focal' ]; then
     SITLFML_VERSION="2.5"
     SITLCFML_VERSION="2.5"
     PYTHON_V="python3"
+    PIP=pip3
 elif [ ${RELEASE_CODENAME} == 'trusty' ]; then
     SITLFML_VERSION="2"
     SITLCFML_VERSION="2"
@@ -114,8 +121,8 @@ function install_arm_none_eabi_toolchain() {
     )
   fi
   echo "Registering STM32 Toolchain for ccache"
-  sudo ln -s $CCACHE_PATH /usr/lib/ccache/arm-none-eabi-g++
-  sudo ln -s $CCACHE_PATH /usr/lib/ccache/arm-none-eabi-gcc
+  sudo ln -s -f $CCACHE_PATH /usr/lib/ccache/arm-none-eabi-g++
+  sudo ln -s -f $CCACHE_PATH /usr/lib/ccache/arm-none-eabi-gcc
   echo "Done!"
 }
 
@@ -145,14 +152,6 @@ echo "$sep"
 echo "Add user to dialout group to allow managing serial ports"
 echo "$sep"
 sudo usermod -a -G dialout $USER
-echo "Done!"
-
-echo "$sep"
-echo "Removing modemmanager package that could conflict with firmware uploading"
-echo "$sep"
-if dpkg-query -l "modemmanager"; then
-    $APT_GET remove modemmanager
-fi
 echo "Done!"
 
 # Add back python symlink to python interpreter on Ubuntu >= 20.04
@@ -191,19 +190,19 @@ fi
 
 # Install all packages
 $APT_GET install $BASE_PKGS $SITL_PKGS $PX4_PKGS $ARM_LINUX_PKGS $COVERAGE_PKGS
-# Check python version for distro that don't have python2 support by default
-PYTHON_VERSION_MAJOR=$(python -c"import sys; print(sys.version_info.major)")
-if [ "$PYTHON_VERSION_MAJOR" -eq 2 ]; then
-    pip2 install --user -U $PYTHON_PKGS
-elif [ "$PYTHON_VERSION_MAJOR" -eq 3 ]; then
-    pip3 install --user -U $PYTHON_PKGS
-else
-    echo "Unknown python version: $PYTHON_VERSION_MAJOR"
-fi
+$PIP install --user -U $PYTHON_PKGS
 
 if [[ -z "${DO_AP_STM_ENV}" ]] && maybe_prompt_user "Install ArduPilot STM32 toolchain [N/y]?" ; then
     DO_AP_STM_ENV=1
 fi
+
+echo "$sep"
+echo "Removing modemmanager package that could conflict with firmware uploading"
+echo "$sep"
+if package_is_installed "modemmanager" -eq 1; then
+    $APT_GET remove modemmanager
+fi
+echo "Done!"
 
 CCACHE_PATH=$(which ccache)
 if [[ $DO_AP_STM_ENV -eq 1 ]]; then

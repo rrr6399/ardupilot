@@ -1273,6 +1273,9 @@ class AutoTestPlane(AutoTest):
 
         self.change_mode('MANUAL')
 
+        self.progress("Asserting we don't support transfer of fence via mission item protocol")
+        self.assert_no_capability(mavutil.mavlink.MAV_PROTOCOL_CAPABILITY_MISSION_FENCE)
+
         # grab home position:
         self.mav.recv_match(type='HOME_POSITION', blocking=True)
         self.homeloc = self.mav.location()
@@ -1851,11 +1854,8 @@ class AutoTestPlane(AutoTest):
             "Test Soaring feature",
             self.fly_soaring),
 
-            ("LogDownLoad",
-             "Log download",
-             lambda: self.log_download(
-                 self.buildlogs_path("ArduPlane-log.bin"),
-                 timeout=450,
-                 upload_logs=True))
+            ("LogUpload",
+             "Log upload",
+             self.log_upload),
         ])
         return ret

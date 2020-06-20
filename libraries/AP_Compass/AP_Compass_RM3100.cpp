@@ -135,7 +135,7 @@ bool AP_Compass_RM3100::init()
     dev->write_register(RM3100_CCZ1_REG, CCP1, true); // cycle count z
     dev->write_register(RM3100_CCZ0_REG, CCP0, true); // cycle count z
 
-    _scaler = (1 / GAIN_CC200) * UTESLA_TO_MGAUSS / 200.0; // has to be changed if using a different cycle count
+    _scaler = (1 / GAIN_CC200) * UTESLA_TO_MGAUSS; // has to be changed if using a different cycle count
 
     // lower retries for run
     dev->set_retries(3);
@@ -177,7 +177,6 @@ void AP_Compass_RM3100::timer()
         uint8_t magz_1;
         uint8_t magz_0;
     } data;
-    Vector3f field;
 
     int32_t magx = 0;
     int32_t magy = 0;
@@ -204,10 +203,21 @@ void AP_Compass_RM3100::timer()
     magy = ((uint32_t)data.magy_2 << 24) | ((uint32_t)data.magy_1 << 16) | ((uint32_t)data.magy_0 << 8);
     magz = ((uint32_t)data.magz_2 << 24) | ((uint32_t)data.magz_1 << 16) | ((uint32_t)data.magz_0 << 8);
 
-    // apply scaler and store in field vector
-    field(magx * _scaler, magy * _scaler, magz * _scaler);
+    // right-shift signed integer back to get correct measurement value
+    magx >>= 8;
+    magy >>= 8;
+    magz >>= 8;
 
-    accumulate_sample(field, compass_instance);
+    {
+        // apply scaler and store in field vector
+         Vector3f field{
+             magx * _scaler,
+             magy * _scaler,
+             magz * _scaler
+         };
+
+        accumulate_sample(field, compass_instance);
+    }
 
 check_registers:
     dev->check_next_register();

@@ -344,7 +344,7 @@ private:
     typedef union {
         struct {
             uint8_t unused1                 : 1; // 0
-            uint8_t simple_mode             : 2; // 1,2     // This is the state of simple mode : 0 = disabled ; 1 = SIMPLE ; 2 = SUPERSIMPLE
+            uint8_t unused_was_simple_mode  : 2; // 1,2
             uint8_t pre_arm_rc_check        : 1; // 3       // true if rc input pre-arm checks have been completed successfully
             uint8_t pre_arm_check           : 1; // 4       // true if all pre-arm checks (rc, accel calibration, gps lock) have been performed
             uint8_t auto_armed              : 1; // 5       // stops auto missions from beginning until throttle is raised
@@ -373,6 +373,8 @@ private:
     } ap_t;
 
     ap_t ap;
+
+    AirMode air_mode; // air mode is 0 = not-configured ; 1 = disabled; 2 = enabled
 
     static_assert(sizeof(uint32_t) == sizeof(ap), "ap_t must be uint32_t");
 
@@ -423,6 +425,12 @@ private:
     // SIMPLE Mode
     // Used to track the orientation of the vehicle for Simple mode. This value is reset at each arming
     // or in SuperSimple mode when the vehicle leaves a 20m radius from home.
+    enum class SimpleMode {
+        NONE = 0,
+        SIMPLE = 1,
+        SUPERSIMPLE = 2,
+    } simple_mode;
+
     float simple_cos_yaw;
     float simple_sin_yaw;
     int32_t super_simple_last_bearing;
@@ -473,6 +481,7 @@ private:
 
     // Used to exit the roll and pitch auto trim function
     uint8_t auto_trim_counter;
+    bool auto_trim_started = false;
 
     // Camera
 #if CAMERA == ENABLED
@@ -621,7 +630,7 @@ private:
 
     // AP_State.cpp
     void set_auto_armed(bool b);
-    void set_simple_mode(uint8_t b);
+    void set_simple_mode(SimpleMode b);
     void set_failsafe_radio(bool b);
     void set_failsafe_gcs(bool b);
     void update_using_interlock();
@@ -634,6 +643,7 @@ private:
     bool start_takeoff(float alt) override;
     bool set_target_location(const Location& target_loc) override;
     bool set_target_velocity_NED(const Vector3f& vel_ned) override;
+    bool set_target_angle_and_climbrate(float roll_deg, float pitch_deg, float yaw_deg, float climb_rate_ms, bool use_yaw_rate, float yaw_rate_degs) override;
     void rc_loop();
     void throttle_loop();
     void update_batt_compass(void);
@@ -845,9 +855,10 @@ private:
     void winch_init();
     void winch_update();
 
-    // switches.cpp
+    // RC_Channel.cpp
     void save_trim();
     void auto_trim();
+    void auto_trim_cancel();
 
     // system.cpp
     void init_ardupilot() override;

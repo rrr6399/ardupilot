@@ -24,7 +24,7 @@
 extern const AP_HAL::HAL& hal;
 
 // consume vision position estimate data and send to EKF. distances in meters
-void AP_VisualOdom_IntelT265::handle_vision_position_estimate(uint64_t remote_time_us, uint32_t time_ms, float x, float y, float z, const Quaternion &attitude, uint8_t reset_counter)
+void AP_VisualOdom_IntelT265::handle_vision_position_estimate(uint64_t remote_time_us, uint32_t time_ms, float x, float y, float z, const Quaternion &attitude, float posErr, float angErr, uint8_t reset_counter)
 {
     const float scale_factor = _frontend.get_pos_scale();
     Vector3f pos{x * scale_factor, y * scale_factor, z * scale_factor};
@@ -41,9 +41,9 @@ void AP_VisualOdom_IntelT265::handle_vision_position_estimate(uint64_t remote_ti
     rotate_and_correct_position(pos);
     rotate_attitude(att);
 
+    posErr = constrain_float(posErr, _frontend.get_pos_noise(), 100.0f);
+    angErr = constrain_float(angErr, _frontend.get_yaw_noise(), 1.5f);
     // send attitude and position to EKF
-    const float posErr = 0; // parameter required?
-    const float angErr = 0; // parameter required?
     AP::ahrs().writeExtNavData(pos, att, posErr, angErr, time_ms, _frontend.get_delay_ms(), get_reset_timestamp_ms(reset_counter));
 
     // calculate euler orientation for logging
@@ -53,7 +53,7 @@ void AP_VisualOdom_IntelT265::handle_vision_position_estimate(uint64_t remote_ti
     att.to_euler(roll, pitch, yaw);
 
     // log sensor data
-    AP::logger().Write_VisualPosition(remote_time_us, time_ms, pos.x, pos.y, pos.z, degrees(roll), degrees(pitch), wrap_360(degrees(yaw)), reset_counter);
+    AP::logger().Write_VisualPosition(remote_time_us, time_ms, pos.x, pos.y, pos.z, degrees(roll), degrees(pitch), wrap_360(degrees(yaw)), posErr, angErr, reset_counter);
 
     // store corrected attitude for use in pre-arm checks
     _attitude_last = att;
@@ -62,13 +62,37 @@ void AP_VisualOdom_IntelT265::handle_vision_position_estimate(uint64_t remote_ti
     _last_update_ms = AP_HAL::millis();
 }
 
+// consume vision velocity estimate data and send to EKF, velocity in NED meters per second
+void AP_VisualOdom_IntelT265::handle_vision_speed_estimate(uint64_t remote_time_us, uint32_t time_ms, const Vector3f &vel, uint8_t reset_counter)
+{
+    // rotate velocity to align with vehicle
+    Vector3f vel_corrected = vel;
+    rotate_velocity(vel_corrected);
+
+    // send velocity to EKF
+    AP::ahrs().writeExtNavVelData(vel_corrected, _frontend.get_vel_noise(), time_ms, _frontend.get_delay_ms());
+
+    // record time for health monitoring
+    _last_update_ms = AP_HAL::millis();
+
+    AP::logger().Write_VisualVelocity(remote_time_us, time_ms, vel_corrected, _frontend.get_vel_noise(), reset_counter);
+}
+
 // apply rotation and correction to position
 void AP_VisualOdom_IntelT265::rotate_and_correct_position(Vector3f &position) const
 {
-    if (_use_pos_rotation) {
-        position = _pos_rotation * position;
+    if (_use_posvel_rotation) {
+        position = _posvel_rotation * position;
     }
     position += _pos_correction;
+}
+
+// apply rotation to velocity
+void AP_VisualOdom_IntelT265::rotate_velocity(Vector3f &velocity) const
+{
+    if (_use_posvel_rotation) {
+        velocity = _posvel_rotation * velocity;
+    }
 }
 
 // rotate attitude using _yaw_trim
@@ -135,11 +159,11 @@ bool AP_VisualOdom_IntelT265::align_sensor_to_vehicle(const Vector3f &position, 
     Vector3f pos_orig = position;
     rotate_and_correct_position(pos_orig);
 
-    // create position rotation from yaw trim
-    _use_pos_rotation = false;
+    // create position and velocity rotation from yaw trim
+    _use_posvel_rotation = false;
     if (!is_zero(_yaw_trim)) {
-        _pos_rotation.from_euler(0.0f, 0.0f, _yaw_trim);
-        _use_pos_rotation = true;
+        _posvel_rotation.from_euler(0.0f, 0.0f, _yaw_trim);
+        _use_posvel_rotation = true;
     }
 
     // recalculate position with new rotation

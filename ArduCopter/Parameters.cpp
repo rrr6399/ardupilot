@@ -963,15 +963,11 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     AP_SUBGROUPINFO(arot, "AROT_", 37, ParametersG2, AC_Autorotation),
 #endif
 
-#if MODE_ZIGZAG_ENABLED == ENABLED && SPRAYER_ENABLED == ENABLED
-    // @Param: ZIGZAG_AUTO_PUMP
-    // @DisplayName: Auto pump in ZigZag
-    // @Description: Enable the auto pump in ZigZag mode. SERVOx_FUNCTION = 22 (SprayerPump) and SPRAY_ENABLE = 1 also must be set. This makes the pump on while moving to destination A or B. The pump will stop if the vehicle reaches destination or the flight mode is changed from ZigZag to other.
-    // @Values: 0:Disabled,1:Enabled
-    // @User: Advanced
-    AP_GROUPINFO("ZIGZAG_AUTO_PUMP", 38, ParametersG2, zigzag_auto_pump_enabled, ZIGZAG_AUTO_PUMP_ENABLED),
+#if MODE_ZIGZAG_ENABLED == ENABLED
+    // @Group: ZIGZ_
+    // @Path: mode_zigzag.cpp
+    AP_SUBGROUPPTR(mode_zigzag_ptr, "ZIGZ_", 38, ParametersG2, ModeZigZag),
 #endif
-
 
     AP_GROUPEND
 };
@@ -1012,6 +1008,9 @@ ParametersG2::ParametersG2(void)
     ,arot(copter.inertial_nav)
 #endif
     ,button_ptr(&copter.button)
+#if MODE_ZIGZAG_ENABLED == ENABLED
+    ,mode_zigzag_ptr(&copter.mode_zigzag)
+#endif
 {
     AP_Param::setup_object_defaults(this, var_info);
 }

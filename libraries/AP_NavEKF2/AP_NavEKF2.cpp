@@ -169,7 +169,7 @@ const AP_Param::GroupInfo NavEKF2::var_info[] = {
 
     // @Param: POSNE_M_NSE
     // @DisplayName: GPS horizontal position measurement noise (m)
-    // @Description: This sets the GPS horizontal position or external navigation system position observation noise. Increasing it reduces the weighting of GPS horizontal position or external navigation system position measurements.
+    // @Description: This sets the GPS horizontal position observation noise. Increasing it reduces the weighting of GPS horizontal position measurements.
     // @Range: 0.1 10.0
     // @Increment: 0.1
     // @User: Advanced
@@ -1703,6 +1703,21 @@ void NavEKF2::writeDefaultAirSpeed(float airspeed)
     if (core) {
         for (uint8_t i=0; i<num_cores; i++) {
             core[i].writeDefaultAirSpeed(airspeed);
+        }
+    }
+}
+
+/* Write velocity data from an external navigation system
+ * vel : velocity in NED (m)
+ * err : velocity error (m/s) 
+ * timeStamp_ms : system time the measurement was taken, not the time it was received (mSec)
+ * delay_ms   : average delay of external nav system measurements relative to inertial measurements
+ */
+void NavEKF2::writeExtNavVelData(const Vector3f &vel, float err, uint32_t timeStamp_ms, uint16_t delay_ms)
+{
+    if (core) {
+        for (uint8_t i=0; i<num_cores; i++) {
+            core[i].writeExtNavVelData(vel, err, timeStamp_ms, delay_ms);
         }
     }
 }

@@ -108,6 +108,12 @@ bool NavEKF3_core::setup_core(uint8_t _imu_index, uint8_t _core_index)
     // calculate buffer size for optical flow data
     const uint8_t flow_buffer_length = MIN((ekf_delay_ms / frontend->flowIntervalMin_ms) + 1, imu_buffer_length);
 
+    // calculate buffer size for external nav data
+    const uint8_t extnav_buffer_length = MIN((ekf_delay_ms / frontend->extNavIntervalMin_ms) + 1, imu_buffer_length);
+
+    // buffer size for external yaw
+    const uint8_t yaw_angle_buffer_length = MAX(obs_buffer_length, extnav_buffer_length);
+
     if(!storedGPS.init(obs_buffer_length)) {
         return false;
     }
@@ -129,7 +135,7 @@ bool NavEKF3_core::setup_core(uint8_t _imu_index, uint8_t _core_index)
     if(!storedWheelOdm.init(imu_buffer_length)) { // initialise to same length of IMU to allow for multiple wheel sensors
         return false;
     }
-    if(!storedYawAng.init(obs_buffer_length)) {
+    if(!storedYawAng.init(yaw_angle_buffer_length)) {
         return false;
     }
     // Note: the use of dual range finders potentially doubles the amount of data to be stored
@@ -140,7 +146,10 @@ bool NavEKF3_core::setup_core(uint8_t _imu_index, uint8_t _core_index)
     if(!storedRangeBeacon.init(imu_buffer_length)) {
         return false;
     }
-    if (!storedExtNav.init(obs_buffer_length)) {
+    if (!storedExtNav.init(extnav_buffer_length)) {
+        return false;
+    }
+    if (!storedExtNavVel.init(extnav_buffer_length)) {
         return false;
     }
     if(!storedIMU.init(imu_buffer_length)) {
@@ -149,11 +158,12 @@ bool NavEKF3_core::setup_core(uint8_t _imu_index, uint8_t _core_index)
     if(!storedOutput.init(imu_buffer_length)) {
         return false;
     }
-    gcs().send_text(MAV_SEVERITY_INFO, "EKF3 IMU%u buffers IMU=%u OBS=%u OF=%u, dt=%.4f",
+    gcs().send_text(MAV_SEVERITY_INFO, "EKF3 IMU%u buffs IMU=%u OBS=%u OF=%u EN:%u, dt=%.4f",
                     (unsigned)imu_index,
                     (unsigned)imu_buffer_length,
                     (unsigned)obs_buffer_length,
                     (unsigned)flow_buffer_length,
+                    (unsigned)extnav_buffer_length,
                     (double)dtEkfAvg);
 
     if ((yawEstimator == nullptr) && (frontend->_gsfRunMask & (1U<<core_index))) {
@@ -400,6 +410,11 @@ void NavEKF3_core::InitialiseVariables()
     extNavLastPosResetTime_ms = 0;
     extNavDataToFuse = false;
     extNavUsedForPos = false;
+    extNavVelNew = {};
+    extNavVelDelayed = {};
+    extNavVelToFuse = false;
+    useExtNavVel = false;
+    extNavVelMeasTime_ms = 0;
 
     // zero data buffers
     storedIMU.reset();
@@ -412,6 +427,7 @@ void NavEKF3_core::InitialiseVariables()
     storedBodyOdm.reset();
     storedWheelOdm.reset();
     storedExtNav.reset();
+    storedExtNavVel.reset();
 
     // initialise pre-arm message
     hal.util->snprintf(prearm_fail_string, sizeof(prearm_fail_string), "EKF3 still initialising");

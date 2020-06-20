@@ -110,6 +110,9 @@ public:
     // return true when tailsitter frame configured
     bool is_tailsitter(void) const;
 
+    // return true when flying a control surface only tailsitter tailsitter
+    bool is_contol_surface_tailsitter(void) const;
+
     // return true when flying a tailsitter in VTOL
     bool tailsitter_active(void);
     
@@ -155,6 +158,13 @@ public:
 
     MAV_TYPE get_mav_type(void) const;
 
+    enum Q_ASSIST_STATE_ENUM {
+        Q_ASSIST_DISABLED,
+        Q_ASSIST_ENABLED,
+        Q_ASSIST_FORCE,
+    };
+    void set_q_assist_state(Q_ASSIST_STATE_ENUM state) {q_assist_state = state;};
+
 private:
     AP_AHRS_NavEKF &ahrs;
     AP_Vehicle::MultiCopter aparm;
@@ -179,7 +189,10 @@ private:
     AP_Int16 pilot_accel_z;
 
     // check for quadplane assistance needed
-    bool assistance_needed(float aspeed);
+    bool assistance_needed(float aspeed, bool have_airspeed);
+
+    // check if it is safe to provide assistance
+    bool assistance_safe();
 
     // update transition handling
     void update_transition(void);
@@ -222,7 +235,7 @@ private:
     void init_loiter(void);
     void init_qland(void);
     void control_loiter(void);
-    void check_land_complete(void);
+    bool check_land_complete(void);
     bool land_detector(uint32_t timeout_ms);
     bool check_land_final(void);
 
@@ -579,7 +592,10 @@ private:
       are we in any of the phases of a VTOL landing?
      */
     bool in_vtol_land_sequence(void) const;
-    
+
+    // Q assist state, can be enabled, disabled or force. Default to enabled
+    Q_ASSIST_STATE_ENUM q_assist_state = Q_ASSIST_STATE_ENUM::Q_ASSIST_ENABLED;
+
 public:
     void motor_test_output();
     MAV_RESULT mavlink_motor_test_start(mavlink_channel_t chan, uint8_t motor_seq, uint8_t throttle_type,

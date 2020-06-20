@@ -174,6 +174,12 @@ int16_t UARTDriver::read(void)
     return c;
 }
 
+bool UARTDriver::discard_input(void)
+{
+    _readbuffer.clear();
+    return true;
+}
+
 void UARTDriver::flush(void)
 {
 }

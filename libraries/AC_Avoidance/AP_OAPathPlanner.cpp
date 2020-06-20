@@ -26,6 +26,9 @@ extern const AP_HAL::HAL &hal;
 // parameter defaults
 const float OA_LOOKAHEAD_DEFAULT = 15;
 const float OA_MARGIN_MAX_DEFAULT = 5;
+#if APM_BUILD_TYPE(APM_BUILD_Rover)
+    const int16_t OA_OPTIONS_DEFAULT = 1;
+#endif
 
 const int16_t OA_UPDATE_MS = 1000;      // path planning updates run at 1hz
 const int16_t OA_TIMEOUT_MS = 3000;     // results over 3 seconds old are ignored
@@ -60,6 +63,16 @@ const AP_Param::GroupInfo AP_OAPathPlanner::var_info[] = {
     // @Group: DB_
     // @Path: AP_OADatabase.cpp
     AP_SUBGROUPINFO(_oadatabase, "DB_", 4, AP_OAPathPlanner, AP_OADatabase),
+
+#if APM_BUILD_TYPE(APM_BUILD_Rover)
+    // @Param: OPTIONS
+    // @DisplayName: Options while recovering from Object Avoidance
+    // @Description: Bitmask which will govern vehicles behaviour while recovering from Obstacle Avoidance (i.e Avoidance is turned off after the path ahead is clear).   
+    // @Values: 0:Vehicle will return to its original waypoint trajectory, 1:Reset the origin of the waypoint to the present location
+    // @Bitmask: 0: Reset the origin of the waypoint to the present location
+    // @User: Standard
+    AP_GROUPINFO("OPTIONS", 5, AP_OAPathPlanner, _options, OA_OPTIONS_DEFAULT),
+#endif
 
     AP_GROUPEND
 };
@@ -191,7 +204,18 @@ AP_OAPathPlanner::OA_RetState AP_OAPathPlanner::mission_avoidance(const Location
 
 // avoidance thread that continually updates the avoidance_result structure based on avoidance_request
 void AP_OAPathPlanner::avoidance_thread()
-{
+{   
+    // require ekf origin to have been set
+    bool origin_set = false;
+    while (!origin_set) {
+        hal.scheduler->delay(500);
+        struct Location ekf_origin {};
+        {
+            WITH_SEMAPHORE(AP::ahrs().get_semaphore());
+            origin_set = AP::ahrs().get_origin(ekf_origin);    
+        }
+    }
+
     while (true) {
 
         // if database queue needs attention, service it faster
