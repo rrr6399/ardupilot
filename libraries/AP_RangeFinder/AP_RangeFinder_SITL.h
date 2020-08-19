@@ -12,29 +12,33 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
 #pragma once
 
-#include <AP_Winch/AP_Winch_Backend.h>
-#include <SRV_Channel/SRV_Channel.h>
+#include "AP_RangeFinder_Backend.h"
 
-class AP_Winch_Servo : public AP_Winch_Backend {
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+
+#include <SITL/SITL.h>
+
+class AP_RangeFinder_SITL : public AP_RangeFinder_Backend {
 public:
+    // constructor. This incorporates initialisation as well.
+    AP_RangeFinder_SITL(RangeFinder::RangeFinder_State &_state, AP_RangeFinder_Params &_params, uint8_t instance);
 
-    AP_Winch_Servo(struct AP_Winch::Backend_Config &_config) :
-        AP_Winch_Backend(_config) { }
-
-    // initialise the winch
-    void init(const AP_WheelEncoder* wheel_encoder) override;
-
-    // control the winch
+    // update the state structure
     void update() override;
 
-private:
-    // external reference
-    const AP_WheelEncoder* _wheel_encoder;
+protected:
 
-    uint32_t last_update_ms;    // last time update was called
-    bool limit_high;            // output hit limit on last iteration
-    bool limit_low;             // output hit lower limit on last iteration
+    MAV_DISTANCE_SENSOR _get_mav_distance_sensor_type() const override {
+        return MAV_DISTANCE_SENSOR_UNKNOWN;
+    }
+
+private:
+    SITL::SITL *sitl;
+
+    uint8_t _instance;
+
 };
+
+#endif

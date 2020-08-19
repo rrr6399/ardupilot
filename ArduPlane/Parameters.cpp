@@ -460,10 +460,10 @@ const AP_Param::Info Plane::var_info[] = {
 
     // @Param: THR_FAILSAFE
     // @DisplayName: Throttle and RC Failsafe Enable
-    // @Description: This enables failsafe on loss of RC input. How this is detected depends on the type of RC receiver being used. For older radios an input below the THR_FS_VALUE is used to trigger failsafe. For newer radios the failsafe trigger is part of the protocol between the autopilot and receiver.
-    // @Values: 0:Disabled,1:Enabled
+    // @Description: This enables failsafe on loss of RC input. How this is detected depends on the type of RC receiver being used. For older radios an input below the THR_FS_VALUE is used to trigger failsafe. For newer radios the failsafe trigger is part of the protocol between the autopilot and receiver. A value of 2 means that the RC input won't be used when throttle goes below the THR_FS_VALUE, but it won't trigger a failsafe
+    // @Values: 0:Disabled,1:Enabled,2:EnabledNoFailsafe
     // @User: Standard
-    GSCALAR(throttle_fs_enabled,    "THR_FAILSAFE",   1),
+    GSCALAR(throttle_fs_enabled,    "THR_FAILSAFE",   int(ThrFailsafe::Enabled)),
 
 
     // @Param: THR_FS_VALUE
@@ -1017,10 +1017,10 @@ const AP_Param::Info Plane::var_info[] = {
     // @Path: ../libraries/AP_BoardConfig/AP_BoardConfig.cpp
     GOBJECT(BoardConfig,            "BRD_",       AP_BoardConfig),
 
-#if HAL_WITH_UAVCAN
+#if HAL_MAX_CAN_PROTOCOL_DRIVERS
     // @Group: CAN_
-    // @Path: ../libraries/AP_BoardConfig/AP_BoardConfig_CAN.cpp
-    GOBJECT(BoardConfig_CAN,        "CAN_",       AP_BoardConfig_CAN),
+    // @Path: ../libraries/AP_CANManager/AP_CANManager.cpp
+    GOBJECT(can_mgr,        "CAN_",       AP_CANManager),
 #endif
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL

@@ -83,7 +83,7 @@ public:
         k_motor7                = 39,
         k_motor8                = 40,
         k_motor_tilt            = 41,            ///< tiltrotor motor tilt control
-        k_richenpower_control   = 42,            ///< state control for RichenPower
+        k_generator_control     = 42,            ///< state control for generator
         k_rcin1                 = 51,            ///< these are for pass-thru from arbitrary rc inputs
         k_rcin2                 = 52,
         k_rcin3                 = 53,
@@ -156,6 +156,7 @@ public:
         k_ProfiLED_2            = 130,
         k_ProfiLED_3            = 131,
         k_ProfiLED_Clock        = 132,
+        k_winch_clutch          = 133,
         k_nr_aux_servo_functions         ///< This must be the last enum value (only add new values _before_ this one)
     } Aux_servo_function_t;
 

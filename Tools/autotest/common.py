@@ -805,6 +805,7 @@ class AutoTest(ABC):
         if self.force_ahrs_type is not None:
             self.force_ahrs_type = int(self.force_ahrs_type)
         self.logs_dir = logs_dir
+        self.timesync_number = 137
 
     @staticmethod
     def progress(text):
@@ -1603,6 +1604,38 @@ class AutoTest(ABC):
             rate = "%f/s" % (count/float(tdelta),)
 
         self.progress("Drained %u messages from mav (%s)" % (count, rate))
+
+    def do_timesync_roundtrip(self):
+        self.progress("Doing timesync roundtrip")
+        tstart = self.get_sim_time()
+        self.mav.mav.timesync_send(0, self.timesync_number * 1000 + self.mav.source_system)
+        while True:
+            now = self.get_sim_time_cached()
+            if now - tstart > 1:
+                raise AutoTestTimeoutException("Did not get timesync response")
+            m = self.mav.recv_match(type='TIMESYNC', blocking=True, timeout=1)
+            self.progress("Received: %s" % str(m))
+            if m is None:
+                continue
+            if m.tc1 == 0:
+                self.progress("this is a timesync request, which we don't answer")
+                continue
+            if m.ts1 % 1000 != self.mav.source_system:
+                self.progress("this isn't a response to our timesync (%s)" % (m.ts1 % 1000))
+                continue
+            if int(m.ts1 / 1000) != self.timesync_number:
+                self.progress("this isn't the one we just sent")
+                continue
+            if m.get_srcSystem() != self.mav.target_system:
+                self.progress("response from system other than our target")
+                continue
+            # no component check ATM because we send broadcast...
+#            if m.get_srcComponent() != self.mav.target_component:
+#                self.progress("response from component other than our target (got=%u want=%u)" % (m.get_srcComponent(), self.mav.target_component))
+#                continue
+            self.progress("Received TIMESYNC response after %fs" % (now - tstart))
+            self.timesync_number += 1
+            break
 
     def log_filepath(self, lognum):
         '''return filepath to lognum (where lognum comes from LOG_ENTRY'''
@@ -2857,7 +2890,9 @@ class AutoTest(ABC):
             if abs(delta) < epsilon:
                 # yes, near-enough-to-equal.
                 if add_to_context:
-                    self.context_get().parameters.append((name, old_value))
+                    context_param_name_list = [p[0] for p in self.context_get().parameters]
+                    if name.upper() not in context_param_name_list:
+                        self.context_get().parameters.append((name, old_value))
                 if self.should_fetch_all_for_parameter_change(name.upper()) and value != 0:
                     self.fetch_parameters()
                 return
@@ -2896,7 +2931,6 @@ class AutoTest(ABC):
     def context_pop(self):
         """Set parameters to origin values in reverse order."""
         dead = self.contexts.pop()
-
         dead_parameters = dead.parameters
         dead_parameters.reverse()
         for p in dead_parameters:
@@ -3275,7 +3309,7 @@ class AutoTest(ABC):
     def reach_heading_manual(self, heading, turn_right=True):
         """Manually direct the vehicle to the target heading."""
         if self.is_copter() or self.is_sub():
-            self.mavproxy.send('rc 4 1580\n')
+            self.set_rc(4, 1580)
             self.wait_heading(heading)
             self.set_rc(4, 1500)
         if self.is_plane():
@@ -3284,8 +3318,8 @@ class AutoTest(ABC):
             steering_pwm = 1700
             if not turn_right:
                 steering_pwm = 1300
-            self.mavproxy.send('rc 1 %u\n' % steering_pwm)
-            self.mavproxy.send('rc 3 1550\n')
+            self.set_rc(1, steering_pwm)
+            self.set_rc(3, 1550)
             self.wait_heading(heading)
             self.set_rc(3, 1500)
             self.set_rc(1, 1500)
@@ -3319,7 +3353,7 @@ class AutoTest(ABC):
         if self.is_plane():
             self.progress("NOT IMPLEMENTED")
         if self.is_rover():
-            self.mavproxy.send('rc 3 1700\n')
+            self.set_rc(3, 1700)
             self.wait_distance(distance, accuracy=2)
             self.set_rc(3, 1500)
 
@@ -3538,7 +3572,7 @@ class AutoTest(ABC):
                 raise ValueError("message (%s) has no field %s" %
                                  (str(m), channel_field))
             if comparator(m_value, value):
-                return
+                return m_value
 
     def wait_rc_channel_value(self, channel, value, timeout=2):
         """wait for channel to hit value"""
@@ -3991,9 +4025,6 @@ Also, ignores heartbeats not from our target system'''
             exit(1)
         self.progress("PASSED: Check for syntax mistake in autotest lambda")
 
-    def uses_vicon(self):
-        return False
-
     def defaults_filepath(self):
         return None
 
@@ -4021,7 +4052,6 @@ Also, ignores heartbeats not from our target system'''
             "home": self.sitl_home(),
             "speedup": self.speedup,
             "valgrind": self.valgrind,
-            "vicon": self.uses_vicon(),
             "wipe": True,
         }
         start_sitl_args.update(**sitl_args)
@@ -6146,9 +6176,9 @@ switch value'''
     def tf_encode_gps_latitude(self,lat):
         value = 0
         if lat < 0:
-            value = ((abs(lat)/100)*6) | 0x40000000
+            value = ((abs(lat)//100)*6) | 0x40000000
         else:
-            value = ((abs(lat)/100)*6)
+            value = ((abs(lat)//100)*6)
         return value
 
     def tf_validate_gps(self, value): # shared by proto 4 and proto 10

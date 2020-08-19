@@ -154,7 +154,6 @@
  # include "toy_mode.h"
 #endif
 #if WINCH_ENABLED == ENABLED
- # include <AP_WheelEncoder/AP_WheelEncoder.h>
  # include <AP_Winch/AP_Winch.h>
 #endif
 #if RPM_ENABLED == ENABLED
@@ -661,7 +660,6 @@ private:
     // Attitude.cpp
     float get_pilot_desired_yaw_rate(int16_t stick_angle);
     void update_throttle_hover();
-    void set_throttle_takeoff();
     float get_pilot_desired_climb_rate(float throttle_control);
     float get_non_takeoff_throttle();
     float get_avoidance_adjusted_climbrate(float target_rate);
@@ -803,7 +801,7 @@ private:
     // motor_test.cpp
     void motor_test_output();
     bool mavlink_motor_test_check(const GCS_MAVLINK &gcs_chan, bool check_rc);
-    MAV_RESULT mavlink_motor_test_start(const GCS_MAVLINK &gcs_chan, uint8_t motor_seq, uint8_t throttle_type, uint16_t throttle_value, float timeout_sec, uint8_t motor_count);
+    MAV_RESULT mavlink_motor_test_start(const GCS_MAVLINK &gcs_chan, uint8_t motor_seq, uint8_t throttle_type, float throttle_value, float timeout_sec, uint8_t motor_count);
     void motor_test_stop();
 
     // motors.cpp
@@ -852,8 +850,6 @@ private:
     void accel_cal_update(void);
     void init_proximity();
     void update_proximity();
-    void winch_init();
-    void winch_update();
 
     // RC_Channel.cpp
     void save_trim();

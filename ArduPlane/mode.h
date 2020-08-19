@@ -68,6 +68,8 @@ public:
 
     // true for all q modes
     virtual bool is_vtol_mode() const { return false; }
+    virtual bool is_vtol_man_throttle() const { return false; }
+    virtual bool is_vtol_man_mode() const { return false; }
 
     // true if mode can have terrain following disabled by switch
     virtual bool allows_terrain_disable() const { return false; }
@@ -344,6 +346,8 @@ public:
     const char *name4() const override { return "QSTB"; }
 
     bool is_vtol_mode() const override { return true; }
+    bool is_vtol_man_throttle() const override { return true; }
+    virtual bool is_vtol_man_mode() const override { return true; }
 
     // methods that affect movement of the vehicle in this mode
     void update() override;
@@ -364,6 +368,7 @@ public:
     const char *name4() const override { return "QHOV"; }
 
     bool is_vtol_mode() const override { return true; }
+    virtual bool is_vtol_man_mode() const override { return true; }
 
     // methods that affect movement of the vehicle in this mode
     void update() override;
@@ -382,6 +387,7 @@ public:
     const char *name4() const override { return "QLOT"; }
 
     bool is_vtol_mode() const override { return true; }
+    virtual bool is_vtol_man_mode() const override { return true; }
 
     // methods that affect movement of the vehicle in this mode
     void update() override;
@@ -436,6 +442,7 @@ public:
     const char *name4() const override { return "QACRO"; }
 
     bool is_vtol_mode() const override { return true; }
+    bool is_vtol_man_throttle() const override { return true; }
 
     // methods that affect movement of the vehicle in this mode
     void update() override;
@@ -454,6 +461,7 @@ public:
     const char *name4() const override { return "QATN"; }
 
     bool is_vtol_mode() const override { return true; }
+    virtual bool is_vtol_man_mode() const override { return true; }
 
     // methods that affect movement of the vehicle in this mode
     void update() override;

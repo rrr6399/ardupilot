@@ -3,7 +3,6 @@
 #include "AP_NavEKF3.h"
 #include "AP_NavEKF3_core.h"
 #include <AP_AHRS/AP_AHRS.h>
-#include <AP_Vehicle/AP_Vehicle.h>
 #include <GCS_MAVLink/GCS.h>
 #include <AP_GPS/AP_GPS.h>
 #include <AP_VisualOdom/AP_VisualOdom.h>
@@ -352,8 +351,6 @@ void NavEKF3_core::InitialiseVariables()
     velOffsetNED.zero();
     posOffsetNED.zero();
     memset(&velPosObs, 0, sizeof(velPosObs));
-    posResetSource = DEFAULT;
-    velResetSource = DEFAULT;
 
     // range beacon fusion variables
     memset((void *)&rngBcnDataNew, 0, sizeof(rngBcnDataNew));
@@ -419,7 +416,6 @@ void NavEKF3_core::InitialiseVariables()
     extNavLastPosResetTime_ms = 0;
     extNavDataToFuse = false;
     extNavUsedForPos = false;
-    extNavVelNew = {};
     extNavVelDelayed = {};
     extNavVelToFuse = false;
     useExtNavVel = false;
@@ -556,8 +552,8 @@ bool NavEKF3_core::InitialiseFilterBootstrap(void)
     stateStruct.body_magfield.zero();
 
     // set the position, velocity and height
-    ResetVelocity();
-    ResetPosition();
+    ResetVelocity(resetDataSource::DEFAULT);
+    ResetPosition(resetDataSource::DEFAULT);
     ResetHeight();
 
     // define Earth rotation vector in the NED navigation frame

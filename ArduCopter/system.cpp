@@ -22,8 +22,8 @@ void Copter::init_ardupilot()
 #endif
 
     BoardConfig.init();
-#if HAL_WITH_UAVCAN
-    BoardConfig_CAN.init();
+#if HAL_MAX_CAN_PROTOCOL_DRIVERS
+    can_mgr.init();
 #endif
 
     // init cargo gripper
@@ -35,8 +35,10 @@ void Copter::init_ardupilot()
     fence.init();
 #endif
 
-    // init winch and wheel encoder
-    winch_init();
+    // init winch
+#if WINCH_ENABLED == ENABLED
+    g2.winch.init();
+#endif
 
     // initialise notify system
     notify.init();

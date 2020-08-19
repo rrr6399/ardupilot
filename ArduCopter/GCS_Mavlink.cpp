@@ -229,6 +229,18 @@ void GCS_MAVLINK_Copter::send_pid_tuning()
     }
 }
 
+// send winch status message
+void GCS_MAVLINK_Copter::send_winch_status() const
+{
+#if WINCH_ENABLED == ENABLED
+    AP_Winch *winch = AP::winch();
+    if (winch == nullptr) {
+        return;
+    }
+    winch->send_status(*this);
+#endif
+}
+
 uint8_t GCS_MAVLINK_Copter::sysid_my_gcs() const
 {
     return copter.g.sysid_my_gcs;
@@ -445,6 +457,7 @@ static const ap_message STREAM_EXTRA3_msgs[] = {
     MSG_RPM,
     MSG_ESC_TELEMETRY,
     MSG_GENERATOR_STATUS,
+    MSG_WINCH_STATUS,
 };
 static const ap_message STREAM_PARAMS_msgs[] = {
     MSG_NEXT_PARAM
@@ -791,11 +804,11 @@ MAV_RESULT GCS_MAVLINK_Copter::handle_command_long_packet(const mavlink_command_
         // param3 : throttle (range depends upon param2)
         // param4 : timeout (in seconds)
         // param5 : num_motors (in sequence)
-        // param6 : compass learning (0: disabled, 1: enabled)
+        // param6 : motor test order
         return copter.mavlink_motor_test_start(*this,
                                                (uint8_t)packet.param1,
                                                (uint8_t)packet.param2,
-                                               (uint16_t)packet.param3,
+                                               packet.param3,
                                                packet.param4,
                                                (uint8_t)packet.param5);
 
@@ -809,20 +822,14 @@ MAV_RESULT GCS_MAVLINK_Copter::handle_command_long_packet(const mavlink_command_
         switch ((uint8_t)packet.param2) {
         case WINCH_RELAXED:
             copter.g2.winch.relax();
-            AP::logger().Write_Event(LogEvent::WINCH_RELAXED);
             return MAV_RESULT_ACCEPTED;
         case WINCH_RELATIVE_LENGTH_CONTROL: {
-            copter.g2.winch.release_length(packet.param3, fabsf(packet.param4));
-            AP::logger().Write_Event(LogEvent::WINCH_LENGTH_CONTROL);
+            copter.g2.winch.release_length(packet.param3);
             return MAV_RESULT_ACCEPTED;
         }
         case WINCH_RATE_CONTROL:
-            if (fabsf(packet.param4) <= copter.g2.winch.get_rate_max()) {
-                copter.g2.winch.set_desired_rate(packet.param4);
-                AP::logger().Write_Event(LogEvent::WINCH_RATE_CONTROL);
-                return MAV_RESULT_ACCEPTED;
-            }
-            return MAV_RESULT_FAILED;
+            copter.g2.winch.set_desired_rate(packet.param4);
+            return MAV_RESULT_ACCEPTED;
         default:
             break;
         }
@@ -938,6 +945,27 @@ void GCS_MAVLINK_Copter::handle_mount_message(const mavlink_message_t &msg)
 
 void GCS_MAVLINK_Copter::handleMessage(const mavlink_message_t &msg)
 {
+    // for mavlink SET_POSITION_TARGET messages
+    constexpr uint32_t MAVLINK_SET_POS_TYPE_MASK_POS_IGNORE =
+        POSITION_TARGET_TYPEMASK_X_IGNORE |
+        POSITION_TARGET_TYPEMASK_Y_IGNORE |
+        POSITION_TARGET_TYPEMASK_Z_IGNORE;
+
+    constexpr uint32_t MAVLINK_SET_POS_TYPE_MASK_VEL_IGNORE =
+        POSITION_TARGET_TYPEMASK_VX_IGNORE |
+        POSITION_TARGET_TYPEMASK_VY_IGNORE |
+        POSITION_TARGET_TYPEMASK_VZ_IGNORE;
+
+    constexpr uint32_t MAVLINK_SET_POS_TYPE_MASK_ACC_IGNORE =
+        POSITION_TARGET_TYPEMASK_AX_IGNORE |
+        POSITION_TARGET_TYPEMASK_AY_IGNORE |
+        POSITION_TARGET_TYPEMASK_AZ_IGNORE;
+
+    constexpr uint32_t MAVLINK_SET_POS_TYPE_MASK_YAW_IGNORE =
+        POSITION_TARGET_TYPEMASK_YAW_IGNORE;
+    constexpr uint32_t MAVLINK_SET_POS_TYPE_MASK_YAW_RATE_IGNORE =
+        POSITION_TARGET_TYPEMASK_YAW_RATE_IGNORE;
+
     switch (msg.msgid) {
 
     case MAVLINK_MSG_ID_HEARTBEAT:      // MAV ID: 0

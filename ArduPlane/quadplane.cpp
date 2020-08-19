@@ -328,8 +328,8 @@ const AP_Param::GroupInfo QuadPlane::var_info[] = {
 
     // @Param: OPTIONS
     // @DisplayName: quadplane options
-    // @Description: This provides a set of additional control options for quadplanes. LevelTransition means that the wings should be held level to within LEVEL_ROLL_LIMIT degrees during transition to fixed wing flight, and the vehicle will not use the vertical lift motors to climb during the transition. If AllowFWTakeoff bit is not set then fixed wing takeoff on quadplanes will instead perform a VTOL takeoff. If AllowFWLand bit is not set then fixed wing land on quadplanes will instead perform a VTOL land. If respect takeoff frame is not set the vehicle will interpret all takeoff waypoints as an altitude above the corrent position. When Use QRTL is set it will replace QLAND with QRTL for failsafe actions when in VTOL modes.
-    // @Bitmask: 0:LevelTransition,1:AllowFWTakeoff,2:AllowFWLand,3:Respect takeoff frame types,4:Use a fixed wing approach for VTOL landings,5:Use QRTL instead of QLAND for failsafe when in VTOL modes,6:Use idle governor in MANUAL,7:QAssist force enabled,8:Tailsitter QAssist motors only
+    // @Description: This provides a set of additional control options for quadplanes. LevelTransition means that the wings should be held level to within LEVEL_ROLL_LIMIT degrees during transition to fixed wing flight, and the vehicle will not use the vertical lift motors to climb during the transition. If AllowFWTakeoff bit is not set then fixed wing takeoff on quadplanes will instead perform a VTOL takeoff. If AllowFWLand bit is not set then fixed wing land on quadplanes will instead perform a VTOL land. If respect takeoff frame is not set the vehicle will interpret all takeoff waypoints as an altitude above the current position. When Use QRTL is set it will replace QLAND with QRTL for failsafe actions when in VTOL modes. When AIRMODE is set AirMode is automatically enabled if arming by RC channel.
+    // @Bitmask: 0:LevelTransition,1:AllowFWTakeoff,2:AllowFWLand,3:Respect takeoff frame types,4:Use a fixed wing approach for VTOL landings,5:Use QRTL instead of QLAND for failsafe when in VTOL modes,6:Use idle governor in MANUAL,7:QAssist force enabled,8:Tailsitter QAssist motors only,9:enable AirMode if arming by aux switch
     AP_GROUPINFO("OPTIONS", 58, QuadPlane, options, 0),
 
     AP_SUBGROUPEXTENSION("",59, QuadPlane, var_info2),
@@ -917,7 +917,7 @@ void QuadPlane::hold_stabilize(float throttle_in)
     // call attitude controller
     multicopter_attitude_rate_update(get_desired_yaw_rate_cds());
 
-    if (throttle_in <= 0) {
+    if ((throttle_in <= 0) && (air_mode == AirMode::OFF)) {
         motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::GROUND_IDLE);
         attitude_control->set_throttle_out(0, true, 0);
         if (!is_tailsitter()) {
@@ -1221,13 +1221,14 @@ bool QuadPlane::is_flying_vtol(void) const
         // if we are demanding more than 1% throttle then don't consider aircraft landed
         return true;
     }
-    if (plane.control_mode == &plane.mode_qacro) {
+    if (plane.control_mode->is_vtol_man_throttle() && air_mode == AirMode::ON) {
+        // in manual throttle modes with airmode on, don't consider aircraft landed
         return true;
     }
     if (plane.control_mode == &plane.mode_guided && guided_takeoff) {
         return true;
     }
-    if (plane.control_mode == &plane.mode_qstabilize || plane.control_mode == &plane.mode_qhover || plane.control_mode == &plane.mode_qloiter || plane.control_mode == &plane.mode_qautotune) {
+    if (plane.control_mode->is_vtol_man_mode()) {
         // in manual flight modes only consider aircraft landed when pilot demanded throttle is zero
         return plane.get_throttle_input() > 0;
     }
@@ -1339,7 +1340,9 @@ void QuadPlane::control_loiter()
  */
 float QuadPlane::get_pilot_input_yaw_rate_cds(void) const
 {
-    if (plane.get_throttle_input() <= 0 && !plane.auto_throttle_mode &&
+    bool manual_air_mode = plane.control_mode->is_vtol_man_throttle() && (air_mode == AirMode::ON);
+    if (!manual_air_mode &&
+        plane.get_throttle_input() <= 0 && !plane.auto_throttle_mode &&
         plane.arming.get_rudder_arming_type() != AP_Arming::RudderArming::IS_DISABLED) {
         // the user may be trying to disarm
         return 0;
@@ -1373,7 +1376,8 @@ float QuadPlane::get_desired_yaw_rate_cds(void)
         // use bank angle to get desired yaw rate
         yaw_cds += desired_auto_yaw_rate_cds();
     }
-    if (plane.get_throttle_input() <= 0 && !plane.auto_throttle_mode) {
+    bool manual_air_mode = plane.control_mode->is_vtol_man_throttle() && (air_mode == AirMode::ON);
+    if (plane.get_throttle_input() <= 0 && !plane.auto_throttle_mode && !manual_air_mode) {
         // the user may be trying to disarm
         return 0;
     }
@@ -1920,6 +1924,11 @@ void QuadPlane::update_throttle_suppression(void)
         return;
     }
 
+    // if in a VTOL manual throttle mode and air_mode is on then allow motors to run
+    if (plane.control_mode->is_vtol_man_throttle() && air_mode == AirMode::ON) {
+        return;
+    }
+
     // if we are in a fixed wing auto throttle mode and we have
     // unsuppressed the throttle then allow motors to run
     if (plane.auto_throttle_mode && !plane.throttle_suppressed) {
@@ -2222,13 +2231,7 @@ bool QuadPlane::in_vtol_mode(void) const
     if (!available()) {
         return false;
     }
-    return (plane.control_mode == &plane.mode_qstabilize ||
-            plane.control_mode == &plane.mode_qhover ||
-            plane.control_mode == &plane.mode_qloiter ||
-            plane.control_mode == &plane.mode_qland ||
-            plane.control_mode == &plane.mode_qrtl ||
-            plane.control_mode == &plane.mode_qacro ||
-            plane.control_mode == &plane.mode_qautotune ||
+    return (plane.control_mode->is_vtol_mode() ||
             ((plane.control_mode == &plane.mode_guided || plane.control_mode == &plane.mode_avoidADSB) && plane.auto_state.vtol_loiter) ||
             in_vtol_auto());
 }
@@ -3291,9 +3294,9 @@ void QuadPlane::update_throttle_mix(void)
         return;
     }
 
-    if (plane.control_mode == &plane.mode_qstabilize) {
+    if (plane.control_mode->is_vtol_man_throttle()) {
         // manual throttle
-        if (plane.get_throttle_input() <= 0) {
+        if ((plane.get_throttle_input() <= 0) && (air_mode == AirMode::OFF)) {
             attitude_control->set_throttle_mix_min();
         } else {
             attitude_control->set_throttle_mix_man();

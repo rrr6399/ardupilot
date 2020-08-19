@@ -19,12 +19,14 @@
 
 #include <uavcan/uavcan.hpp>
 #include "AP_UAVCAN_DNA_Server.h"
-
-#include <AP_HAL/CAN.h>
+#include "AP_UAVCAN_IfaceMgr.h"
+#include "AP_UAVCAN_Clock.h"
+#include <AP_CANManager/AP_CANDriver.h>
 #include <AP_HAL/Semaphores.h>
 #include <AP_Param/AP_Param.h>
 
 #include <uavcan/helpers/heap_based_pool_allocator.hpp>
+
 
 #ifndef UAVCAN_NODE_POOL_SIZE
 #define UAVCAN_NODE_POOL_SIZE 8192
@@ -65,7 +67,7 @@ class ESCStatusCb;
 				RegistryBinder(uc, (Registry)ffunc) {} \
 	}
 
-class AP_UAVCAN : public AP_HAL::CANProtocol {
+class AP_UAVCAN : public AP_CANDriver {
 public:
     AP_UAVCAN();
     ~AP_UAVCAN();
@@ -76,7 +78,11 @@ public:
     static AP_UAVCAN *get_uavcan(uint8_t driver_index);
 
     void init(uint8_t driver_index, bool enable_filters) override;
+    bool add_interface(AP_HAL::CANIface* can_iface) override;
 
+    // send ESC telemetry messages over MAVLink
+    void send_esc_telemetry_mavlink(uint8_t mav_chan);
+    
     uavcan::Node<0>* get_node() { return _node; }
     uint8_t get_driver_index() { return _driver_index; }
 
@@ -120,31 +126,6 @@ public:
     };
 
 private:
-    class SystemClock: public uavcan::ISystemClock, uavcan::Noncopyable {
-    public:
-        SystemClock() = default;
-
-        void adjustUtc(uavcan::UtcDuration adjustment) override {
-            utc_adjustment_usec = adjustment.toUSec();
-        }
-
-        uavcan::MonotonicTime getMonotonic() const override {
-            return uavcan::MonotonicTime::fromUSec(AP_HAL::micros64());
-        }
-
-        uavcan::UtcTime getUtc() const override {
-            return uavcan::UtcTime::fromUSec(AP_HAL::micros64() + utc_adjustment_usec);
-        }
-
-        static SystemClock& instance() {
-            static SystemClock inst;
-            return inst;
-        }
-
-    private:
-        int64_t utc_adjustment_usec;
-    };
-
     // This will be needed to implement if UAVCAN is used with multithreading
     // Such cases will be firmware update, etc.
     class RaiiSynchronizer {};
@@ -178,6 +159,8 @@ private:
     uavcan::Node<0> *_node;
 
     uint8_t _driver_index;
+
+    uavcan::CanIfaceMgr* _iface_mgr;
     char _thread_name[13];
     bool _initialized;
     ///// SRV output /////
@@ -222,6 +205,23 @@ private:
         ByteBuffer *buf;
     } _rtcm_stream;
     
+     // ESC
+
+    static HAL_Semaphore _telem_sem;
+
+    struct esc_data {
+        uint8_t temp;
+        uint16_t voltage;
+        uint16_t current;
+        uint16_t total_current;
+        uint16_t rpm;
+        uint16_t count; //count of telemetry packets received (wraps at 65535).
+        bool available;
+    };
+
+    static esc_data _escs_data[UAVCAN_SRV_NUMBER];
+
+    
     // safety status send state
     uint32_t _last_safety_state_ms;
 
@@ -230,6 +230,7 @@ private:
     static void handle_traffic_report(AP_UAVCAN* ap_uavcan, uint8_t node_id, const TrafficReportCb &cb);
     static void handle_actuator_status(AP_UAVCAN* ap_uavcan, uint8_t node_id, const ActuatorStatusCb &cb);
     static void handle_ESC_status(AP_UAVCAN* ap_uavcan, uint8_t node_id, const ESCStatusCb &cb);
+    static bool is_esc_data_index_valid(const uint8_t index);
 };
 
 #endif /* AP_UAVCAN_H_ */

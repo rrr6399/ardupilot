@@ -28,11 +28,12 @@
 
 #include <AP_Common/Location.h>
 #include <AP_Math/AP_Math.h>
-#include "AP_NavEKF3.h"
 #include <AP_Math/vectorN.h>
 #include <AP_NavEKF/AP_NavEKF_core_common.h>
 #include <AP_NavEKF3/AP_NavEKF3_Buffer.h>
 #include <AP_InertialSensor/AP_InertialSensor.h>
+#include <GCS_MAVLink/GCS_MAVLink.h>
+
 #include "AP_NavEKF/EKFGSF_yaw.h"
 
 // GPS pre-flight check bit locations
@@ -91,7 +92,7 @@ class NavEKF3_core : public NavEKF_core_common
 {
 public:
     // Constructor
-    NavEKF3_core(NavEKF3 *_frontend);
+    NavEKF3_core(class NavEKF3 *_frontend);
 
     // setup this core backend
     bool setup_core(uint8_t _imu_index, uint8_t _core_index);
@@ -445,7 +446,7 @@ private:
     EKFGSF_yaw *yawEstimator;
 
     // Reference to the global EKF frontend for parameters
-    NavEKF3 *frontend;
+    class NavEKF3 *frontend;
     uint8_t imu_index; // preferred IMU index
     uint8_t gyro_index_active; // active gyro index (in case preferred fails)
     uint8_t accel_index_active; // active accel index (in case preferred fails)
@@ -628,6 +629,19 @@ private:
         Vector3f accel_bias;
     } inactiveBias[INS_MAX_INSTANCES];
 
+    // Specify source of data to be used for a partial state reset
+    // Checking the availability and quality of the data source specified is the responsibility of the caller
+    enum class resetDataSource {
+        DEFAULT=0,      // Use data source selected by reset function internal rules
+        GPS=1,          // Use GPS
+        RNGBCN=2,       // Use beacon range data
+        FLOW=3,         // Use optical flow rates
+        BARO=4,         // Use Baro height
+        MAG=5,          // Use magnetometer data
+        RNGFND=6,       // Use rangefinder data
+        EXTNAV=7        // Use external nav data
+    };
+
     // update the navigation filter status
     void updateFilterStatus(void);
 
@@ -797,7 +811,7 @@ private:
     void InitialiseVariablesMag();
 
     // reset the horizontal position states uing the last GPS measurement
-    void ResetPosition(void);
+    void ResetPosition(resetDataSource posResetSource);
 
     // reset the stateStruct's NE position to the specified position
     void ResetPositionNE(float posN, float posE);
@@ -806,7 +820,7 @@ private:
     void ResetPositionD(float posD);
 
     // reset velocity states using the last GPS measurement
-    void ResetVelocity(void);
+    void ResetVelocity(resetDataSource velResetSource);
 
     // reset the vertical position state using the last height measurement
     void ResetHeight(void);
@@ -1148,21 +1162,6 @@ private:
     uint32_t firstInitTime_ms;      // First time the initialise function was called (msec)
     uint32_t lastInitFailReport_ms; // Last time the buffer initialisation failure report was sent (msec)
 
-    // Specify source of data to be used for a partial state reset
-    // Checking the availability and quality of the data source specified is the responsibility of the caller
-    enum resetDataSource {
-                    DEFAULT=0,      // Use data source selected by reset function internal rules
-                    GPS=1,          // Use GPS
-                    RNGBCN=2,       // Use beacon range data
-                    FLOW=3,         // Use optical flow rates
-                    BARO=4,         // Use Baro height
-                    MAG=5,          // Use magnetometer data
-                    RNGFND=6,       // Use rangefinder data
-                    EXTNAV=7        // Use external nav data
-                        };
-    resetDataSource posResetSource; // preferred source of data for position reset
-    resetDataSource velResetSource; // preferred source of data for a velocity reset
-
     // variables used to calculate a vertical velocity that is kinematically consistent with the vertical position
     struct {
         float pos;
@@ -1371,7 +1370,6 @@ private:
     bool extNavDataToFuse;              // true when there is new external nav data to fuse
     bool extNavUsedForPos;              // true when the external nav data is being used as a position reference.
     obs_ring_buffer_t<ext_nav_vel_elements> storedExtNavVel;    // external navigation velocity data buffer
-    ext_nav_vel_elements extNavVelNew;  // external navigation velocity data at the current time horizon
     ext_nav_vel_elements extNavVelDelayed;  // external navigation velocity data at the fusion time horizon.  Already corrected for sensor position
     uint32_t extNavVelMeasTime_ms;      // time external navigation velocity measurements were accepted for input to the data buffer (msec)
     bool extNavVelToFuse;               // true when there is new external navigation velocity to fuse

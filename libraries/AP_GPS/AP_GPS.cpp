@@ -37,8 +37,8 @@
 #include "AP_GPS_MAV.h"
 #include "GPS_Backend.h"
 
-#if HAL_WITH_UAVCAN
-#include <AP_BoardConfig/AP_BoardConfig_CAN.h>
+#if HAL_ENABLE_LIBUAVCAN_DRIVERS
+#include <AP_CANManager/AP_CANManager.h>
 #include <AP_UAVCAN/AP_UAVCAN.h>
 #include "AP_GPS_UAVCAN.h"
 #endif
@@ -299,6 +299,26 @@ const AP_Param::GroupInfo AP_GPS::var_info[] = {
     AP_GROUPINFO("DRV_OPTIONS", 22, AP_GPS, _driver_options, 0),
 #endif
 
+    // @Param: COM_PORT
+    // @DisplayName: GPS physical COM port
+    // @Description: The physical COM port on the connected device, currently only applies to SBF GPS
+    // @Range: 0 10
+    // @Increment: 1
+    // @User: Advanced
+    // @RebootRequired: True
+    AP_GROUPINFO("COM_PORT", 23, AP_GPS, _com_port[0], 1),
+
+#if GPS_MAX_RECEIVERS > 1
+    // @Param: COM_PORT2
+    // @DisplayName: GPS physical COM port
+    // @Description: The physical COM port on the connected device, currently only applies to SBF GPS
+    // @Range: 0 10
+    // @Increment: 1
+    // @User: Advanced
+    // @RebootRequired: True
+    AP_GROUPINFO("COM_PORT2", 24, AP_GPS, _com_port[1], 1),
+#endif
+
     AP_GROUPEND
 };
 
@@ -489,7 +509,7 @@ void AP_GPS::detect_instance(uint8_t instance)
 
     // user has to explicitly set the UAVCAN type, do not use AUTO
     case GPS_TYPE_UAVCAN:
-#if HAL_WITH_UAVCAN
+#if HAL_ENABLE_LIBUAVCAN_DRIVERS
         dstate->auto_detected_baud = false; // specified, not detected
         new_gps = AP_GPS_UAVCAN::probe(*this, state[instance]);
         goto found_gps;

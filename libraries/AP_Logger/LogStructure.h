@@ -1194,6 +1194,17 @@ struct PACKED log_OADijkstra {
     int32_t oa_lng;
 };
 
+struct PACKED log_SimpleAvoid {
+  LOG_PACKET_HEADER;
+  uint64_t time_us;
+  uint8_t state;
+  float desired_vel_x;
+  float desired_vel_y;
+  float modified_vel_x;
+  float modified_vel_y;
+  uint8_t backing_up;
+};
+
 struct PACKED log_DSTL {
     LOG_PACKET_HEADER;
     uint64_t time_us;
@@ -1219,6 +1230,22 @@ struct PACKED log_Arm_Disarm {
     uint32_t arm_checks;
     uint8_t forced;
     uint8_t method;
+};
+
+struct PACKED log_Winch {
+    LOG_PACKET_HEADER;
+    uint64_t time_us;
+    uint8_t healthy;
+    uint8_t thread_end;
+    uint8_t moving;
+    uint8_t clutch;
+    uint8_t mode;
+    float desired_length;
+    float length;
+    float desired_rate;
+    uint16_t tension;
+    float voltage;
+    int8_t temp;
 };
 
 // FMT messages define all message formats other than FMT
@@ -2107,6 +2134,16 @@ struct PACKED log_Arm_Disarm {
 // @Field: E: point associated with most recent action (East component)
 // @Field: D: point associated with most recent action (Down component)
 
+// @LoggerMessage: SA
+// @Description: Simple Avoidance messages
+// @Field: TimeUS: Time since system startup
+// @Field: State: True if Simple Avoidance is active
+// @Field: DVelX: Desired velocity, X-Axis (Velocity before Avoidance)
+// @Field: DVelY: Desired velocity, Y-Axis (Velocity before Avoidance)
+// @Field: MVelX: Modified velocity, X-Axis (Velocity after Avoidance)
+// @Field: MVelY: Modified velocity, Y-Axis (Velocity after Avoidance)
+// @Field: Back: True if vehicle is backing away 
+
 // @LoggerMessage: TERR
 // @Description: Terrain database infomration
 // @Field: TimeUS: Time since system startup
@@ -2360,6 +2397,21 @@ struct PACKED log_Arm_Disarm {
 // @Field: V22: Variance for state 22
 // @Field: V23: Variance for state 23
 
+// @LoggerMessage: WINC
+// @Description: Winch
+// @Field: TimeUS: Time since system startup
+// @Field: Heal: Healthy
+// @Field: ThEnd: Reached end of thread
+// @Field: Mov: Motor is moving
+// @Field: Clut: Clutch is engaged (motor can move freely)
+// @Field: Mode: 0 is Relaxed, 1 is Position Control, 2 is Rate Control
+// @Field: DLen: Desired Length
+// @Field: Len: Estimated Length
+// @Field: DRate: Desired Rate
+// @Field: Tens: Tension on line
+// @Field: Vcc: Voltage to Motor
+// @Field: Temp: Motor temperature
+
 // messages for all boards
 #define LOG_BASE_STRUCTURES \
     { LOG_FORMAT_MSG, sizeof(log_Format), \
@@ -2436,6 +2488,8 @@ struct PACKED log_Arm_Disarm {
       "OABR","QBHHBfLLLL","TimeUS,Active,DesYaw,Yaw,ResChg,Mar,DLat,DLng,OALat,OALng", "sbdd-mDUDU", "F-----GGGG" }, \
     { LOG_OA_DIJKSTRA_MSG, sizeof(log_OADijkstra), \
       "OADJ","QBBBBLLLL","TimeUS,State,Err,CurrPoint,TotPoints,DLat,DLng,OALat,OALng", "sbbbbDUDU", "F----GGGG" }, \
+    { LOG_SIMPLE_AVOID_MSG, sizeof(log_SimpleAvoid), \
+      "SA",  "QBffffB","TimeUS,State,DVelX,DVelY,MVelX,MVelY,Back", "sbnnnnb", "F------"}, \
     { LOG_IMU2_MSG, sizeof(log_IMU), \
       "IMU2",  IMU_FMT,     IMU_LABELS, IMU_UNITS, IMU_MULTS }, \
     { LOG_IMU3_MSG, sizeof(log_IMU), \
@@ -2569,8 +2623,9 @@ struct PACKED log_Arm_Disarm {
     { LOG_ARM_DISARM_MSG, sizeof(log_Arm_Disarm), \
       "ARM", "QBIBB", "TimeUS,ArmState,ArmChecks,Forced,Method", "s----", "F----" }, \
     { LOG_ERROR_MSG, sizeof(log_Error), \
-      "ERR",   "QBB",         "TimeUS,Subsys,ECode", "s--", "F--" }
-
+      "ERR",   "QBB",         "TimeUS,Subsys,ECode", "s--", "F--" }, \
+    { LOG_WINCH_MSG, sizeof(log_Winch), \
+      "WINC", "QBBBBBfffHfb", "TimeUS,Heal,ThEnd,Mov,Clut,Mode,DLen,Len,DRate,Tens,Vcc,Temp", "s-----mmn?vO", "F-----000000" }
 
 // @LoggerMessage: SBPH
 // @Description: Swift Health Data
@@ -2728,6 +2783,8 @@ enum LogMessages : uint8_t {
     LOG_OA_BENDYRULER_MSG,
     LOG_OA_DIJKSTRA_MSG,
     LOG_VISUALVEL_MSG,
+    LOG_SIMPLE_AVOID_MSG,
+    LOG_WINCH_MSG,
 
     _LOG_LAST_MSG_
 };
