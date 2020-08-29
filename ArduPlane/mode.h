@@ -74,6 +74,9 @@ public:
     // true if mode can have terrain following disabled by switch
     virtual bool allows_terrain_disable() const { return false; }
 
+    // subclasses override this if they require navigation.
+    virtual void navigate() { return; }
+
 protected:
 
     // subclasses override this to perform checks before entering the mode
@@ -111,6 +114,8 @@ public:
     // methods that affect movement of the vehicle in this mode
     void update() override;
 
+    void navigate() override;
+
 protected:
 
     bool _enter() override;
@@ -146,6 +151,8 @@ public:
     // methods that affect movement of the vehicle in this mode
     void update() override;
 
+    void navigate() override;
+
 protected:
 
     bool _enter() override;
@@ -177,6 +184,8 @@ public:
 
     // methods that affect movement of the vehicle in this mode
     void update() override;
+
+    void navigate() override;
 
     bool isHeadingLinedUp(const Location loiterCenterLoc, const Location targetLoc);
     bool isHeadingLinedUp_cd(const int32_t bearing_cd);
@@ -214,6 +223,8 @@ public:
 
     // methods that affect movement of the vehicle in this mode
     void update() override;
+
+    void navigate() override;
 
 protected:
 
@@ -316,9 +327,17 @@ public:
     // methods that affect movement of the vehicle in this mode
     void update() override;
 
+    void navigate() override;
+
+    bool get_target_heading_cd(int32_t &target_heading);
+
 protected:
 
     bool _enter() override;
+
+    bool locked_heading;
+    int32_t locked_heading_cd;
+    uint32_t lock_timer_ms;
 };
 
 class ModeAvoidADSB : public Mode
@@ -332,6 +351,7 @@ public:
     // methods that affect movement of the vehicle in this mode
     void update() override;
 
+    void navigate() override;
 protected:
 
     bool _enter() override;
@@ -484,6 +504,8 @@ public:
 
     // methods that affect movement of the vehicle in this mode
     void update() override;
+
+    void navigate() override;
 
     // var_info for holding parameter information
     static const struct AP_Param::GroupInfo var_info[];

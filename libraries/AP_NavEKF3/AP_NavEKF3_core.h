@@ -171,8 +171,11 @@ public:
     // return body magnetic field estimates in measurement units / 1000
     void getMagXYZ(Vector3f &magXYZ) const;
 
-    // return the index for the active magnetometer
+    // return the index for the active sensors
     uint8_t getActiveMag() const;
+    uint8_t getActiveBaro() const;
+    uint8_t getActiveGPS() const;
+    uint8_t getActiveAirspeed() const;
 
     // Return estimated magnetometer offsets
     // Return true if magnetometer offsets are valid
@@ -1195,7 +1198,6 @@ private:
     of_elements ofDataNew;          // OF data at the current time horizon
     of_elements ofDataDelayed;      // OF data at the fusion time horizon
     uint8_t ofStoreIndex;           // OF data storage index
-    bool flowDataToFuse;            // true when optical flow data has is ready for fusion
     bool flowDataValid;             // true while optical flow data is still fresh
     Vector2f auxFlowObsInnov;       // optical flow rate innovation from 1-state terrain offset estimator
     uint32_t flowValidMeaTime_ms;   // time stamp from latest valid flow measurement (msec)
@@ -1261,10 +1263,7 @@ private:
     bool bodyVelFusionActive;           // true when body frame velocity fusion is active
 
     // wheel sensor fusion
-    uint32_t wheelOdmMeasTime_ms;       // time wheel odometry measurements were accepted for input to the data buffer (msec)
-    bool usingWheelSensors;             // true when the body frame velocity fusion method should take onbservation data from the wheel odometry buffer
     obs_ring_buffer_t<wheel_odm_elements> storedWheelOdm;    // body velocity data buffer
-    wheel_odm_elements wheelOdmDataNew;       // Body frame odometry data at the current time horizon
     wheel_odm_elements wheelOdmDataDelayed;   // Body  frame odometry data at the fusion time horizon
 
     // yaw sensor fusion
@@ -1275,7 +1274,6 @@ private:
 
     // Range Beacon Sensor Fusion
     obs_ring_buffer_t<rng_bcn_elements> storedRangeBeacon; // Beacon range buffer
-    rng_bcn_elements rngBcnDataNew;     // Range beacon data at the current time horizon
     rng_bcn_elements rngBcnDataDelayed; // Range beacon data at the fusion time horizon
     uint8_t rngBcnStoreIndex;           // Range beacon data storage index
     uint32_t lastRngBcnPassTime_ms;     // time stamp when the range beacon measurement last passed innovation consistency checks (msec)
@@ -1284,7 +1282,7 @@ private:
     bool rngBcnTimeout;                 // boolean true if range beacon measurements have failed innovation consistency checks for too long
     float varInnovRngBcn;               // range beacon observation innovation variance (m^2)
     float innovRngBcn;                  // range beacon observation innovation (m)
-    uint32_t lastTimeRngBcn_ms[10];     // last time we received a range beacon measurement (msec)
+    uint32_t lastTimeRngBcn_ms[4];      // last time we received a range beacon measurement (msec)
     bool rngBcnDataToFuse;              // true when there is new range beacon data to fuse
     Vector3f beaconVehiclePosNED;       // NED position estimate from the beacon system (NED)
     float beaconVehiclePosErr;          // estimated position error from the beacon system (m)
@@ -1323,7 +1321,7 @@ private:
         float innovVar;     // innovation variance (m^2)
         float testRatio;    // innovation consistency test ratio
         Vector3f beaconPosNED; // beacon NED position
-    } rngBcnFusionReport[10];
+    } rngBcnFusionReport[4];
 
     // height source selection logic
     uint8_t activeHgtSource;    // integer defining active height source
@@ -1487,4 +1485,28 @@ private:
     uint8_t EKFGSF_yaw_reset_count;         // number of emergency yaw resets performed
     bool EKFGSF_run_filterbank;             // true when the filter bank is active
     uint8_t EKFGSF_yaw_valid_count;         // number of updates since the last invalid yaw estimate
+
+    // bits in EK3_AFFINITY
+    enum ekf_affinity {
+        EKF_AFFINITY_GPS  = (1U<<0),
+        EKF_AFFINITY_BARO = (1U<<1),
+        EKF_AFFINITY_MAG  = (1U<<2),
+        EKF_AFFINITY_ARSP = (1U<<3),
+    };
+
+    // update selected_sensors for this core
+    void update_sensor_selection(void);
+    void update_gps_selection(void);
+    void update_mag_selection(void);
+    void update_baro_selection(void);
+    void update_airspeed_selection(void);
+
+    // selected and preferred sensor instances. We separate selected
+    // from preferred so that calcGpsGoodToAlign() can ensure the
+    // preferred sensor is ready. Note that magSelectIndex is used for
+    // compass selection
+    uint8_t selected_gps;
+    uint8_t preferred_gps;
+    uint8_t selected_baro;
+    uint8_t selected_airspeed;
 };

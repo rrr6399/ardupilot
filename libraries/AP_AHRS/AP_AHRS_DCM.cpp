@@ -1048,8 +1048,14 @@ bool AP_AHRS_DCM::get_position(struct Location &loc) const
 // return an airspeed estimate if available
 bool AP_AHRS_DCM::airspeed_estimate(float &airspeed_ret) const
 {
-    if (airspeed_sensor_enabled()) {
-        airspeed_ret = _airspeed->get_airspeed();
+    return airspeed_estimate(_airspeed?_airspeed->get_primary():0, airspeed_ret);
+}
+
+// return an airspeed estimate from a specific airspeed sensor instance if available
+bool AP_AHRS_DCM::airspeed_estimate(uint8_t airspeed_index, float &airspeed_ret) const
+{
+    if (airspeed_sensor_enabled(airspeed_index)) {
+        airspeed_ret = _airspeed->get_airspeed(airspeed_index);
     } else if (_flags.wind_estimation && have_gps()) {
         // estimate it via GPS speed and wind
         airspeed_ret = _last_airspeed;

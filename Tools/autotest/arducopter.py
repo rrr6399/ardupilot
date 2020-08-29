@@ -400,7 +400,7 @@ class AutoTestCopter(AutoTest):
         self.wait_disarmed()
 
     # enter RTL mode and wait for the vehicle to disarm
-    def do_RTL(self, timeout=250):
+    def do_RTL(self, distance_min=None, distance_max=10, timeout=250):
         """Return, land."""
         self.change_mode("RTL")
         self.set_rc(3, 1500)
@@ -410,7 +410,7 @@ class AutoTestCopter(AutoTest):
             alt = m.relative_alt / 1000.0 # mm -> m
             home_distance = self.distance_to_home(use_cached_home=True)
             home = ""
-            if alt <= 1 and home_distance < 10:
+            if alt <= 1 and home_distance < distance_max:
                 home = "HOME"
             self.progress("Alt: %.02f  HomeDist: %.02f %s" %
                           (alt, home_distance, home))
@@ -2204,14 +2204,11 @@ class AutoTestCopter(AutoTest):
     def test_rangefinder(self):
         ex = None
         self.context_push()
+
         self.progress("Making sure we don't ordinarily get RANGEFINDER")
-        try:
-            m = self.mav.recv_match(type='RANGEFINDER',
-                                    blocking=True,
-                                    timeout=5)
-        except Exception as e:
-            self.progress("Caught exception: %s" %
-                          self.get_exception_stacktrace(e))
+        m = self.mav.recv_match(type='RANGEFINDER',
+                                blocking=True,
+                                timeout=5)
 
         if m is not None:
             raise NotAchievedException("Received unexpected RANGEFINDER msg")
@@ -2219,6 +2216,7 @@ class AutoTestCopter(AutoTest):
         # may need to force a rotation if some other test has used the
         # rangefinder...
         self.progress("Ensure no RFND messages in log")
+        self.set_parameter("LOG_DISARMED", 1)
         if self.current_onboard_log_contains_message("RFND"):
             raise NotAchievedException("Found unexpected RFND message")
 
@@ -4749,12 +4747,24 @@ class AutoTestCopter(AutoTest):
                 break
         self.do_RTL()
 
+    def get_global_position_int(self, timeout=30):
+        tstart = self.get_sim_time()
+        while True:
+            if self.get_sim_time_cached() - tstart > timeout:
+                raise NotAchievedException("Did not get good global_position_int")
+            m = self.mav.recv_match(type='GLOBAL_POSITION_INT', blocking=True, timeout=1)
+            self.progress("GPI: %s" % str(m))
+            if m is None:
+                continue
+            if m.lat != 0 or m.lon != 0:
+                return m
+
     def fly_beacon_position(self):
         self.reboot_sitl()
 
         self.wait_ready_to_arm(require_absolute=True)
 
-        old_pos = self.mav.location()
+        old_pos = self.get_global_position_int()
         print("old_pos=%s" % str(old_pos))
 
         self.context_push()
@@ -4764,12 +4774,22 @@ class AutoTestCopter(AutoTest):
             self.set_parameter("BCN_LATITUDE", SITL_START_LOCATION.lat)
             self.set_parameter("BCN_LONGITUDE", SITL_START_LOCATION.lng)
             self.set_parameter("BCN_ALT", SITL_START_LOCATION.alt)
-            self.set_parameter("BCN_ORIENT_YAW", 45)
+            self.set_parameter("BCN_ORIENT_YAW", 0)
             self.set_parameter("AVOID_ENABLE", 4)
             self.set_parameter("GPS_TYPE", 0)
-            self.set_parameter("EK3_GPS_TYPE", 3) # NOGPS
             self.set_parameter("EK3_ENABLE", 1)
+            self.set_parameter("EK3_GPS_TYPE", 3) # NOGPS
             self.set_parameter("EK2_ENABLE", 0)
+            self.reboot_sitl()
+            self.set_parameter("AHRS_EKF_TYPE", 3)
+
+            # turn off GPS arming checks.  This may be considered a
+            # bug that we need to do this.
+            old_arming_check = int(self.get_parameter("ARMING_CHECK"))
+            if old_arming_check == 1:
+                old_arming_check = 1^25-1
+            new_arming_check = int(old_arming_check) & ~(1<<3)
+            self.set_parameter("ARMING_CHECK", new_arming_check)
 
             self.reboot_sitl()
 
@@ -4782,23 +4802,35 @@ class AutoTestCopter(AutoTest):
                 if self.get_sim_time_cached() - tstart > timeout:
                     raise NotAchievedException("Did not get new position like old position")
                 self.progress("Fetching location")
-                new_pos = self.mav.location()
-                pos_delta = self.get_distance(old_pos, new_pos)
+                new_pos = self.get_global_position_int()
+                pos_delta = self.get_distance_int(old_pos, new_pos)
                 max_delta = 1
                 self.progress("delta=%u want <= %u" % (pos_delta, max_delta))
                 if pos_delta <= max_delta:
                     break
 
             self.progress("Moving to ensure location is tracked")
-            self.takeoff(10, mode="LOITER")
-            self.set_rc(2, 1400)
-            self.delay_sim_time(5)
-            self.set_rc(2, 1500)
-            self.wait_groundspeed(0, 0.1)
-            pos_delta = self.get_distance(self.sim_location(), self.mav.location)
-            if pos_delta > max_delta:
-                raise NotAchievedException("Vehicle location not tracking simulated location (%u > %u)" %
-                                           (pos_delta, max_delta))
+            self.takeoff(10, mode="STABILIZE")
+            self.change_mode("CIRCLE")
+
+            tstart = self.get_sim_time()
+            max_delta = 0
+            max_allowed_delta = 10
+            while True:
+                if self.get_sim_time_cached() - tstart > timeout:
+                    break
+
+                pos_delta = self.get_distance_int(self.sim_location_int(), self.get_global_position_int())
+                self.progress("pos_delta=%f max_delta=%f max_allowed_delta=%f" % (pos_delta, max_delta, max_allowed_delta))
+                if pos_delta > max_delta:
+                    max_delta = pos_delta
+                if pos_delta > max_allowed_delta:
+                    raise NotAchievedException("Vehicle location not tracking simulated location (%f > %f)" %
+                                               (pos_delta, max_allowed_delta))
+            self.progress("Tracked location just fine (max_delta=%f)" % max_delta)
+            self.change_mode("LOITER")
+            self.wait_groundspeed(0, 0.3, timeout=120)
+            self.land_and_disarm()
 
         except Exception as e:
             self.progress("Caught exception: %s" %
@@ -5148,6 +5180,29 @@ class AutoTestCopter(AutoTest):
         self.drain_mav()
         self.assert_prearm_failure("Check MOT_PWM_MIN/MAX")
 
+    def test_alt_estimate_prearm(self):
+        self.context_push()
+        ex = None
+        try:
+            self.set_parameter("EK2_ALT_SOURCE", 2)
+            self.wait_gps_disable(position_vertical=True)
+            self.change_mode("ALT_HOLD")
+            self.assert_prearm_failure("Need Alt Estimate")
+            self.change_mode("STABILIZE")
+            self.arm_vehicle()
+            self.takeoff()
+            try:
+                self.change_mode("ALT_HOLD", timeout=10)
+            except AutoTestTimeoutException:
+                self.progress("PASS not able to set mode without Position : %s" % "ALT_HOLD")
+        except Exception as e:
+            ex = e
+        self.context_pop()
+        self.disarm_vehicle(force=True)
+        self.reboot_sitl()
+        if ex is not None:
+            raise ex
+
     def tests1(self):
         '''return list of all tests'''
         ret = super(AutoTestCopter, self).tests()
@@ -5413,6 +5468,10 @@ class AutoTestCopter(AutoTest):
              "Test SITL onboard compass calibration",
              self.test_mag_calibration),
 
+            ("CompassReordering",
+             "Test Compass reordering when priorities are changed",
+             self.test_mag_reordering),
+
             ("CRSF",
              "Test RC CRSF",
              self.test_crsf),
@@ -5420,6 +5479,10 @@ class AutoTestCopter(AutoTest):
             ("MotorTest",
              "Run Motor Tests",
              self.test_motortest),
+
+            ("AltEstimation",
+             "Test that Alt Estimation is mandatory for ALT_HOLD",
+             self.test_alt_estimate_prearm),
 
             ("LogUpload",
              "Log upload",
@@ -5437,7 +5500,6 @@ class AutoTestCopter(AutoTest):
         return {
             "Parachute": "See https://github.com/ArduPilot/ardupilot/issues/4702",
             "HorizontalAvoidFence": "See https://github.com/ArduPilot/ardupilot/issues/11525",
-            "BeaconPosition": "See https://github.com/ArduPilot/ardupilot/issues/11689",
         }
 
 class AutoTestHeli(AutoTestCopter):
@@ -5574,8 +5636,10 @@ class AutoTestHeli(AutoTestCopter):
             self.delay_sim_time(20)
             # check we are still on the ground...
             m = self.mav.recv_match(type='GLOBAL_POSITION_INT', blocking=True)
-            if abs(m.relative_alt) > 100:
-                raise NotAchievedException("Took off prematurely")
+            max_relalt = 100
+            if abs(m.relative_alt) > max_relalt:
+                raise NotAchievedException("Took off prematurely (abs(%f)>%f)" %
+                (m.relative_alt, max_relalt))
             self.progress("Pushing throttle past half-way")
             self.set_rc(3, 1600)
             self.delay_sim_time(0.5)

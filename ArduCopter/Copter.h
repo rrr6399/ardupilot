@@ -607,6 +607,7 @@ private:
         RC_CONTINUE_IF_GUIDED           = (1<<2),   // 4
         CONTINUE_IF_LANDING             = (1<<3),   // 8
         GCS_CONTINUE_IF_PILOT_CONTROL   = (1<<4),   // 16
+        RELEASE_GRIPPER                 = (1<<5),   // 32
     };
 
     static constexpr int8_t _failsafe_priorities[] = {
@@ -662,7 +663,6 @@ private:
     void update_throttle_hover();
     float get_pilot_desired_climb_rate(float throttle_control);
     float get_non_takeoff_throttle();
-    float get_avoidance_adjusted_climbrate(float target_rate);
     void set_accel_throttle_I_from_pilot_throttle();
     void rotate_body_frame_to_NE(float &x, float &y);
     uint16_t get_pilot_speed_dn();
@@ -863,6 +863,7 @@ private:
     bool position_ok() const;
     bool ekf_position_ok() const;
     bool optflow_position_ok() const;
+    bool ekf_alt_ok() const;
     void update_auto_armed();
     bool should_log(uint32_t mask);
     MAV_TYPE get_frame_mav_type();

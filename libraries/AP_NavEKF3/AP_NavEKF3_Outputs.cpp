@@ -45,6 +45,20 @@ float NavEKF3_core::errorScore() const
         score = MAX(score, 0.5f * (velTestRatio + posTestRatio));
         // Check altimeter fusion performance
         score = MAX(score, hgtTestRatio);
+        // Check airspeed fusion performance - only when we are using at least 2 airspeed sensors so we can switch lanes with 
+        // a better one. This only comes into effect for a forward flight vehicle. A sensitivity factor of 0.3 is added to keep the
+        // EKF less sensitive to innovations arising due events like strong gusts of wind, thus, prevent reporting high error scores
+        if (assume_zero_sideslip()) {
+            const auto *arsp = AP::airspeed();
+            if (arsp->get_num_sensors() >= 2 && (frontend->_affinity & EKF_AFFINITY_ARSP)) {
+                score = MAX(score, 0.3f * tasTestRatio);
+            }
+        }
+        // Check magnetometer fusion performance - need this when magnetometer affinity is enabled to override the inherent compass
+        // switching mechanism, and instead be able to move to a better lane
+        if (frontend->_affinity & EKF_AFFINITY_MAG) {
+            score = MAX(score, 0.3f * (magTestRatio.x + magTestRatio.y + magTestRatio.z));
+        }
     }
     return score;
 }
@@ -252,9 +266,10 @@ bool NavEKF3_core::getPosNE(Vector2f &posNE) const
     } else {
         // In constant position mode the EKF position states are at the origin, so we cannot use them as a position estimate
         if(validOrigin) {
-            if ((AP::gps().status() >= AP_GPS::GPS_OK_FIX_2D)) {
+            auto &gps = AP::gps();
+            if ((gps.status(selected_gps) >= AP_GPS::GPS_OK_FIX_2D)) {
                 // If the origin has been set and we have GPS, then return the GPS position relative to the origin
-                const struct Location &gpsloc = AP::gps().location();
+                const struct Location &gpsloc = gps.location(selected_gps);
                 const Vector2f tempPosNE = EKF_origin.get_distance_NE(gpsloc);
                 posNE.x = tempPosNE.x;
                 posNE.y = tempPosNE.y;
@@ -335,9 +350,9 @@ bool NavEKF3_core::getLLH(struct Location &loc) const
         } else {
             // we could be in constant position mode because the vehicle has taken off without GPS, or has lost GPS
             // in this mode we cannot use the EKF states to estimate position so will return the best available data
-            if ((gps.status() >= AP_GPS::GPS_OK_FIX_2D)) {
+            if ((gps.status(selected_gps) >= AP_GPS::GPS_OK_FIX_2D)) {
                 // we have a GPS position fix to return
-                const struct Location &gpsloc = gps.location();
+                const struct Location &gpsloc = gps.location(selected_gps);
                 loc.lat = gpsloc.lat;
                 loc.lng = gpsloc.lng;
                 return true;
@@ -356,8 +371,8 @@ bool NavEKF3_core::getLLH(struct Location &loc) const
     } else {
         // If no origin has been defined for the EKF, then we cannot use its position states so return a raw
         // GPS reading if available and return false
-        if ((gps.status() >= AP_GPS::GPS_OK_FIX_3D)) {
-            const struct Location &gpsloc = gps.location();
+        if ((gps.status(selected_gps) >= AP_GPS::GPS_OK_FIX_3D)) {
+            const struct Location &gpsloc = gps.location(selected_gps);
             loc = gpsloc;
             loc.relative_alt = 0;
             loc.terrain_alt = 0;
@@ -442,6 +457,24 @@ bool NavEKF3_core::getMagOffsets(uint8_t mag_idx, Vector3f &magOffsets) const
 uint8_t NavEKF3_core::getActiveMag() const
 {
     return (uint8_t)magSelectIndex;
+}
+
+// return the index for the active barometer
+uint8_t NavEKF3_core::getActiveBaro() const
+{
+    return (uint8_t)selected_baro;
+}
+
+// return the index for the active GPS
+uint8_t NavEKF3_core::getActiveGPS() const
+{
+    return (uint8_t)selected_gps;
+}
+
+// return the index for the active airspeed
+uint8_t NavEKF3_core::getActiveAirspeed() const
+{
+    return (uint8_t)selected_airspeed;
 }
 
 // return the innovations for the NED Pos, NED Vel, XYZ Mag and Vtas measurements

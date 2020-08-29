@@ -225,7 +225,7 @@ void NavEKF3_core::setAidingMode()
             bool bodyOdmFusionTimeout = ((imuSampleTime_ms - prevBodyVelFuseTime_ms) > 5000);
             // Enable switch to absolute position mode if GPS or range beacon data is available
             // If GPS or range beacons data is not available and flow fusion has timed out, then fall-back to no-aiding
-            if(readyToUseGPS() || readyToUseRangeBeacon()) {
+            if (readyToUseGPS() || readyToUseRangeBeacon() || readyToUseExtNav()) {
                 PV_AidingMode = AID_ABSOLUTE;
             } else if (flowFusionTimeout && bodyOdmFusionTimeout) {
                 PV_AidingMode = AID_NONE;
@@ -446,12 +446,11 @@ bool NavEKF3_core::readyToUseOptFlow(void) const
 // return true if the filter is ready to start using body frame odometry measurements
 bool NavEKF3_core::readyToUseBodyOdm(void) const
 {
-
     // Check for fresh visual odometry data that meets the accuracy required for alignment
     bool visoDataGood = (imuSampleTime_ms - bodyOdmMeasTime_ms < 200) && (bodyOdmDataNew.velErr < 1.0f);
 
     // Check for fresh wheel encoder data
-    bool wencDataGood = (imuSampleTime_ms - wheelOdmMeasTime_ms < 200);
+    bool wencDataGood = (imuDataDelayed.time_ms - wheelOdmDataDelayed.time_ms < 200);
 
     // We require stable roll/pitch angles and gyro bias estimates but do not need the yaw angle aligned to use odometry measurements
     // because they are in a body frame of reference

@@ -37,7 +37,12 @@
 
 extern const AP_HAL::HAL &hal;
 
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+#ifdef HAL_AIRSPEED_TYPE_DEFAULT
+ #define ARSPD_DEFAULT_TYPE HAL_AIRSPEED_TYPE_DEFAULT
+ #ifndef ARSPD_DEFAULT_PIN
+ #define ARSPD_DEFAULT_PIN 1
+ #endif
+#elif CONFIG_HAL_BOARD == HAL_BOARD_SITL
  #define ARSPD_DEFAULT_TYPE TYPE_ANALOG
  #define ARSPD_DEFAULT_PIN 1
 #elif APM_BUILD_TYPE(APM_BUILD_Rover)
@@ -327,6 +332,9 @@ void AP_Airspeed::init()
             GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Airspeed %u init failed", i + 1);
             delete sensor[i];
             sensor[i] = nullptr;
+        }
+        if (sensor[i] != nullptr) {
+            num_sensors = i+1;
         }
     }
 }

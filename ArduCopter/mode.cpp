@@ -250,6 +250,17 @@ bool Copter::set_mode(Mode::Number mode, ModeReason reason)
         return false;
     }
 
+    // check for valid altitude if old mode did not require it but new one does
+    // we only want to stop changing modes if it could make things worse
+    if (!ignore_checks &&
+        !copter.ekf_alt_ok() &&
+        flightmode->has_manual_throttle() &&
+        !new_flightmode->has_manual_throttle()) {
+        gcs().send_text(MAV_SEVERITY_WARNING, "Mode change failed: %s need alt estimate", new_flightmode->name());
+        AP::logger().Write_Error(LogErrorSubsystem::FLIGHT_MODE, LogErrorCode(mode));
+        return false;
+    }
+
     if (!new_flightmode->init(ignore_checks)) {
         gcs().send_text(MAV_SEVERITY_WARNING,"Flight mode change failed %s", new_flightmode->name());
         AP::logger().Write_Error(LogErrorSubsystem::FLIGHT_MODE, LogErrorCode(mode));
@@ -707,6 +718,16 @@ float Mode::get_pilot_desired_throttle() const
     return throttle_out;
 }
 
+float Mode::get_avoidance_adjusted_climbrate(float target_rate)
+{
+#if AC_AVOID_ENABLED == ENABLED
+    AP::ac_avoid()->adjust_velocity_z(pos_control->get_pos_z_p().kP(), pos_control->get_max_accel_z(), target_rate, G_Dt);
+    return target_rate;
+#else
+    return target_rate;
+#endif
+}
+
 Mode::AltHoldModeState Mode::get_alt_hold_state(float target_climb_rate_cms)
 {
     // Alt Hold State Machine Determination
@@ -802,11 +823,6 @@ void Mode::set_throttle_takeoff()
 {
     // tell position controller to reset alt target and reset I terms
     pos_control->init_takeoff();
-}
-
-float Mode::get_avoidance_adjusted_climbrate(float target_rate)
-{
-    return copter.get_avoidance_adjusted_climbrate(target_rate);
 }
 
 uint16_t Mode::get_pilot_speed_dn()
