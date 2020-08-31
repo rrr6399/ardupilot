@@ -11,6 +11,7 @@
 #include <AC_Avoidance/AC_Avoid.h>
 #include <AP_Proximity/AP_Proximity.h>
 #include "qautotune.h"
+#include "defines.h"
 
 /*
   QuadPlane specific functionality
@@ -24,9 +25,12 @@ public:
     friend class AP_AdvancedFailsafe_Plane;
     friend class QAutoTune;
     friend class AP_Arming_Plane;
+    friend class RC_Channel_Plane;
+    friend class RC_Channel;
 
     friend class Mode;
     friend class ModeAuto;
+    friend class ModeRTL;
     friend class ModeAvoidADSB;
     friend class ModeGuided;
     friend class ModeQHover;
@@ -101,7 +105,7 @@ public:
     }
 
     // return desired forward throttle percentage
-    int8_t forward_throttle_pct(void);        
+    int8_t forward_throttle_pct();
     float get_weathervane_yaw_rate_cds(void);
 
     // see if we are flying from vtol point of view
@@ -188,7 +192,10 @@ private:
     // vertical acceleration the pilot may request
     AP_Int16 pilot_accel_z;
 
-    // check for quadplane assistance needed
+     // air mode state: OFF, ON
+    AirMode air_mode;
+
+   // check for quadplane assistance needed
     bool assistance_needed(float aspeed, bool have_airspeed);
 
     // check if it is safe to provide assistance
@@ -294,6 +301,7 @@ private:
     // angular error at which quad assistance is given
     AP_Int8 assist_angle;
     uint32_t angle_error_start_ms;
+    AP_Float assist_delay;
 
     // altitude to trigger assistance
     AP_Int16 assist_alt;
@@ -334,6 +342,10 @@ private:
 
     // manual throttle curve expo strength
     AP_Float throttle_expo;
+
+    // manual forward throttle input
+    AP_Float fwd_thr_max;
+    RC_Channel *rc_fwd_thr_ch;
 
     // QACRO mode max roll/pitch/yaw rates
     AP_Float acro_roll_rate;
@@ -549,6 +561,9 @@ private:
         OPTION_MISSION_LAND_FW_APPROACH=(1<<4),
         OPTION_FS_QRTL=(1<<5),
         OPTION_IDLE_GOV_MANUAL=(1<<6),
+        OPTION_Q_ASSIST_FORCE_ENABLE=(1<<7),
+        OPTION_TAILSIT_Q_ASSIST_MOTORS_ONLY=(1<<8),
+        OPTION_AIRMODE=(1<<9),
     };
 
     AP_Float takeoff_failure_scalar;

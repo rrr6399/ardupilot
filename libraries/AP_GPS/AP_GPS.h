@@ -173,6 +173,7 @@ public:
         bool have_gps_yaw_accuracy;       ///< does the GPS give a heading accuracy estimate? Set to true only once available
         uint32_t last_gps_time_ms;          ///< the system time we got the last GPS timestamp, milliseconds
         uint32_t uart_timestamp_ms;         ///< optional timestamp from set_uart_timestamp()
+        uint32_t lagged_sample_count;       ///< number of samples with 50ms more lag than expected
 
         // all the following fields must only all be filled by RTK capable backend drivers
         uint32_t rtk_time_week_ms;         ///< GPS Time of Week of last baseline in milliseconds
@@ -500,6 +501,7 @@ protected:
     AP_Int8 _auto_config;
     AP_Vector3f _antenna_offset[GPS_MAX_RECEIVERS];
     AP_Int16 _delay_ms[GPS_MAX_RECEIVERS];
+    AP_Int8  _com_port[GPS_MAX_RECEIVERS];
     AP_Int8 _blend_mask;
     AP_Float _blend_tc;
     AP_Int16 _driver_options;
@@ -630,6 +632,13 @@ private:
     enum GPS_AUTO_CONFIG {
         GPS_AUTO_CONFIG_DISABLE = 0,
         GPS_AUTO_CONFIG_ENABLE  = 1
+    };
+
+    enum class GPSAutoSwitch {
+        NONE        = 0,
+        USE_BEST    = 1,
+        BLEND       = 2,
+        USE_SECOND  = 3,
     };
 
     // used for flight testing with GPS loss

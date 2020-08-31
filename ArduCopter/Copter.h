@@ -133,9 +133,9 @@
 #if PROXIMITY_ENABLED == ENABLED
  # include <AP_Proximity/AP_Proximity.h>
 #endif
-#if MOUNT == ENABLED
- #include <AP_Mount/AP_Mount.h>
-#endif
+
+#include <AP_Mount/AP_Mount.h>
+
 #if CAMERA == ENABLED
  # include <AP_Camera/AP_Camera.h>
 #endif
@@ -154,7 +154,6 @@
  # include "toy_mode.h"
 #endif
 #if WINCH_ENABLED == ENABLED
- # include <AP_WheelEncoder/AP_WheelEncoder.h>
  # include <AP_Winch/AP_Winch.h>
 #endif
 #if RPM_ENABLED == ENABLED
@@ -489,7 +488,7 @@ private:
 #endif
 
     // Camera/Antenna mount tracking and stabilisation stuff
-#if MOUNT == ENABLED
+#if HAL_MOUNT_ENABLED
     AP_Mount camera_mount;
 #endif
 
@@ -608,6 +607,7 @@ private:
         RC_CONTINUE_IF_GUIDED           = (1<<2),   // 4
         CONTINUE_IF_LANDING             = (1<<3),   // 8
         GCS_CONTINUE_IF_PILOT_CONTROL   = (1<<4),   // 16
+        RELEASE_GRIPPER                 = (1<<5),   // 32
     };
 
     static constexpr int8_t _failsafe_priorities[] = {
@@ -652,7 +652,6 @@ private:
     void twentyfive_hz_logging();
     void three_hz_loop();
     void one_hz_loop();
-    void update_GPS(void);
     void init_simple_bearing();
     void update_simple_mode(void);
     void update_super_simple_bearing(bool force_update);
@@ -662,10 +661,8 @@ private:
     // Attitude.cpp
     float get_pilot_desired_yaw_rate(int16_t stick_angle);
     void update_throttle_hover();
-    void set_throttle_takeoff();
     float get_pilot_desired_climb_rate(float throttle_control);
     float get_non_takeoff_throttle();
-    float get_avoidance_adjusted_climbrate(float target_rate);
     void set_accel_throttle_I_from_pilot_throttle();
     void rotate_body_frame_to_NE(float &x, float &y);
     uint16_t get_pilot_speed_dn();
@@ -677,6 +674,7 @@ private:
 
     // baro_ground_effect.cpp
     void update_ground_effect_detector(void);
+    void update_ekf_terrain_height_stable();
 
     // commands.cpp
     void update_home_from_EKF();
@@ -803,7 +801,7 @@ private:
     // motor_test.cpp
     void motor_test_output();
     bool mavlink_motor_test_check(const GCS_MAVLINK &gcs_chan, bool check_rc);
-    MAV_RESULT mavlink_motor_test_start(const GCS_MAVLINK &gcs_chan, uint8_t motor_seq, uint8_t throttle_type, uint16_t throttle_value, float timeout_sec, uint8_t motor_count);
+    MAV_RESULT mavlink_motor_test_start(const GCS_MAVLINK &gcs_chan, uint8_t motor_seq, uint8_t throttle_type, float throttle_value, float timeout_sec, uint8_t motor_count);
     void motor_test_stop();
 
     // motors.cpp
@@ -852,8 +850,6 @@ private:
     void accel_cal_update(void);
     void init_proximity();
     void update_proximity();
-    void winch_init();
-    void winch_update();
 
     // RC_Channel.cpp
     void save_trim();
@@ -863,10 +859,11 @@ private:
     // system.cpp
     void init_ardupilot() override;
     void startup_INS_ground();
-    void update_dynamic_notch();
+    void update_dynamic_notch() override;
     bool position_ok() const;
     bool ekf_position_ok() const;
     bool optflow_position_ok() const;
+    bool ekf_alt_ok() const;
     void update_auto_armed();
     bool should_log(uint32_t mask);
     MAV_TYPE get_frame_mav_type();

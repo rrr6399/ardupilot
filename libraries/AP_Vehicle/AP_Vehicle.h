@@ -23,9 +23,10 @@
 
 #include <AP_Baro/AP_Baro.h>
 #include <AP_BoardConfig/AP_BoardConfig.h>     // board configuration library
-#include <AP_BoardConfig/AP_BoardConfig_CAN.h>
+#include <AP_CANManager/AP_CANManager.h>
 #include <AP_Button/AP_Button.h>
 #include <AP_GPS/AP_GPS.h>
+#include <AP_Generator/AP_Generator_RichenPower.h>
 #include <AP_Logger/AP_Logger.h>
 #include <AP_Notify/AP_Notify.h>                    // Notify library
 #include <AP_Param/AP_Param.h>
@@ -40,6 +41,7 @@
 #include <AP_ESC_Telem/AP_ESC_Telem.h>
 #include <AP_GyroFFT/AP_GyroFFT.h>
 #include <AP_VisualOdom/AP_VisualOdom.h>
+#include <AP_RCTelemetry/AP_VideoTX.h>
 
 class AP_Vehicle : public AP_HAL::HAL::Callbacks {
 
@@ -164,6 +166,9 @@ public:
         return AP_HAL::millis() - _last_flying_ms;
     }
 
+    // returns true if the vehicle has crashed
+    virtual bool is_crashed() const;
+
     /*
       methods to control vehicle for use by scripting
     */
@@ -172,10 +177,33 @@ public:
     virtual bool set_target_velocity_NED(const Vector3f& vel_ned) { return false; }
     virtual bool set_target_angle_and_climbrate(float roll_deg, float pitch_deg, float yaw_deg, float climb_rate_ms, bool use_yaw_rate, float yaw_rate_degs) { return false; }
 
-
     // get target location (for use by scripting)
     virtual bool get_target_location(Location& target_loc) { return false; }
 
+    // set steering and throttle (-1 to +1) (for use by scripting with Rover)
+    virtual bool set_steering_and_throttle(float steering, float throttle) { return false; }
+
+    // control outputs enumeration
+    enum class ControlOutput {
+        Roll = 1,
+        Pitch = 2,
+        Throttle = 3,
+        Yaw = 4,
+        Lateral = 5,
+        MainSail = 6,
+        WingSail = 7,
+        Last_ControlOutput  // place new values before this
+    };
+
+    // get control output (for use in scripting)
+    // returns true on success and control_value is set to a value in the range -1 to +1
+    virtual bool get_control_output(AP_Vehicle::ControlOutput control_output, float &control_value) { return false; }
+
+    // write out harmonic notch log messages
+    void write_notch_log_messages() const;
+    // update the harmonic notch
+    virtual void update_dynamic_notch() {};
+    
 protected:
 
     virtual void init_ardupilot() = 0;
@@ -185,9 +213,9 @@ protected:
     // board specific config
     AP_BoardConfig BoardConfig;
 
-#if HAL_WITH_UAVCAN
+#if HAL_MAX_CAN_PROTOCOL_DRIVERS
     // board specific config for CAN bus
-    AP_BoardConfig_CAN BoardConfig_CAN;
+    AP_CANManager can_mgr;
 #endif
 
     // main loop scheduler
@@ -213,6 +241,7 @@ protected:
 #if HAL_GYROFFT_ENABLED
     AP_GyroFFT gyro_fft;
 #endif
+    AP_VideoTX vtx;
     AP_SerialManager serial_manager;
 
     AP_Relay relay;
@@ -239,6 +268,10 @@ protected:
 #endif
 
     AP_ESC_Telem esc_telem;
+
+#if GENERATOR_ENABLED
+    AP_Generator_RichenPower generator;
+#endif
 
     static const struct AP_Param::GroupInfo var_info[];
     static const struct AP_Scheduler::Task scheduler_tasks[];

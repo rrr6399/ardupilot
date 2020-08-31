@@ -572,7 +572,7 @@ class uploader(object):
         # get the bootloader protocol ID first
         self.bl_rev = self.__getInfo(uploader.INFO_BL_REV)
         if (self.bl_rev < uploader.BL_REV_MIN) or (self.bl_rev > uploader.BL_REV_MAX):
-            print("Unsupported bootloader protocol %d" % uploader.INFO_BL_REV)
+            print("Unsupported bootloader protocol %d" % self.bl_rev)
             raise RuntimeError("Bootloader protocol mismatch")
 
         self.board_type = self.__getInfo(uploader.INFO_BOARD_ID)
@@ -659,7 +659,7 @@ class uploader(object):
                 if rev in revs:
                     (label, flawed) = revs[rev]
                     if flawed and family == 0x419:
-                        print("  %x %s rev%s (flawed; 1M limit)" % (chip, mcu, label,))
+                        print("  %x %s rev%s (flawed; 1M limit, see STM32F42XX Errata sheet sec. 2.1.10)" % (chip, mcu, label,))
                     elif family == 0x419:
                         print("  %x %s rev%s (no 1M flaw)" % (chip, mcu, label,))
                     else:
@@ -704,6 +704,8 @@ class uploader(object):
                     if adir is None:
                         continue
                     filepath = os.path.join(hwdef_dir, adir, "hwdef.dat")
+                    if not os.path.exists(filepath):
+                        continue
                     fh = open(filepath)
                     if fh is None:
 #                        print("Failed to open (%s)" % filepath)

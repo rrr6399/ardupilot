@@ -588,10 +588,10 @@ def make_line(label):
     return line
 
 
-def enable_can(f):
+def enable_can(f, num_ifaces):
     '''setup for a CAN enabled board'''
-    f.write('#define HAL_WITH_UAVCAN 1\n')
-    env_vars['HAL_WITH_UAVCAN'] = '1'
+    f.write('#define HAL_NUM_CAN_IFACES %d\n' % num_ifaces)
+    env_vars['HAL_NUM_CAN_IFACES'] = str(num_ifaces)
 
 
 def has_sdcard_spi():
@@ -646,7 +646,10 @@ def write_mcu_config(f):
     if 'OTG2' in bytype:
         f.write('#define STM32_USB_USE_OTG2                  TRUE\n')
     if have_type_prefix('CAN') and 'AP_PERIPH' not in env_vars:
-        enable_can(f)
+        if 'CAN1' in bytype and 'CAN2' in bytype:
+            enable_can(f, 2)
+        else:
+            enable_can(f, 1)
 
     if get_config('PROCESS_STACK', required=False):
         env_vars['PROCESS_STACK'] = get_config('PROCESS_STACK')
@@ -1195,7 +1198,7 @@ def write_UART_config(f):
     if OTG2_index is not None:
         f.write('#define HAL_OTG2_UART_INDEX %d\n' % OTG2_index)
         f.write('''
-#if HAL_WITH_UAVCAN
+#if HAL_NUM_CAN_IFACES
 #ifndef HAL_OTG2_PROTOCOL
 #define HAL_OTG2_PROTOCOL SerialProtocol_SLCAN
 #endif
@@ -1974,11 +1977,8 @@ def process_line(line):
                 alllines.remove(line)
         newpins = []
         for pin in allpins:
-            if pin.type == a[1]:
-                continue
-            if pin.label == a[1]:
-                continue
-            if pin.portpin == a[1]:
+            if pin.type == a[1] or pin.label == a[1] or pin.portpin == a[1]:
+                portmap[pin.port][pin.pin] = generic_pin(pin.port, pin.pin, None, 'INPUT', [])
                 continue
             newpins.append(pin)
         allpins = newpins

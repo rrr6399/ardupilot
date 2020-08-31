@@ -512,14 +512,14 @@ class AutoTestPlane(AutoTest):
 
         return self.wait_level_flight()
 
-    def fly_mission(self, filename):
+    def fly_mission(self, filename, mission_timeout=60.0):
         """Fly a mission from a file."""
         self.progress("Flying mission %s" % filename)
         self.load_mission(filename)
         self.mavproxy.send('switch 1\n')  # auto mode
         self.wait_mode('AUTO')
         self.wait_waypoint(1, 7, max_dist=60)
-        self.wait_groundspeed(0, 0.5, timeout=60)
+        self.wait_groundspeed(0, 0.5, timeout=mission_timeout)
         self.mavproxy.expect("Auto disarmed")
         self.progress("Mission OK")
 
@@ -1327,6 +1327,75 @@ class AutoTestPlane(AutoTest):
         self.wait_waypoint(7, num_wp-1, timeout=500)
         self.wait_disarmed(timeout=120)
 
+    def deadreckoning_main(self, disable_airspeed_sensor=False):
+        self.gpi = None
+        self.simstate = None
+        self.last_print = 0
+        self.max_divergence = 0
+        def validate_global_position_int_against_simstate(mav, m):
+            if m.get_type() == 'GLOBAL_POSITION_INT':
+                self.gpi = m
+            elif m.get_type() == 'SIMSTATE':
+                self.simstate = m
+            if self.gpi is None:
+                return
+            if self.simstate is None:
+                return
+            divergence = self.get_distance_int(self.gpi, self.simstate)
+            max_allowed_divergence = 200
+            if time.time() - self.last_print > 1:
+                self.progress("position-estimate-divergence=%fm" % (divergence,))
+                self.last_print = time.time()
+            if divergence > max_allowed_divergence:
+                raise NotAchievedException("global-position-int diverged from simstate by >%fm" % (max_allowed_divergence,))
+            if divergence > self.max_divergence:
+                self.max_divergence = divergence
+
+        self.install_message_hook(validate_global_position_int_against_simstate)
+
+        try:
+            # wind is from the West:
+            self.set_parameter("SIM_WIND_DIR", 270)
+            # light winds:
+            self.set_parameter("SIM_WIND_SPD", 10)
+            if disable_airspeed_sensor:
+                self.set_parameter("ARSPD_USE", 0)
+
+            self.takeoff(50)
+            loc = self.mav.location()
+            loc.lat = -35.35690712
+            loc.lng = 149.17083386
+            self.run_cmd_int(
+                mavutil.mavlink.MAV_CMD_DO_REPOSITION,
+                0,
+                mavutil.mavlink.MAV_DO_REPOSITION_FLAGS_CHANGE_MODE,
+                0,
+                0,
+                int(loc.lat*1e7),
+                int(loc.lng*1e7),
+                100,    # alt
+                frame=mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+            )
+            self.wait_location(loc, accuracy=100)
+            self.progress("Stewing")
+            self.delay_sim_time(20)
+            self.set_parameter("SIM_GPS_DISABLE", 1)
+            self.progress("Roasting")
+            self.delay_sim_time(20)
+            self.change_mode("RTL")
+            self.wait_distance_to_home(100, 200, timeout=200)
+            self.set_parameter("SIM_GPS_DISABLE", 0)
+            self.delay_sim_time(10)
+            self.set_rc(3, 1000)
+            self.fly_home_land_and_disarm()
+            self.progress("max-divergence: %fm" % (self.max_divergence,))
+        finally:
+            self.remove_message_hook(validate_global_position_int_against_simstate)
+
+    def deadreckoning(self):
+        self.deadreckoning_main()
+        self.deadreckoning_main(disable_airspeed_sensor=True)
+
     def sample_enable_parameter(self):
         return "Q_ENABLE"
 
@@ -1651,7 +1720,8 @@ class AutoTestPlane(AutoTest):
 
         self.customise_SITL_commandline([],
                                         model=model,
-                                        defaults_filepath=self.model_defaults_filepath("ArduPlane",model))
+                                        defaults_filepath=self.model_defaults_filepath("ArduPlane",model),
+                                        wipe=True)
 
         self.load_mission('CMAC-soar.txt')
 
@@ -1662,7 +1732,16 @@ class AutoTestPlane(AutoTest):
         self.arm_vehicle()
 
         # Enable thermalling RC
-        rc_chan = self.get_parameter('SOAR_ENABLE_CH')
+        rc_chan = 0
+        for i in range(8):
+            rcx_option = self.get_parameter('RC{0}_OPTION'.format(i+1))
+            if rcx_option==88:
+                rc_chan = i+1;
+                break
+
+        if rc_chan==0:
+            raise NotAchievedException("Did not find soaring enable channel option.")
+
         self.send_set_rc(rc_chan, 1900)
 
         # Wait to detect thermal
@@ -1744,6 +1823,170 @@ class AutoTestPlane(AutoTest):
         self.disarm_vehicle()
 
         self.progress("Mission OK")
+
+    def fly_terrain_mission(self):
+
+        self.customise_SITL_commandline([], wipe=True)
+
+        self.mavproxy.send("wp set 1\n")
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+
+        self.fly_mission("ap-terrain.txt", mission_timeout=600)
+
+    def ekf_lane_switch(self):
+
+        self.context_push()
+        ex = None
+
+        # new lane swtich available only with EK3
+        self.set_parameter("EK3_ENABLE", 1)
+        self.set_parameter("EK2_ENABLE", 0)
+        self.set_parameter("AHRS_EKF_TYPE", 3)
+        self.set_parameter("EK3_AFFINITY", 15) # enable affinity for all sensors
+        self.set_parameter("EK3_IMU_MASK", 3) # use only 2 IMUs
+        self.set_parameter("GPS_TYPE2", 1)
+        self.set_parameter("SIM_GPS2_DISABLE", 0)
+        self.set_parameter("SIM_BARO2_DISABL", 0)
+        self.set_parameter("SIM_BARO_COUNT", 2)
+        self.set_parameter("ARSPD2_TYPE", 2)
+        self.set_parameter("ARSPD2_USE", 1)
+        self.set_parameter("ARSPD2_PIN", 2)
+
+        # some parameters need reboot to take effect
+        self.reboot_sitl()
+
+        self.lane_switches = []
+        # add an EKF lane switch hook
+        def statustext_hook(mav, message):
+            if message.get_type() != 'STATUSTEXT':
+                return
+            # example msg: EKF3 lane switch 1
+            if not message.text.startswith("EKF3 lane switch "):
+                return
+            newlane = int(message.text[-1])
+            self.lane_switches.append(newlane)   
+        self.install_message_hook(statustext_hook)
+
+        # get flying
+        self.takeoff(alt=50)
+        self.change_mode('CIRCLE')
+
+        try:
+            ###################################################################################################
+            self.progress("Checking EKF3 Lane Switching trigger from all sensors")
+            ###################################################################################################
+            self.start_subtest("ACCELEROMETER: Change z-axis offset")
+            # create an accelerometer error by changing the Z-axis offset
+            old_parameter = self.get_parameter("INS_ACCOFFS_Z")
+            self.set_parameter("INS_ACCOFFS_Z", old_parameter + 5)
+            self.wait_statustext(text="EKF3 lane switch", timeout=30)
+            if self.lane_switches != [1]:
+                raise NotAchievedException("Expected lane switch 1, got %s" % str(self.lane_switches[-1]))
+            # Cleanup
+            self.set_parameter("INS_ACCOFFS_Z", old_parameter)
+            self.wait_heading(0, accuracy=10, timeout=60)
+            self.wait_heading(180, accuracy=10, timeout=60)
+            ###################################################################################################
+            self.start_subtest("BAROMETER: Freeze to last measured value")
+            old_parameter = self.get_parameter("SIM_BARO2_FREEZE")
+            # create a barometer error by inhibiting any pressure change while changing altitude
+            self.set_parameter("SIM_BARO2_FREEZE", 1)
+            self.set_rc(2, 2000)
+            self.delay_sim_time(2)
+            self.wait_statustext(text="EKF3 lane switch", timeout=30)
+            if self.lane_switches != [1, 0]:
+                raise NotAchievedException("Expected lane switch 0, got %s" % str(self.lane_switches[-1]))
+            # Cleanup
+            self.set_rc(2, 1500)
+            self.set_parameter("SIM_BARO2_FREEZE", old_parameter)
+            self.wait_heading(0, accuracy=10, timeout=60)
+            self.wait_heading(180, accuracy=10, timeout=60)
+            ###################################################################################################
+            self.start_subtest("GPS: Apply GPS Velocity Error in NED")
+            self.context_push()
+            # create a GPS velocity error by adding a 2m/s noise on each axis
+            self.set_parameter("SIM_GPS_VERR_X", self.get_parameter("SIM_GPS_VERR_X") + 2)
+            self.set_parameter("SIM_GPS_VERR_Y", self.get_parameter("SIM_GPS_VERR_Y") + 2)
+            self.set_parameter("SIM_GPS_VERR_Z", self.get_parameter("SIM_GPS_VERR_Z") + 2)
+            self.wait_statustext(text="EKF3 lane switch", timeout=30)
+            if self.lane_switches != [1, 0, 1]:
+                raise NotAchievedException("Expected lane switch 1, got %s" % str(self.lane_switches[-1]))
+            # Cleanup
+            self.context_pop()
+            self.wait_heading(0, accuracy=10, timeout=60)
+            self.wait_heading(180, accuracy=10, timeout=60)
+            ###################################################################################################
+            self.start_subtest("MAGNETOMETER: Change X-Axis Offset")
+            old_parameter = self.get_parameter("SIM_MAG_OFS_X")
+            # create a magnetometer error by changing the X-axis offset
+            self.set_parameter("SIM_MAG2_OFS_X",old_parameter + 250)
+            self.wait_statustext(text="EKF3 lane switch", timeout=30)
+            if self.lane_switches != [1, 0, 1, 0]:
+                raise NotAchievedException("Expected lane switch 0, got %s" % str(self.lane_switches[-1]))
+            # Cleanup
+            self.set_parameter("SIM_MAG2_OFS_X", old_parameter)
+            self.wait_heading(0, accuracy=10, timeout=60)
+            self.wait_heading(180, accuracy=10, timeout=60)
+            ###################################################################################################
+            self.start_subtest("AIRSPEED: Fail to constant value")
+            self.context_push()
+            old_parameter = self.get_parameter("SIM_ARSPD_FAIL")
+            m = self.mav.recv_match(type='VFR_HUD', blocking=True)
+            # create an airspeed sensor error by freezing to the current airspeed then changing the groundspeed
+            self.set_parameter("SIM_ARSPD_FAIL", m.airspeed)
+            self.change_mode("GUIDED")
+            self.run_cmd_int(
+                mavutil.mavlink.MAV_CMD_DO_REPOSITION,
+                0,
+                0,
+                0,
+                0,
+                12345, # lat*1e7
+                12345, # lon*1e7
+                50    # alt
+            )
+            self.delay_sim_time(10)
+            new_target_groundspeed = m.groundspeed + 5
+            self.run_cmd(
+                mavutil.mavlink.MAV_CMD_DO_CHANGE_SPEED,
+                1, # groundspeed
+                new_target_groundspeed,
+                -1, # throttle / no change
+                0, # absolute values
+                0,
+                0,
+                0
+            )
+            self.wait_statustext(text="EKF3 lane switch", timeout=30)
+            if self.lane_switches != [1, 0, 1, 0, 1]:
+                raise NotAchievedException("Expected lane switch 1, got %s" % str(self.lane_switches[-1]))
+            # Cleanup
+            self.context_pop()
+            self.change_mode('CIRCLE')
+            self.wait_heading(0, accuracy=10, timeout=60)
+            self.wait_heading(180, accuracy=10, timeout=60)
+            ###################################################################################################
+            self.progress("GYROSCOPE: Change Y-Axis Offset")
+            # create a gyroscope error by changing the Y-axis offset
+            old_parameter = self.get_parameter("INS_GYR2OFFS_Y")
+            self.set_parameter("INS_GYR2OFFS_Y", old_parameter + 1)
+            self.wait_statustext(text="EKF3 lane switch", timeout=30)
+            if self.lane_switches != [1, 0, 1, 0, 1, 0]:
+                raise NotAchievedException("Expected lane switch 0, got %s" % str(self.lane_switches[-1]))
+            # Cleanup
+            self.set_parameter("INS_GYR2OFFS_Y", old_parameter)
+            ###################################################################################################
+
+            self.disarm_vehicle()
+            
+        except Exception as e:
+            self.progress("Caught exception: %s" % self.get_exception_stacktrace(e))
+            ex = e
+
+        self.context_pop()
+        if ex is not None:
+            raise ex
 
     def tests(self):
         '''return list of all tests'''
@@ -1854,8 +2097,20 @@ class AutoTestPlane(AutoTest):
             "Test Soaring feature",
             self.fly_soaring),
 
+            ("Terrain",
+             "Test terrain following in mission",
+             self.fly_terrain_mission),
+
+            ("Deadreckoning",
+             "Test deadreckoning support",
+             self.deadreckoning),
+
             ("LogUpload",
              "Log upload",
              self.log_upload),
+
+            ("EKFlaneswitch",
+             "Test EKF3 Affinity and Lane Switching",
+             self.ekf_lane_switch),
         ])
         return ret

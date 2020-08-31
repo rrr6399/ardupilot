@@ -86,6 +86,10 @@ public:
     float get_pilot_desired_yaw_rate(int16_t stick_angle);
     float get_pilot_desired_throttle() const;
 
+    // returns climb target_rate reduced to avoid obstacles and
+    // altitude fence
+    float get_avoidance_adjusted_climbrate(float target_rate);
+
     const Vector3f& get_desired_velocity() {
         // note that position control isn't used in every mode, so
         // this may return bogus data:
@@ -245,7 +249,6 @@ public:
     void set_land_complete(bool b);
     GCS_Copter &gcs();
     void set_throttle_takeoff(void);
-    float get_avoidance_adjusted_climbrate(float target_rate);
     uint16_t get_pilot_speed_dn(void);
 
     // end pass-through functions
@@ -265,12 +268,21 @@ public:
         LIMITED = 2,
     };
 
+    enum class AcroOptions {
+        AIR_MODE = 1 << 0,
+        RATE_LOOP_ONLY = 1 << 1,
+    };
+
     virtual void run() override;
 
     bool requires_GPS() const override { return false; }
     bool has_manual_throttle() const override { return true; }
     bool allows_arming(bool from_gcs) const override { return true; };
     bool is_autopilot() const override { return false; }
+    bool init(bool ignore_checks) override;
+    void exit();
+    // whether an air-mode aux switch has been toggled
+    void air_mode_aux_changed();
 
 protected:
 
@@ -282,7 +294,7 @@ protected:
     float throttle_hover() const override;
 
 private:
-
+    bool disable_air_mode_reset;
 };
 #endif
 
@@ -782,7 +794,7 @@ public:
 
     bool requires_terrain_failsafe() const override { return true; }
 
-    void set_angle(const Quaternion &q, float climb_rate_cms, bool use_yaw_rate, float yaw_rate_rads);
+    void set_angle(const Quaternion &q, float climb_rate_cms_or_thrust, bool use_yaw_rate, float yaw_rate_rads, bool use_thrust);
     bool set_destination(const Vector3f& destination, bool use_yaw = false, float yaw_cd = 0.0, bool use_yaw_rate = false, float yaw_rate_cds = 0.0, bool yaw_relative = false, bool terrain_alt = false);
     bool set_destination(const Location& dest_loc, bool use_yaw = false, float yaw_cd = 0.0, bool use_yaw_rate = false, float yaw_rate_cds = 0.0, bool yaw_relative = false);
     bool get_wp(Location &loc) override;

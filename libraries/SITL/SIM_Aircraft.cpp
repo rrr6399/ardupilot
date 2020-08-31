@@ -82,7 +82,12 @@ Aircraft::Aircraft(const char *frame_str) :
         sitl->ahrs_rotation_inv = sitl->ahrs_rotation.transposed();
     }
 
-    terrain = reinterpret_cast<AP_Terrain *>(AP_Param::find_object("TERRAIN_"));
+    terrain = &AP::terrain();
+
+    // init rangefinder array to -1 to signify no data
+    for (uint8_t i = 0; i < RANGEFINDER_MAX_INSTANCES; i++){
+        rangefinder_m[i] = -1.0f;
+    }
 }
 
 void Aircraft::set_start_location(const Location &start_loc, const float start_yaw)
@@ -374,6 +379,9 @@ void Aircraft::fill_fdm(struct sitl_fdm &fdm)
     fdm.scanner.points = scanner.points;
     fdm.scanner.ranges = scanner.ranges;
 
+    // copy rangefinder
+    memcpy(fdm.rangefinder_m, rangefinder_m, sizeof(fdm.rangefinder_m));
+
     if (is_smoothed) {
         fdm.xAccel = smoothing.accel_body.x;
         fdm.yAccel = smoothing.accel_body.y;
@@ -430,6 +438,44 @@ void Aircraft::fill_fdm(struct sitl_fdm &fdm)
         last_speedup = sitl->speedup;
     }
 }
+
+float Aircraft::rangefinder_range() const
+{
+    // swiped from sitl_rangefinder.cpp - we should unify them at some stage
+
+    float altitude = range;  // only sub appears to set this
+    if (is_equal(altitude, -1.0f)) {  // Use SITL altitude as reading by default
+        altitude = sitl->height_agl;
+    }
+
+    // sensor position offset in body frame
+    const Vector3f relPosSensorBF = sitl->rngfnd_pos_offset;
+
+    // adjust altitude for position of the sensor on the vehicle if position offset is non-zero
+    if (!relPosSensorBF.is_zero()) {
+        // get a rotation matrix following DCM conventions (body to earth)
+        Matrix3f rotmat;
+        sitl->state.quaternion.rotation_matrix(rotmat);
+        // rotate the offset into earth frame
+        const Vector3f relPosSensorEF = rotmat * relPosSensorBF;
+        // correct the altitude at the sensor
+        altitude -= relPosSensorEF.z;
+    }
+
+    // If the attidude is non reversed for SITL OR we are using rangefinder from external simulator,
+    // We adjust the reading with noise, glitch and scaler as the reading is on analog port.
+    if ((fabs(sitl->state.rollDeg) < 90.0 && fabs(sitl->state.pitchDeg) < 90.0) || !is_equal(range, -1.0f)) {
+        if (is_equal(range, -1.0f)) {  // disable for external reading that already handle this
+            // adjust for apparent altitude with roll
+            altitude /= cosf(radians(sitl->state.rollDeg)) * cosf(radians(sitl->state.pitchDeg));
+        }
+        // Add some noise on reading
+        altitude += sitl->sonar_noise * rand_float();
+    }
+
+    return altitude;
+}
+
 
 uint64_t Aircraft::get_wall_time_us() const
 {
@@ -532,6 +578,11 @@ void Aircraft::update_dynamics(const Vector3f &rot_accel)
         }
         position.z = -(ground_level + frame_height - home.alt * 0.01f + ground_height_difference());
 
+        // get speed of ground movement (for ship takeoff/landing)
+        float yaw_rate = 0;
+        const Vector2f ship_movement = sitl->shipsim.get_ground_speed_adjustment(location, yaw_rate);
+        const Vector3f gnd_movement(ship_movement.x, ship_movement.y, 0);
+
         switch (ground_behavior) {
         case GROUND_BEHAVIOR_NONE:
             break;
@@ -539,10 +590,11 @@ void Aircraft::update_dynamics(const Vector3f &rot_accel)
             // zero roll/pitch, but keep yaw
             float r, p, y;
             dcm.to_euler(&r, &p, &y);
+            y = y + yaw_rate * delta_time;
             dcm.from_euler(0.0f, 0.0f, y);
-            // no X or Y movement
-            velocity_ef.x = 0.0f;
-            velocity_ef.y = 0.0f;
+            // X, Y movement tracks ground movement
+            velocity_ef.x = gnd_movement.x;
+            velocity_ef.y = gnd_movement.y;
             if (velocity_ef.z > 0.0f) {
                 velocity_ef.z = 0.0f;
             }
@@ -561,6 +613,7 @@ void Aircraft::update_dynamics(const Vector3f &rot_accel)
             } else {
                 p = MAX(p, 0);
             }
+            y = y + yaw_rate * delta_time;
             dcm.from_euler(0.0f, p, y);
             // only fwd movement
             Vector3f v_bf = dcm.transposed() * velocity_ef;
@@ -568,11 +621,25 @@ void Aircraft::update_dynamics(const Vector3f &rot_accel)
             if (v_bf.x < 0.0f) {
                 v_bf.x = 0.0f;
             }
+
+            Vector3f gnd_movement_bf = dcm.transposed() * gnd_movement;
+
+            // lateral speed equals ground movement
+            v_bf.y = gnd_movement_bf.y;
+
+            if (!gnd_movement_bf.is_zero()) {
+                // fwd speed slowly approaches ground movement to simulate wheel friction
+                const float tconst = 20; // seconds
+                const float alpha = delta_time/(delta_time+tconst/M_2PI);
+                v_bf.x += (gnd_movement.x - v_bf.x) * alpha;
+            }
+
             velocity_ef = dcm * v_bf;
             if (velocity_ef.z > 0.0f) {
                 velocity_ef.z = 0.0f;
             }
             gyro.zero();
+            gyro.z = yaw_rate;
             use_smoothing = true;
             break;
         }
@@ -580,11 +647,15 @@ void Aircraft::update_dynamics(const Vector3f &rot_accel)
             // point straight up
             float r, p, y;
             dcm.to_euler(&r, &p, &y);
+            y = y + yaw_rate * delta_time;
             dcm.from_euler(0.0f, radians(90), y);
             // no movement
             if (accel_earth.z > -1.1*GRAVITY_MSS) {
                 velocity_ef.zero();
             }
+            // X, Y movement tracks ground movement
+            velocity_ef.x = gnd_movement.x;
+            velocity_ef.y = gnd_movement.y;
             gyro.zero();
             use_smoothing = true;
             break;
@@ -786,6 +857,11 @@ void Aircraft::update_external_payload(const struct sitl_input &input)
         external_payload_mass += sprayer->payload_mass();
     }
 
+    // update i2c
+    if (i2c) {
+        i2c->update(*this);
+    }
+
     // update buzzer
     if (buzzer && buzzer->is_enabled()) {
         buzzer->update(input);
@@ -811,6 +887,13 @@ void Aircraft::update_external_payload(const struct sitl_input &input)
     if (precland && precland->is_enabled()) {
         precland->update(get_location(), get_position());
     }
+
+    // update RichenPower generator
+    if (richenpower) {
+        richenpower->update(input);
+    }
+
+    sitl->shipsim.update();
 }
 
 void Aircraft::add_shove_forces(Vector3f &rot_accel, Vector3f &body_accel)

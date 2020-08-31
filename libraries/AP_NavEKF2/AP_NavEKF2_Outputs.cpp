@@ -1,13 +1,9 @@
 #include <AP_HAL/AP_HAL.h>
 
-#include "AP_NavEKF2.h"
 #include "AP_NavEKF2_core.h"
 #include <AP_AHRS/AP_AHRS.h>
-#include <AP_Vehicle/AP_Vehicle.h>
 #include <AP_GPS/AP_GPS.h>
 #include <AP_RangeFinder/AP_RangeFinder.h>
-
-#include <stdio.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -484,9 +480,9 @@ return the filter fault status as a bitmasked integer
  1 = velocities are NaN
  2 = badly conditioned X magnetometer fusion
  3 = badly conditioned Y magnetometer fusion
- 5 = badly conditioned Z magnetometer fusion
- 6 = badly conditioned airspeed fusion
- 7 = badly conditioned synthetic sideslip fusion
+ 4 = badly conditioned Z magnetometer fusion
+ 5 = badly conditioned airspeed fusion
+ 6 = badly conditioned synthetic sideslip fusion
  7 = filter is not initialised
 */
 void  NavEKF2_core::getFilterFaults(uint16_t &faults) const

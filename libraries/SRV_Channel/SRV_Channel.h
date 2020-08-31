@@ -83,6 +83,7 @@ public:
         k_motor7                = 39,
         k_motor8                = 40,
         k_motor_tilt            = 41,            ///< tiltrotor motor tilt control
+        k_generator_control     = 42,            ///< state control for generator
         k_rcin1                 = 51,            ///< these are for pass-thru from arbitrary rc inputs
         k_rcin2                 = 52,
         k_rcin3                 = 53,
@@ -155,6 +156,7 @@ public:
         k_ProfiLED_2            = 130,
         k_ProfiLED_3            = 131,
         k_ProfiLED_Clock        = 132,
+        k_winch_clutch          = 133,
         k_nr_aux_servo_functions         ///< This must be the last enum value (only add new values _before_ this one)
     } Aux_servo_function_t;
 
@@ -171,6 +173,9 @@ public:
 
     // get the output value as a pwm value
     uint16_t get_output_pwm(void) const { return output_pwm; }
+
+    // set normalised output from -1 to 1, assuming 0 at mid point of servo_min/servo_max
+    void set_output_norm(float value);
 
     // set angular range of scaled output
     void set_angle(int16_t angle);
@@ -275,7 +280,7 @@ private:
     // return PWM for a given limit value
     uint16_t get_limit_pwm(Limit limit) const;
 
-    // get normalised output from -1 to 1
+    // get normalised output from -1 to 1, assuming 0 at mid point of servo_min/servo_max
     float get_output_norm(void);
 
     // a bitmask type wide enough for NUM_SERVO_CHANNELS
@@ -335,9 +340,12 @@ public:
     // get pwm output for the first channel of the given function type.
     static bool get_output_pwm(SRV_Channel::Aux_servo_function_t function, uint16_t &value);
 
-    // get normalised output (-1 to 1 for angle, 0 to 1 for range). Value is taken from pwm value
-    // return zero on error.
+    // get normalised output (-1 to 1 with 0 at mid point of servo_min/servo_max)
+    // Value is taken from pwm value.  Returns zero on error.
     static float get_output_norm(SRV_Channel::Aux_servo_function_t function);
+
+    // set normalised output (-1 to 1 with 0 at mid point of servo_min/servo_max) for the given function
+    static void set_output_norm(SRV_Channel::Aux_servo_function_t function, float value);
 
     // get output channel mask for a function
     static uint16_t get_output_channel_mask(SRV_Channel::Aux_servo_function_t function);

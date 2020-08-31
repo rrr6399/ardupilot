@@ -77,10 +77,15 @@ public:
     // detected peak frequency filtered at 1/3 the update rate
     const Vector3f& get_noise_center_freq_hz() const { return get_noise_center_freq_hz(FrequencyPeak::CENTER); }
     const Vector3f& get_noise_center_freq_hz(FrequencyPeak peak) const { return _global_state._center_freq_hz_filtered[peak]; }
+    // slew frequency values
+    float get_slewed_weighted_freq_hz(FrequencyPeak peak) const;
+    float get_slewed_noise_center_freq_hz(FrequencyPeak peak, uint8_t axis) const;
     // energy of the background noise at the detected center frequency
     const Vector3f& get_noise_signal_to_noise_db() const { return _global_state._center_snr; }
     // detected peak frequency weighted by energy
-    float get_weighted_noise_center_freq_hz();
+    float get_weighted_noise_center_freq_hz() const;
+    // all detected peak frequencies weighted by energy
+    uint8_t get_weighted_noise_center_frequencies_hz(uint8_t num_freqs, float* freqs) const;
     // detected peak frequency
     const Vector3f& get_raw_noise_center_freq_hz() const { return _global_state._center_freq_hz; }
     // match between first and second harmonics
@@ -94,7 +99,7 @@ public:
     const Vector3f& get_noise_center_bandwidth_hz() const { return get_noise_center_bandwidth_hz(FrequencyPeak::CENTER); }
     const Vector3f& get_noise_center_bandwidth_hz(FrequencyPeak peak) const { return _global_state._center_bandwidth_hz_filtered[peak]; };
     // weighted detected peak bandwidth
-    float get_weighted_noise_center_bandwidth_hz();
+    float get_weighted_noise_center_bandwidth_hz() const;
     // log gyro fft messages
     void write_log_messages();
 
@@ -161,6 +166,7 @@ private:
     float get_tl_noise_center_bandwidth_hz(FrequencyPeak peak, uint8_t axis) const { return _thread_state._center_bandwidth_hz_filtered[peak][axis]; };
     // thread-local mutators of filtered state
     float update_tl_noise_center_freq_hz(FrequencyPeak peak, uint8_t axis, float value) {
+        _thread_state._prev_center_freq_hz_filtered[peak][axis] = _thread_state._center_freq_hz_filtered[peak][axis];
         return (_thread_state._center_freq_hz_filtered[peak][axis] = _center_freq_filter[peak].apply(axis, value));
     }
     float update_tl_center_freq_energy(FrequencyPeak peak, uint8_t axis, float value) {
@@ -170,7 +176,7 @@ private:
         return (_thread_state._center_bandwidth_hz_filtered[peak][axis] = _center_bandwidth_filter[peak].apply(axis, value));
     }
     // write single log mesages
-    void log_noise_peak(uint8_t id, FrequencyPeak peak);
+    void log_noise_peak(uint8_t id, FrequencyPeak peak, float notch_freq);
     // calculate the peak noise frequency
     void calculate_noise(bool calibrating, const EngineConfig& config);
     // calculate noise peaks based on energy and history
@@ -186,7 +192,7 @@ private:
     // return the instantaneous peak that is closest to the target estimate peak
     FrequencyPeak find_closest_peak(const FrequencyPeak target, const DistanceMatrix& distance_matrix, uint8_t ignore = 0) const;
     // detected peak frequency weighted by energy
-    float calculate_weighted_freq_hz(const Vector3f& energy, const Vector3f& freq);
+    float calculate_weighted_freq_hz(const Vector3f& energy, const Vector3f& freq) const;
     // update the estimation of the background noise energy
     void update_ref_energy(uint16_t max_bin);
     // test frequency detection for all of the allowable bins
@@ -213,10 +219,10 @@ private:
         // fit between first and second harmonics
         Vector3f _harmonic_fit;
         // bin of detected peak frequency
-        Vector3<uint16_t> _center_freq_bin;
+        Vector3ui _center_freq_bin;
         // fft engine health
         uint8_t _health;
-        Vector3<uint32_t> _health_ms;
+        Vector3ul _health_ms;
         // fft engine output rate
         uint32_t _output_cycle_ms;
         // tracked frequency peak
@@ -225,6 +231,10 @@ private:
         Vector3f _center_snr;
         // filtered version of the peak frequency
         Vector3f _center_freq_hz_filtered[FrequencyPeak::MAX_TRACKED_PEAKS];
+        // previous filtered version of the peak frequency
+        Vector3f _prev_center_freq_hz_filtered[FrequencyPeak::MAX_TRACKED_PEAKS];
+        // when we last calculated a value
+        Vector3ul _last_output_us;
         // filtered energy of the detected peak frequency
         Vector3f _center_freq_energy_filtered[FrequencyPeak::MAX_TRACKED_PEAKS];
         // filtered detected peak width
@@ -269,8 +279,10 @@ private:
     float _harmonic_multiplier;
     // searched harmonics - inferred from harmonic notch harmonics
     uint8_t _harmonics;
-    // engine health
+    // engine health in tracked peaks
     uint8_t _health;
+    // engine health on roll/pitch/yaw
+    Vector3<uint8_t> _rpy_health;
 
     // smoothing filter on the output
     MedianLowPassFilter3dFloat _center_freq_filter[FrequencyPeak::MAX_TRACKED_PEAKS];

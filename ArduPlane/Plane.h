@@ -395,13 +395,6 @@ private:
         int32_t locked_pitch_cd;
     } acro_state;
 
-    // CRUISE controller state
-    struct CruiseState {
-        bool locked_heading;
-        int32_t locked_heading_cd;
-        uint32_t lock_timer_ms;
-    } cruise_state;
-
     struct {
         uint32_t last_tkoff_arm_time;
         uint32_t last_check_ms;
@@ -756,7 +749,7 @@ private:
     uint32_t last_home_update_ms;
 
     // Camera/Antenna mount tracking and stabilisation stuff
-#if MOUNT == ENABLED
+#if HAL_MOUNT_ENABLED
     AP_Mount camera_mount;
 #endif
 
@@ -783,7 +776,11 @@ private:
     float rudder_dt;
 
     // soaring mode-change timer
-    uint32_t soaring_mode_timer;
+    uint32_t soaring_mode_timer_ms;
+
+    // terrain disable for non AUTO modes, set with an RC Option switch
+    bool non_auto_terrain_disable;
+    bool terrain_disabled();
 
     // Attitude.cpp
     void adjust_nav_pitch_throttle(void);
@@ -965,7 +962,6 @@ private:
     void update_logging2(void);
     void update_control_mode(void);
     void update_flight_stage();
-    void update_navigation();
     void set_flight_stage(AP_Vehicle::FixedWing::FlightStage fs);
 #if OSD_ENABLED == ENABLED
     void publish_osd_info();
@@ -1014,7 +1010,7 @@ private:
     void startup_INS_ground(void);
     bool should_log(uint32_t mask);
     int8_t throttle_percentage(void);
-    void update_dynamic_notch();
+    void update_dynamic_notch() override;
     void notify_mode(const Mode& mode);
 
     // takeoff.cpp
@@ -1068,6 +1064,8 @@ private:
     // soaring.cpp
 #if SOARING_ENABLED == ENABLED
     void update_soaring();
+    bool soaring_exit_heading_aligned() const;
+    void soaring_restore_mode(const char *reason, ModeReason modereason, Mode &exit_mode);
 #endif
 
     // reverse_thrust.cpp
@@ -1105,6 +1103,20 @@ private:
     bool ekf_over_threshold();
     void failsafe_ekf_event();
     void failsafe_ekf_off_event(void);
+    
+    enum class CrowMode {
+        NORMAL,
+        PROGRESSIVE,
+        CROW_DISABLED,
+    };
+
+    enum class ThrFailsafe {
+        Disabled    = 0,
+        Enabled     = 1,
+        EnabledNoFS = 2
+    };
+
+    CrowMode crow_mode = CrowMode::NORMAL;
 
 public:
     void failsafe_check(void);

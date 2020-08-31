@@ -460,10 +460,10 @@ const AP_Param::Info Plane::var_info[] = {
 
     // @Param: THR_FAILSAFE
     // @DisplayName: Throttle and RC Failsafe Enable
-    // @Description: This enables failsafe on loss of RC input. How this is detected depends on the type of RC receiver being used. For older radios an input below the THR_FS_VALUE is used to trigger failsafe. For newer radios the failsafe trigger is part of the protocol between the autopilot and receiver.
-    // @Values: 0:Disabled,1:Enabled
+    // @Description: This enables failsafe on loss of RC input. How this is detected depends on the type of RC receiver being used. For older radios an input below the THR_FS_VALUE is used to trigger failsafe. For newer radios the failsafe trigger is part of the protocol between the autopilot and receiver. A value of 2 means that the RC input won't be used when throttle goes below the THR_FS_VALUE, but it won't trigger a failsafe
+    // @Values: 0:Disabled,1:Enabled,2:EnabledNoFailsafe
     // @User: Standard
-    GSCALAR(throttle_fs_enabled,    "THR_FAILSAFE",   1),
+    GSCALAR(throttle_fs_enabled,    "THR_FAILSAFE",   int(ThrFailsafe::Enabled)),
 
 
     // @Param: THR_FS_VALUE
@@ -999,7 +999,7 @@ const AP_Param::Info Plane::var_info[] = {
     // @Path: ../libraries/AP_TECS/AP_TECS.cpp
     GOBJECT(TECS_controller,         "TECS_",   AP_TECS),
 
-#if MOUNT == ENABLED
+#if HAL_MOUNT_ENABLED
     // @Group: MNT
     // @Path: ../libraries/AP_Mount/AP_Mount.cpp
     GOBJECT(camera_mount,           "MNT",  AP_Mount),
@@ -1017,10 +1017,10 @@ const AP_Param::Info Plane::var_info[] = {
     // @Path: ../libraries/AP_BoardConfig/AP_BoardConfig.cpp
     GOBJECT(BoardConfig,            "BRD_",       AP_BoardConfig),
 
-#if HAL_WITH_UAVCAN
+#if HAL_MAX_CAN_PROTOCOL_DRIVERS
     // @Group: CAN_
-    // @Path: ../libraries/AP_BoardConfig/AP_BoardConfig_CAN.cpp
-    GOBJECT(BoardConfig_CAN,        "CAN_",       AP_BoardConfig_CAN),
+    // @Path: ../libraries/AP_CANManager/AP_CANManager.cpp
+    GOBJECT(can_mgr,        "CAN_",       AP_CANManager),
 #endif
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
@@ -1419,6 +1419,21 @@ void Plane::load_parameters(void)
         RC_Channel *flapin = rc().channel(flap_output - 1);
         if (flapin != nullptr && !flapin->option.configured()) {
             flapin->option.set_and_save((int16_t)RC_Channel::AUX_FUNC::FLAP); // save the new param
+        }
+    }
+
+    // Convert SOAR_ENABLE_CH to RCx_OPTION
+    AP_Int8 soar_enable_ch;
+    AP_Param::ConversionInfo soar_info = {
+        Parameters::k_param_g2,
+        968,
+        AP_PARAM_INT8,
+        nullptr
+    };
+    if (AP_Param::find_old_parameter(&soar_info, &soar_enable_ch) && soar_enable_ch.get() != 0) {
+        RC_Channel *soar_ch = rc().channel(soar_enable_ch - 1);
+        if (soar_ch != nullptr && !soar_ch->option.configured()) {
+            soar_ch->option.set_and_save((int16_t)RC_Channel::AUX_FUNC::SOARING); // save the new param
         }
     }
 

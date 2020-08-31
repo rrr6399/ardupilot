@@ -249,6 +249,10 @@ public:
     // it will return invalid when no limiting is required
     bool get_hgt_ctrl_limit(float &limit) const override;
 
+    // Set to true if the terrain underneath is stable enough to be used as a height reference
+    // this is not related to terrain following
+    void set_terrain_hgt_stable(bool stable) override;
+
     // get_location - updates the provided location with the latest
     // calculated location including absolute altitude
     // returns true on success (i.e. the EKF knows it's latest
@@ -281,6 +285,13 @@ public:
 
     // is the EKF backend doing its own sensor logging?
     bool have_ekf_logging(void) const override;
+
+    // return the index of the airspeed we should use for airspeed measurements
+    // with multiple airspeed sensors and airspeed affinity in EKF3, it is possible to have switched
+    // over to a lane not using the primary airspeed sensor, so AHRS should know which airspeed sensor
+    // to use, i.e, the one being used by the primary lane. A lane switch could have happened due to an 
+    // airspeed sensor fault, which makes this even more necessary
+    uint8_t get_active_airspeed_index() const;
 
     // return the index of the primary core or -1 if no primary core selected
     int8_t get_primary_core_index() const override;

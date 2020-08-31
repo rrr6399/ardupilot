@@ -3,11 +3,8 @@
 #include "AP_NavEKF2.h"
 #include "AP_NavEKF2_core.h"
 #include <AP_AHRS/AP_AHRS.h>
-#include <AP_Vehicle/AP_Vehicle.h>
 #include <GCS_MAVLink/GCS.h>
 #include <AP_GPS/AP_GPS.h>
-
-#include <stdio.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -72,7 +69,7 @@ bool NavEKF2_core::setup_core(uint8_t _imu_index, uint8_t _core_index)
       than 100Hz is downsampled. For 50Hz main loop rate we need a
       shorter buffer.
      */
-    if (AP::ins().get_sample_rate() < 100) {
+    if (AP::ins().get_loop_rate_hz() < 100) {
         imu_buffer_length = 13;
     } else {
         // maximum 260 msec delay at 100 Hz fusion rate
@@ -174,7 +171,6 @@ void NavEKF2_core::InitialiseVariables()
     lastVelReset_ms = 0;
     lastPosResetD_ms = 0;
     lastRngMeasTime_ms = 0;
-    terrainHgtStableSet_ms = 0;
 
     // initialise other variables
     gpsNoiseScaler = 1.0f;

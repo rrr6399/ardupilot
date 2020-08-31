@@ -15,8 +15,8 @@ static void failsafe_check_static()
 void Sub::init_ardupilot()
 {
     BoardConfig.init();
-#if HAL_WITH_UAVCAN
-    BoardConfig_CAN.init();
+#if HAL_MAX_CAN_PROTOCOL_DRIVERS
+    can_mgr.init();
 #endif
 
 #if AP_FEATURE_BOARD_DETECT
@@ -100,7 +100,7 @@ void Sub::init_ardupilot()
     init_optflow();
 #endif
 
-#if MOUNT == ENABLED
+#if HAL_MOUNT_ENABLED
     // initialise camera mount
     camera_mount.init();
     // This step ncessary so the servo is properly initialized

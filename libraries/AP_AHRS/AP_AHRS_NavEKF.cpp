@@ -21,11 +21,12 @@
 #include <AP_HAL/AP_HAL.h>
 #include "AP_AHRS.h"
 #include "AP_AHRS_View.h"
-#include <AP_Vehicle/AP_Vehicle.h>
-#include <GCS_MAVLink/GCS.h>
 #include <AP_Module/AP_Module.h>
 #include <AP_GPS/AP_GPS.h>
 #include <AP_Baro/AP_Baro.h>
+#include <AP_InternalError/AP_InternalError.h>
+#include <AP_Notify/AP_Notify.h>
+#include <AP_Vehicle/AP_Vehicle_Type.h>
 
 #if AP_AHRS_NAVEKF_AVAILABLE
 
@@ -543,7 +544,7 @@ Vector3f AP_AHRS_NavEKF::wind_estimate(void) const
 // if we have an estimate
 bool AP_AHRS_NavEKF::airspeed_estimate(float &airspeed_ret) const
 {
-    return AP_AHRS_DCM::airspeed_estimate(airspeed_ret);
+    return AP_AHRS_DCM::airspeed_estimate(get_active_airspeed_index(), airspeed_ret);
 }
 
 // true if compass is being used
@@ -761,13 +762,9 @@ bool AP_AHRS_NavEKF::set_origin(const Location &loc)
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
     case EKFType::SITL:
-        if (_sitl) {
-            struct SITL::sitl_fdm &fdm = _sitl->state;
-            fdm.home = loc;
-            return true;
-        } else {
-            return false;
-        }
+        // never allow origin set in SITL. The origin is set by the
+        // simulation backend
+        return false;
 #endif
     }
     // since there is no default case above, this is unreachable
@@ -978,12 +975,15 @@ bool AP_AHRS_NavEKF::get_relative_position_NED_origin(Vector3f &vec) const
         if (!_sitl) {
             return false;
         }
-        Location loc;
-        get_position(loc);
-        const Vector2f diff2d = get_home().get_distance_NE(loc);
+        Location loc, orgn;
+        if (!get_position(loc) ||
+            !get_origin(orgn)) {
+            return false;
+        }
+        const Vector2f diff2d = orgn.get_distance_NE(loc);
         const struct SITL::sitl_fdm &fdm = _sitl->state;
         vec = Vector3f(diff2d.x, diff2d.y,
-                       -(fdm.altitude - get_home().alt*0.01f));
+                       -(fdm.altitude - orgn.alt*0.01f));
         return true;
     }
 #endif
@@ -1035,9 +1035,12 @@ bool AP_AHRS_NavEKF::get_relative_position_NE_origin(Vector2f &posNE) const
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
     case EKFType::SITL: {
-        Location loc;
-        get_position(loc);
-        posNE = get_home().get_distance_NE(loc);
+        Location loc, orgn;
+        if (!get_position(loc) ||
+            !get_origin(orgn)) {
+            return false;
+        }
+        posNE = orgn.get_distance_NE(loc);
         return true;
     }
 #endif
@@ -1095,7 +1098,11 @@ bool AP_AHRS_NavEKF::get_relative_position_D_origin(float &posD) const
             return false;
         }
         const struct SITL::sitl_fdm &fdm = _sitl->state;
-        posD = -(fdm.altitude - get_home().alt*0.01f);
+        Location orgn;
+        if (!get_origin(orgn)) {
+            return false;
+        }
+        posD = -(fdm.altitude - orgn.alt*0.01f);
         return true;
     }
 #endif
@@ -1242,11 +1249,15 @@ AP_AHRS_NavEKF::EKFType AP_AHRS_NavEKF::active_EKF_type(void) const
             get_filter_status(filt_state);
         }
 #endif
-        if (hal.util->get_soft_armed() && !filt_state.flags.using_gps && AP::gps().status() >= AP_GPS::GPS_OK_FIX_3D) {
-            // if the EKF is not fusing GPS and we have a 3D lock, then
-            // plane and rover would prefer to use the GPS position from
-            // DCM. This is a safety net while some issues with the EKF
-            // get sorted out
+        if (hal.util->get_soft_armed() &&
+            (!filt_state.flags.using_gps ||
+             !filt_state.flags.horiz_pos_abs) &&
+            AP::gps().status() >= AP_GPS::GPS_OK_FIX_3D) {
+            // if the EKF is not fusing GPS or doesn't have a 2D fix
+            // and we have a 3D lock, then plane and rover would
+            // prefer to use the GPS position from DCM. This is a
+            // safety net while some issues with the EKF get sorted
+            // out
             return EKFType::NONE;
         }
         if (hal.util->get_soft_armed() && filt_state.flags.const_pos_mode) {
@@ -1977,6 +1988,18 @@ bool AP_AHRS_NavEKF::get_hgt_ctrl_limit(float& limit) const
     return false;
 }
 
+// Set to true if the terrain underneath is stable enough to be used as a height reference
+// this is not related to terrain following
+void AP_AHRS_NavEKF::set_terrain_hgt_stable(bool stable)
+{
+#if HAL_NAVEKF2_AVAILABLE
+    EKF2.setTerrainHgtStable(stable);
+#endif
+#if HAL_NAVEKF3_AVAILABLE
+    EKF3.setTerrainHgtStable(stable);
+#endif
+}
+
 // get_location - updates the provided location with the latest calculated location
 //  returns true on success (i.e. the EKF knows it's latest position), false on failure
 bool AP_AHRS_NavEKF::get_location(struct Location &loc) const
@@ -2135,6 +2158,22 @@ bool AP_AHRS_NavEKF::have_ekf_logging(void) const
     }
     // since there is no default case above, this is unreachable
     return false;
+}
+
+//get the index of the active airspeed sensor, wrt the primary core
+uint8_t AP_AHRS_NavEKF::get_active_airspeed_index() const
+{
+// we only have affinity for EKF3 as of now
+#if HAL_NAVEKF3_AVAILABLE
+    if (active_EKF_type() == EKFType::THREE) {
+        return EKF3.getActiveAirspeed(get_primary_core_index());   
+    }
+#endif
+    // for the rest, let the primary airspeed sensor be used
+    if (_airspeed != nullptr) {
+        return _airspeed->get_primary();
+    }
+    return 0;
 }
 
 // get the index of the current primary IMU
