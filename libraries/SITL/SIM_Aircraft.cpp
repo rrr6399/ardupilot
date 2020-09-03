@@ -279,12 +279,14 @@ void Aircraft::sync_frame_time(void)
     uint32_t now_ms = last_wall_time_us / 1000ULL;
     float dt_wall = (now_ms - last_fps_report_ms) * 0.001;
     if (dt_wall > 2.0) {
+#if 0
         const float achieved_rate_hz = (frame_counter - last_frame_count) / dt_wall;
-        last_frame_count = frame_counter;
-        last_fps_report_ms = now_ms;
         ::printf("Rate: target:%.1f achieved:%.1f speedup %.1f/%.1f\n",
                  rate_hz*target_speedup, achieved_rate_hz,
                  achieved_rate_hz/rate_hz, target_speedup);
+#endif
+        last_frame_count = frame_counter;
+        last_fps_report_ms = now_ms;
     }
 }
 
@@ -431,6 +433,11 @@ void Aircraft::fill_fdm(struct sitl_fdm &fdm)
             fdm.yawDeg   = degrees(y);
             fdm.quaternion.from_rotation_matrix(m);
         }
+    }
+
+    // in the first call here, if a speedup option is specified, overwrite it
+    if (is_equal(last_speedup, -1.0f) && !is_equal(get_speedup(), 1.0f)) {
+        sitl->speedup = get_speedup();
     }
     
     if (!is_equal(last_speedup, float(sitl->speedup)) && sitl->speedup > 0) {

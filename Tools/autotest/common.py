@@ -40,6 +40,11 @@ if sys.version_info[0] >= 3 and sys.version_info[1] >= 4:
 else:
     ABC = abc.ABCMeta('ABC', (), {})
 
+if sys.version_info[0] >= 3:
+    import io as StringIO  # srsly, we just did that.
+else:
+    import StringIO
+
 try:
     from itertools import izip as zip
 except ImportError:
@@ -4418,6 +4423,13 @@ Also, ignores heartbeats not from our target system'''
             next_to_request += 1
             remaining_to_receive.discard(m.seq)
 
+    def dump_message_verbose(self, m):
+        '''return verbose dump of m.  Wraps the pymavlink routine which
+        inconveniently takes a filehandle'''
+        f = StringIO.StringIO()
+        mavutil.dump_message_verbose(f, m)
+        return f.getvalue()
+
     def poll_home_position(self, quiet=False, timeout=30):
         old = self.mav.messages.get("HOME_POSITION", None)
         tstart = self.get_sim_time()
@@ -4913,7 +4925,7 @@ Also, ignores heartbeats not from our target system'''
                 m = self.mav.recv_match(type=["MAG_CAL_PROGRESS", "MAG_CAL_REPORT"], blocking=True, timeout=5)
                 if m.get_type() == "MAG_CAL_REPORT":
                     if report_get[m.compass_id] == 0:
-                        self.progress("Report: %s" % str(m))
+                        self.progress("Report: %s" % self.dump_message_verbose(m))
                         if m.cal_status == mavutil.mavlink.MAG_CAL_SUCCESS:
                             if reached_pct[m.compass_id] < 99:
                                 raise NotAchievedException("Mag calibration report SUCCESS without 100%% completion")
@@ -6404,6 +6416,18 @@ switch value'''
             self.drain_mav();
             self.delay_sim_time(0.5)
 
+    def wait_gps_fix_type_gte(self, fix_type, timeout=30):
+        tstart = self.get_sim_time()
+        while True:
+            now = self.get_sim_time_cached()
+            if now - tstart > timeout:
+                raise AutoTestTimeoutException("Did not get good GPS lock")
+            m = self.mav.recv_match(type="GPS_RAW_INT", blocking=True, timeout=0.1)
+            if m is None:
+                continue
+            if m.fix_type >= fix_type:
+                break
+
     def nmea_output(self):
         self.set_parameter("SERIAL5_PROTOCOL", 20) # serial5 is NMEA output
         self.set_parameter("GPS_TYPE2", 5) # GPS2 is NMEA
@@ -6411,6 +6435,8 @@ switch value'''
             "--uartE=tcp:6735", # GPS2 is NMEA....
             "--uartF=tcpclient:127.0.0.1:6735", # serial5 spews to localhost:6735
         ])
+        self.drain_mav_unparsed()
+        self.wait_gps_fix_type_gte(3)
         gps1 = self.mav.recv_match(type="GPS_RAW_INT", blocking=True, timeout=10)
         self.progress("gps1=(%s)" % str(gps1))
         if gps1 is None:
@@ -6426,8 +6452,11 @@ switch value'''
                 continue
             if gps2.time_usec != 0:
                 break
-        if self.get_distance_int(gps1, gps2) > 1:
-            raise NotAchievedException("NMEA output inaccurate")
+        max_distance = 1
+        distance = self.get_distance_int(gps1, gps2)
+        if distance > max_distance:
+            raise NotAchievedException("NMEA output inaccurate (dist=%f want<%f)" %
+                                       (distance, max_distance))
 
     def mavproxy_load_module(self, module):
         self.mavproxy.send("module load %s\n" % module)

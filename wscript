@@ -188,6 +188,14 @@ configuration in order to save typing.
                  default=False,
                  help="Enable SFML audio library")
 
+    g.add_option('--osd', action='store_true',
+                 default=False,
+                 help="Enable OSD support")
+
+    g.add_option('--osd-fonts', action='store_true',
+                 default=False,
+                 help="Enable OSD support with fonts")
+    
     g.add_option('--sitl-osd', action='store_true',
                  default=False,
                  help="Enable SITL OSD")
@@ -320,6 +328,8 @@ def configure(cfg):
         cfg.end_msg('enabled')
         cfg.recurse('libraries/AP_Scripting')
 
+    cfg.recurse('libraries/AP_GPS')
+
     cfg.start_msg('Scripting runtime checks')
     if cfg.options.scripting_checks:
         cfg.end_msg('enabled')
@@ -353,6 +363,9 @@ def configure(cfg):
     cfg.define('_GNU_SOURCE', 1)
 
     cfg.write_config_header(os.path.join(cfg.variant, 'ap_config.h'))
+
+    # add in generated flags
+    cfg.env.CXXFLAGS += ['-include', 'ap_config.h']
 
     _collect_autoconfig_files(cfg)
 
