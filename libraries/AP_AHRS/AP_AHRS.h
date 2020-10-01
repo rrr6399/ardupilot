@@ -210,6 +210,11 @@ public:
     // return a smoothed and corrected gyro vector in radians/second
     virtual const Vector3f &get_gyro(void) const = 0;
 
+    // return primary accels, for lua
+    const Vector3f &get_accel(void) const {
+        return AP::ins().get_accel();
+    }
+    
     // return a smoothed and corrected gyro vector in radians/second using the latest ins data (which may not have been consumed by the EKF yet)
     Vector3f get_gyro_latest(void) const;
 
@@ -260,7 +265,7 @@ public:
 
     // return an airspeed estimate if available. return true
     // if we have an estimate
-    virtual bool airspeed_estimate(float &airspeed_ret) const WARN_IF_UNUSED;
+    virtual bool airspeed_estimate(float &airspeed_ret) const WARN_IF_UNUSED = 0;
 
     // return a true airspeed estimate (navigation airspeed) if
     // available. return true if we have an estimate
@@ -272,6 +277,12 @@ public:
         return true;
     }
 
+    // return a synthetic airspeed estimate (one derived from sensors
+    // other than an actual airspeed sensor), if available. return
+    // true if we have a synthetic airspeed.  ret will not be modified
+    // on failure.
+    virtual bool synthetic_airspeed(float &ret) const WARN_IF_UNUSED = 0;
+
     // get apparent to true airspeed ratio
     float get_EAS2TAS(void) const;
 
@@ -279,6 +290,12 @@ public:
     // opposed to an IMU estimate
     bool airspeed_sensor_enabled(void) const {
         return _airspeed != nullptr && _airspeed->use() && _airspeed->healthy();
+    }
+
+    // return true if airspeed comes from a specific airspeed sensor, as
+    // opposed to an IMU estimate
+    bool airspeed_sensor_enabled(uint8_t airspeed_index) const {
+        return _airspeed != nullptr && _airspeed->use(airspeed_index) && _airspeed->healthy(airspeed_index);
     }
 
     // return the parameter AHRS_WIND_MAX in metres per second
@@ -565,6 +582,10 @@ public:
     // control loops in meters and a validity flag.  It will return
     // false when no limiting is required
     virtual bool get_hgt_ctrl_limit(float &limit) const WARN_IF_UNUSED { return false; };
+
+    // Set to true if the terrain underneath is stable enough to be used as a height reference
+    // this is not related to terrain following
+    virtual void set_terrain_hgt_stable(bool stable) {}
 
     // Write position and quaternion data from an external navigation system
     virtual void writeExtNavData(const Vector3f &pos, const Quaternion &quat, float posErr, float angErr, uint32_t timeStamp_ms, uint16_t delay_ms, uint32_t resetTime_ms) { }

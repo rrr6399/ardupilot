@@ -41,6 +41,7 @@ MAV_MODE GCS_MAVLINK_Plane::base_mode() const
     case Mode::Number::AUTO:
     case Mode::Number::RTL:
     case Mode::Number::LOITER:
+    case Mode::Number::THERMAL:
     case Mode::Number::AVOID_ADSB:
     case Mode::Number::GUIDED:
     case Mode::Number::CIRCLE:
@@ -122,7 +123,7 @@ void GCS_MAVLINK_Plane::send_attitude() const
     float p = ahrs.pitch - radians(plane.g.pitch_trim_cd*0.01f);
     float y = ahrs.yaw;
     
-    if (plane.quadplane.in_vtol_mode()) {
+    if (plane.quadplane.show_vtol_view()) {
         r = plane.quadplane.ahrs_view->roll;
         p = plane.quadplane.ahrs_view->pitch;
         y = plane.quadplane.ahrs_view->yaw;
@@ -266,7 +267,7 @@ int16_t GCS_MAVLINK_Plane::vfr_hud_throttle() const
 
 float GCS_MAVLINK_Plane::vfr_hud_climbrate() const
 {
-#if SOARING_ENABLED == ENABLED
+#if HAL_SOARING_ENABLED
     if (plane.g2.soaring_controller.is_active()) {
         return plane.g2.soaring_controller.get_vario_reading();
     }
@@ -434,8 +435,10 @@ bool GCS_MAVLINK_Plane::try_send_message(enum ap_message id)
         break;
 
     case MSG_ADSB_VEHICLE:
+#if HAL_ADSB_ENABLED
         CHECK_PAYLOAD_SIZE(ADSB_VEHICLE);
         plane.adsb.send_adsb_vehicle(chan);
+#endif
         break;
 
     case MSG_AOA_SSA:
@@ -708,7 +711,9 @@ MAV_RESULT GCS_MAVLINK_Plane::_handle_command_preflight_calibration(const mavlin
 void GCS_MAVLINK_Plane::packetReceived(const mavlink_status_t &status,
                                        const mavlink_message_t &msg)
 {
+#if HAL_ADSB_ENABLED
     plane.avoidance_adsb.handle_msg(msg);
+#endif
     GCS_MAVLINK::packetReceived(status, msg);
 }
 
@@ -738,31 +743,21 @@ MAV_RESULT GCS_MAVLINK_Plane::handle_command_int_do_reposition(const mavlink_com
 {
     // sanity check location
     if (!check_latlng(packet.x, packet.y)) {
-        return MAV_RESULT_FAILED;
+        return MAV_RESULT_DENIED;
     }
 
     Location requested_position {};
     requested_position.lat = packet.x;
     requested_position.lng = packet.y;
 
-    // check the floating representation for overflow of altitude
-    if (fabsf(packet.z * 100.0f) >= 0x7fffff) {
-        return MAV_RESULT_FAILED;
+    if (fabsf(packet.z) > LOCATION_ALT_MAX_M) {
+        return MAV_RESULT_DENIED;
     }
-    requested_position.alt = (int32_t)(packet.z * 100.0f);
-
-    // load option flags
-    if (packet.frame == MAV_FRAME_GLOBAL_RELATIVE_ALT_INT) {
-        requested_position.relative_alt = 1;
+    Location::AltFrame frame;
+    if (!mavlink_coordinate_frame_to_location_alt_frame((MAV_FRAME)packet.frame, frame)) {
+        return MAV_RESULT_DENIED; // failed as the location is not valid
     }
-    else if (packet.frame == MAV_FRAME_GLOBAL_TERRAIN_ALT_INT) {
-        requested_position.terrain_alt = 1;
-    }
-    else if (packet.frame != MAV_FRAME_GLOBAL_INT &&
-             packet.frame != MAV_FRAME_GLOBAL) {
-        // not a supported frame
-        return MAV_RESULT_FAILED;
-    }
+    requested_position.set_alt_cm((int32_t)(packet.z * 100.0f), frame);
 
     if (is_zero(packet.param4)) {
         requested_position.loiter_ccw = 0;
@@ -772,7 +767,7 @@ MAV_RESULT GCS_MAVLINK_Plane::handle_command_int_do_reposition(const mavlink_com
 
     if (requested_position.sanitize(plane.current_loc)) {
         // if the location wasn't already sane don't load it
-        return MAV_RESULT_FAILED; // failed as the location is not valid
+        return MAV_RESULT_DENIED;
     }
 
     // location is valid load and set
@@ -972,9 +967,8 @@ MAV_RESULT GCS_MAVLINK_Plane::handle_command_long_packet(const mavlink_command_l
         // controlled modes (e.g., MANUAL, TRAINING)
         // this command should be ignored since it comes in from GCS
         // or a companion computer:
-        if ((plane.control_mode != &plane.mode_guided) &&
-            (plane.control_mode != &plane.mode_auto) &&
-            (plane.control_mode != &plane.mode_avoidADSB)) {
+        if ((!plane.control_mode->is_guided_mode()) &&
+            (plane.control_mode != &plane.mode_auto)) {
             // failed
             return MAV_RESULT_FAILED;
         }
@@ -1012,7 +1006,7 @@ MAV_RESULT GCS_MAVLINK_Plane::handle_command_long_packet(const mavlink_command_l
     case MAV_CMD_DO_LAND_START:
         // attempt to switch to next DO_LAND_START command in the mission
         if (plane.mission.jump_to_landing_sequence()) {
-            plane.set_mode(plane.mode_auto, ModeReason::UNKNOWN);
+            plane.set_mode(plane.mode_auto, ModeReason::GCS_COMMAND);
             return MAV_RESULT_ACCEPTED;
         }
         return MAV_RESULT_FAILED;
@@ -1485,7 +1479,9 @@ void GCS_MAVLINK_Plane::handleMessage(const mavlink_message_t &msg)
     case MAVLINK_MSG_ID_UAVIONIX_ADSB_OUT_CFG:
     case MAVLINK_MSG_ID_UAVIONIX_ADSB_OUT_DYNAMIC:
     case MAVLINK_MSG_ID_UAVIONIX_ADSB_TRANSCEIVER_HEALTH_REPORT:
+#if HAL_ADSB_ENABLED    
         plane.adsb.handle_message(chan, msg);
+#endif
         break;
 
     default:

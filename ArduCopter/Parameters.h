@@ -54,7 +54,7 @@ public:
         k_param_NavEKF2,
         k_param_g2, // 2nd block of parameters
         k_param_NavEKF3,
-        k_param_BoardConfig_CAN,
+        k_param_can_mgr,
         k_param_osd,
 
         // simulation
@@ -549,7 +549,6 @@ public:
 
     // wheel encoder and winch
 #if WINCH_ENABLED == ENABLED
-    AP_WheelEncoder wheel_encoder;
     AP_Winch winch;
 #endif
 
@@ -614,6 +613,14 @@ public:
 #if MODE_ZIGZAG_ENABLED == ENABLED
     // we need a pointer to the mode for the G2 table
     void *mode_zigzag_ptr;
+#endif
+
+#if MODE_ACRO_ENABLED == ENABLED
+    AP_Int8 acro_options;
+#endif
+
+#if MODE_AUTO_ENABLED == ENABLED
+    AP_Int32 auto_options;
 #endif
 
 };

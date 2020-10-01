@@ -68,7 +68,9 @@ uint8_t RC_Channels::get_radio_in(uint16_t *chans, const uint8_t num_channels)
 // update all the input channels
 bool RC_Channels::read_input(void)
 {
-    if (!hal.rcin->new_input() && !has_new_overrides) {
+    if (hal.rcin->new_input()) {
+        _has_had_rc_receiver = true;
+    } else if (!has_new_overrides) {
         return false;
     }
 
@@ -222,6 +224,15 @@ bool RC_Channels::get_pwm(uint8_t c, uint16_t &pwm) const
     return true;
 }
 
+// return mask of enabled protocols.
+uint32_t RC_Channels::enabled_protocols() const
+{
+    if (_singleton == nullptr) {
+        // for example firmware
+        return 1U;
+    }
+    return uint32_t(_protocols.get());
+}
 
 // singleton instance
 RC_Channels *RC_Channels::_singleton;

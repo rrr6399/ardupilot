@@ -143,6 +143,9 @@ private:
     RC_Channel *channel_steer;
     RC_Channel *channel_throttle;
     RC_Channel *channel_lateral;
+    RC_Channel *channel_roll;
+    RC_Channel *channel_pitch;
+    RC_Channel *channel_walking_height;
 
     AP_Logger logger;
 
@@ -186,7 +189,7 @@ private:
 #endif
 
     // Camera/Antenna mount tracking and stabilisation stuff
-#if MOUNT == ENABLED
+#if HAL_MOUNT_ENABLED
     AP_Mount camera_mount;
 #endif
 
@@ -238,9 +241,6 @@ private:
     // time that rudder/steering arming has been running
     uint32_t rudder_arm_timer;
 
-    // Store the time the last GPS message was received.
-    uint32_t last_gps_msg_ms{0};
-
     // latest wheel encoder values
     float wheel_encoder_last_distance_m[WHEELENCODER_MAX_INSTANCES];    // total distance recorded by wheel encoder (for reporting to GCS)
     bool wheel_encoder_initialised;                                     // true once arrays below have been initialised to sensors initial values
@@ -278,13 +278,14 @@ private:
     // Rover.cpp
     bool set_target_location(const Location& target_loc) override;
     bool set_target_velocity_NED(const Vector3f& vel_ned) override;
+    bool set_steering_and_throttle(float steering, float throttle) override;
+    bool get_control_output(AP_Vehicle::ControlOutput control_output, float &control_value) override;
     void stats_update();
     void ahrs_update();
     void gcs_failsafe_check(void);
     void update_logging1(void);
     void update_logging2(void);
     void one_second_loop(void);
-    void update_GPS(void);
     void update_current_mode(void);
     void update_mission(void);
 

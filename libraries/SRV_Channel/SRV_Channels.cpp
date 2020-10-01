@@ -22,8 +22,8 @@
 #include <AP_Vehicle/AP_Vehicle.h>
 #include "SRV_Channel.h"
 
-#if HAL_WITH_UAVCAN
-  #include <AP_BoardConfig/AP_BoardConfig_CAN.h>
+#if HAL_MAX_CAN_PROTOCOL_DRIVERS
+  #include <AP_CANManager/AP_CANManager.h>
   #include <AP_UAVCAN/AP_UAVCAN.h>
 
   // To be replaced with macro saying if KDECAN library is included
@@ -122,7 +122,7 @@ const AP_Param::GroupInfo SRV_Channels::var_info[] = {
     // @Path: SRV_Channel.cpp
     AP_SUBGROUPINFO(obj_channels[15], "16_",  16, SRV_Channels, SRV_Channel),
 
-    // @Param: _AUTO_TRIM
+    // @Param{Plane}: _AUTO_TRIM
     // @DisplayName: Automatic servo trim
     // @Description: This enables automatic servo trim in flight. Servos will be trimed in stabilized flight modes when the aircraft is close to level. Changes to servo trim will be saved every 10 seconds and will persist between flights. The automatic trim won't go more than 20% away from a centered trim.
     // @Values: 0:Disable,1:Enable
@@ -278,12 +278,12 @@ void SRV_Channels::push()
     blheli_ptr->update_telemetry();
 #endif
 
-#if HAL_WITH_UAVCAN
+#if HAL_MAX_CAN_PROTOCOL_DRIVERS
     // push outputs to CAN
     uint8_t can_num_drivers = AP::can().get_num_drivers();
     for (uint8_t i = 0; i < can_num_drivers; i++) {
-        switch (AP::can().get_protocol_type(i)) {
-            case AP_BoardConfig_CAN::Protocol_Type_UAVCAN: {
+        switch (AP::can().get_driver_type(i)) {
+            case AP_CANManager::Driver_Type_UAVCAN: {
                 AP_UAVCAN *ap_uavcan = AP_UAVCAN::get_uavcan(i);
                 if (ap_uavcan == nullptr) {
                     continue;
@@ -291,7 +291,7 @@ void SRV_Channels::push()
                 ap_uavcan->SRV_push_servos();
                 break;
             }
-            case AP_BoardConfig_CAN::Protocol_Type_KDECAN: {
+            case AP_CANManager::Driver_Type_KDECAN: {
 // To be replaced with macro saying if KDECAN library is included
 #if APM_BUILD_TYPE(APM_BUILD_ArduCopter) || APM_BUILD_TYPE(APM_BUILD_ArduPlane) || APM_BUILD_TYPE(APM_BUILD_ArduSub)
                 AP_KDECAN *ap_kdecan = AP_KDECAN::get_kdecan(i);
@@ -302,7 +302,7 @@ void SRV_Channels::push()
 #endif
                 break;
             }
-            case AP_BoardConfig_CAN::Protocol_Type_ToshibaCAN: {
+            case AP_CANManager::Driver_Type_ToshibaCAN: {
                 AP_ToshibaCAN *ap_tcan = AP_ToshibaCAN::get_tcan(i);
                 if (ap_tcan == nullptr) {
                     continue;
@@ -311,7 +311,7 @@ void SRV_Channels::push()
                 break;
             }
 #if HAL_PICCOLO_CAN_ENABLE
-            case AP_BoardConfig_CAN::Protocol_Type_PiccoloCAN: {
+            case AP_CANManager::Driver_Type_PiccoloCAN: {
                 AP_PiccoloCAN *ap_pcan = AP_PiccoloCAN::get_pcan(i);
                 if (ap_pcan == nullptr) {
                     continue;
@@ -320,10 +320,25 @@ void SRV_Channels::push()
                 break;
             }
 #endif
-            case AP_BoardConfig_CAN::Protocol_Type_None:
+            case AP_CANManager::Driver_Type_CANTester:
+            case AP_CANManager::Driver_Type_None:
             default:
                 break;
         }
     }
-#endif // HAL_WITH_UAVCAN
+#endif // HAL_NUM_CAN_IFACES
+}
+
+void SRV_Channels::zero_rc_outputs()
+{
+    /* Send an invalid signal to the motors to prevent spinning due to
+     * neutral (1500) pwm pulse being cut short.  For that matter,
+     * send an invalid signal to all channels to prevent
+     * undesired/unexpected behavior
+     */
+    cork();
+    for (uint8_t i=0; i<NUM_RC_CHANNELS; i++) {
+        hal.rcout->write(i, 0);
+    }
+    push();
 }

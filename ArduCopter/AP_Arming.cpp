@@ -1,6 +1,6 @@
 #include "Copter.h"
 
-#if HAL_WITH_UAVCAN
+#if HAL_MAX_CAN_PROTOCOL_DRIVERS
  #include <AP_ToshibaCAN/AP_ToshibaCAN.h>
 #endif
 
@@ -61,8 +61,10 @@ bool AP_Arming_Copter::run_pre_arm_checks(bool display_failure)
         & motor_checks(display_failure)
         & pilot_throttle_checks(display_failure)
         & oa_checks(display_failure)
-        & gcs_failsafe_check(display_failure) &
-        AP_Arming::pre_arm_checks(display_failure);
+        & gcs_failsafe_check(display_failure)
+        & winch_checks(display_failure)
+        & alt_checks(display_failure)
+        & AP_Arming::pre_arm_checks(display_failure);
 }
 
 bool AP_Arming_Copter::barometer_checks(bool display_failure)
@@ -267,7 +269,7 @@ bool AP_Arming_Copter::parameter_checks(bool display_failure)
         }
 
         // check adsb avoidance failsafe
-#if ADSB_ENABLED == ENABLE
+#if HAL_ADSB_ENABLED
         if (copter.failsafe.adsb) {
             check_failed(ARMING_CHECK_PARAMETERS, display_failure, "ADSB threat detected");
             return false;
@@ -298,18 +300,25 @@ bool AP_Arming_Copter::motor_checks(bool display_failure)
         return false;
     }
 
+	// servo_test check
+#if FRAME_CONFIG == HELI_FRAME
+    if (copter.motors->servo_test_running()) {
+        check_failed(display_failure, "Servo Test is still running");
+        return false;
+    }
+#endif
     // further checks enabled with parameters
     if (!check_enabled(ARMING_CHECK_PARAMETERS)) {
         return true;
     }
 
     // if this is a multicopter using ToshibaCAN ESCs ensure MOT_PMW_MIN = 1000, MOT_PWM_MAX = 2000
-#if HAL_WITH_UAVCAN && (FRAME_CONFIG != HELI_FRAME)
+#if HAL_MAX_CAN_PROTOCOL_DRIVERS && (FRAME_CONFIG != HELI_FRAME)
     bool tcan_active = false;
     uint8_t tcan_index = 0;
     const uint8_t num_drivers = AP::can().get_num_drivers();
     for (uint8_t i = 0; i < num_drivers; i++) {
-        if (AP::can().get_protocol_type(i) == AP_BoardConfig_CAN::Protocol_Type_ToshibaCAN) {
+        if (AP::can().get_driver_type(i) == AP_CANManager::Driver_Type_ToshibaCAN) {
             tcan_active = true;
             tcan_index = i;
         }
@@ -520,14 +529,14 @@ bool AP_Arming_Copter::mandatory_gps_checks(bool display_failure)
     if (mode_requires_gps) {
         if (!copter.position_ok()) {
             // There is no need to call prearm_failure_reason again, because prearm_healthy sure be true if we reach here
-            check_failed(display_failure, "Need 3D Fix");
+            check_failed(display_failure, "Need Position Estimate");
             return false;
         }
     } else {
         if (fence_requires_gps) {
             if (!copter.position_ok()) {
                 // clarify to user why they need GPS in non-GPS flight mode
-                check_failed(display_failure, "Fence enabled, need 3D Fix");
+                check_failed(display_failure, "Fence enabled, need position estimate");
                 return false;
             }
         } else {
@@ -572,6 +581,40 @@ bool AP_Arming_Copter::gcs_failsafe_check(bool display_failure)
         check_failed(display_failure, "GCS failsafe on");
         return false;
     }
+    return true;
+}
+
+// check winch
+bool AP_Arming_Copter::winch_checks(bool display_failure) const
+{
+#if WINCH_ENABLED == ENABLED
+    // pass if parameter or all arming checks disabled
+    if (((checks_to_perform & ARMING_CHECK_ALL) == 0) && ((checks_to_perform & ARMING_CHECK_PARAMETERS) == 0)) {
+        return true;
+    }
+
+    const AP_Winch *winch = AP::winch();
+    if (winch == nullptr) {
+        return true;
+    }
+    char failure_msg[50] = {};
+    if (!winch->pre_arm_check(failure_msg, sizeof(failure_msg))) {
+        check_failed(display_failure, "%s", failure_msg);
+        return false;
+    }
+#endif
+    return true;
+}
+
+// performs altitude checks.  returns true if passed
+bool AP_Arming_Copter::alt_checks(bool display_failure)
+{
+    // always EKF altitude estimate
+    if (!copter.flightmode->has_manual_throttle() && !copter.ekf_alt_ok()) {
+        check_failed(display_failure, "Need Alt Estimate");
+        return false;
+    }
+
     return true;
 }
 
@@ -644,7 +687,7 @@ bool AP_Arming_Copter::arm_checks(AP_Arming::Method method)
     }
 
     // check adsb
-#if ADSB_ENABLED == ENABLE
+#if HAL_ADSB_ENABLED
     if ((checks_to_perform == ARMING_CHECK_ALL) || (checks_to_perform & ARMING_CHECK_PARAMETERS)) {
         if (copter.failsafe.adsb) {
             check_failed(ARMING_CHECK_PARAMETERS, true, "ADSB threat detected");
@@ -699,8 +742,14 @@ bool AP_Arming_Copter::arm_checks(AP_Arming::Method method)
 bool AP_Arming_Copter::mandatory_checks(bool display_failure)
 {
     // call mandatory gps checks and update notify status because regular gps checks will not run
-    const bool result = mandatory_gps_checks(display_failure);
+    bool result = mandatory_gps_checks(display_failure);
     AP_Notify::flags.pre_arm_gps_check = result;
+
+    // call mandatory alt check
+    if (!alt_checks(display_failure)) {
+        result = false;
+    }
+
     return result;
 }
 

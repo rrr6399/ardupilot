@@ -96,6 +96,7 @@ void RC_Channel_Copter::init_aux_function(const aux_func_t ch_option, const AuxS
     case AUX_FUNC::ZIGZAG:
     case AUX_FUNC::ZIGZAG_Auto:
     case AUX_FUNC::ZIGZAG_SaveWP:
+    case AUX_FUNC::ACRO:
         break;
     case AUX_FUNC::ACRO_TRAINER:
     case AUX_FUNC::ATTCON_ACCEL_LIM:
@@ -112,8 +113,10 @@ void RC_Channel_Copter::init_aux_function(const aux_func_t ch_option, const AuxS
     case AUX_FUNC::SUPERSIMPLE_MODE:
     case AUX_FUNC::SURFACE_TRACKING:
     case AUX_FUNC::WINCH_ENABLE:
-    case AUX_FUNC::AIRMODE:
         do_aux_function(ch_option, ch_flag);
+        break;
+    case AUX_FUNC::AIRMODE:
+        do_aux_function_change_air_mode(ch_flag);
         break;
     default:
         RC_Channel::init_aux_function(ch_option, ch_flag);
@@ -361,7 +364,7 @@ void RC_Channel_Copter::do_aux_function(const aux_func_t ch_option, const AuxSwi
             break;
 
         case AUX_FUNC::RETRACT_MOUNT:
-#if MOUNT == ENABLE
+#if HAL_MOUNT_ENABLED
             switch (ch_flag) {
                 case AuxSwitchPos::HIGH:
                     copter.camera_mount.set_mode(MAV_MOUNT_MODE_RETRACT);
@@ -446,36 +449,20 @@ void RC_Channel_Copter::do_aux_function(const aux_func_t ch_option, const AuxSwi
 #if WINCH_ENABLED == ENABLED
             switch (ch_flag) {
                 case AuxSwitchPos::HIGH:
-                    // high switch maintains current position
-                    copter.g2.winch.release_length(0.0f);
-                    AP::logger().Write_Event(LogEvent::WINCH_LENGTH_CONTROL);
+                    // high switch position stops winch using rate control
+                    copter.g2.winch.set_desired_rate(0.0f);
                     break;
                 case AuxSwitchPos::MIDDLE:
                 case AuxSwitchPos::LOW:
                     // all other position relax winch
                     copter.g2.winch.relax();
-                    AP::logger().Write_Event(LogEvent::WINCH_RELAXED);
                     break;
                 }
 #endif
             break;
 
         case AUX_FUNC::WINCH_CONTROL:
-#if WINCH_ENABLED == ENABLED
-            switch (ch_flag) {
-                case LOW:
-                    // raise winch at maximum speed
-                    copter.g2.winch.set_desired_rate(-copter.g2.winch.get_rate_max());
-                    break;
-                case HIGH:
-                    // lower winch at maximum speed
-                    copter.g2.winch.set_desired_rate(copter.g2.winch.get_rate_max());
-                    break;
-                case MIDDLE:
-                    copter.g2.winch.set_desired_rate(0.0f);
-                    break;
-                }
-#endif
+            // do nothing, used to control the rate of the winch and is processed within AP_Winch
             break;
 
 #ifdef USERHOOK_AUXSWITCH
@@ -530,6 +517,13 @@ void RC_Channel_Copter::do_aux_function(const aux_func_t ch_option, const AuxSwi
 
         case AUX_FUNC::ALTHOLD:
             do_aux_function_change_mode(Mode::Number::ALT_HOLD, ch_flag);
+            break;
+
+
+        case AUX_FUNC::ACRO:
+#if MODE_ACRO_ENABLED == ENABLED
+            do_aux_function_change_mode(Mode::Number::ACRO, ch_flag);
+#endif
             break;
 
         case AUX_FUNC::FLOWHOLD:
@@ -596,20 +590,29 @@ void RC_Channel_Copter::do_aux_function(const aux_func_t ch_option, const AuxSwi
             break;
 
         case AUX_FUNC::AIRMODE:
-            switch (ch_flag) {
-            case AuxSwitchPos::HIGH:
-                copter.air_mode = AirMode::AIRMODE_ENABLED;
-                break;
-            case AuxSwitchPos::MIDDLE:
-                break;
-            case AuxSwitchPos::LOW:
-                copter.air_mode = AirMode::AIRMODE_DISABLED;
-                break;
-            }
-        break;
+            do_aux_function_change_air_mode(ch_flag);
+#if MODE_ACRO_ENABLED == ENABLED && FRAME_CONFIG != HELI_FRAME
+            copter.mode_acro.air_mode_aux_changed();
+#endif
+            break;
             
     default:
         RC_Channel::do_aux_function(ch_option, ch_flag);
+        break;
+    }
+}
+
+// change air-mode status
+void RC_Channel_Copter::do_aux_function_change_air_mode(const AuxSwitchPos ch_flag)
+{
+    switch (ch_flag) {
+    case AuxSwitchPos::HIGH:
+        copter.air_mode = AirMode::AIRMODE_ENABLED;
+        break;
+    case AuxSwitchPos::MIDDLE:
+        break;
+    case AuxSwitchPos::LOW:
+        copter.air_mode = AirMode::AIRMODE_DISABLED;
         break;
     }
 }

@@ -108,7 +108,9 @@
 
 #include "RC_Channel.h"     // RC Channel Library
 #include "Parameters.h"
+#if HAL_ADSB_ENABLED
 #include "avoidance_adsb.h"
+#endif
 #include "AP_Arming.h"
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
@@ -157,6 +159,7 @@ public:
     friend class ModeQAcro;
     friend class ModeQAutotune;
     friend class ModeTakeoff;
+    friend class ModeThermal;
 
     Plane(void);
 
@@ -177,6 +180,8 @@ private:
     RC_Channel *channel_pitch;
     RC_Channel *channel_throttle;
     RC_Channel *channel_rudder;
+    RC_Channel *channel_flap;
+    RC_Channel *channel_airbrake;
 
     AP_Logger logger;
 
@@ -263,7 +268,9 @@ private:
     ModeAuto mode_auto;
     ModeRTL mode_rtl;
     ModeLoiter mode_loiter;
+#if HAL_ADSB_ENABLED
     ModeAvoidADSB mode_avoidADSB;
+#endif
     ModeGuided mode_guided;
     ModeInitializing mode_initializing;
     ModeManual mode_manual;
@@ -275,6 +282,9 @@ private:
     ModeQAcro mode_qacro;
     ModeQAutotune mode_qautotune;
     ModeTakeoff mode_takeoff;
+#if HAL_SOARING_ENABLED
+    ModeThermal mode_thermal;
+#endif
 
     // This is the state of the flight control system
     // There are multiple states defined such as MANUAL, FBW-A, AUTO
@@ -394,13 +404,6 @@ private:
         float locked_roll_err;
         int32_t locked_pitch_cd;
     } acro_state;
-
-    // CRUISE controller state
-    struct CruiseState {
-        bool locked_heading;
-        int32_t locked_heading_cd;
-        uint32_t lock_timer_ms;
-    } cruise_state;
 
     struct {
         uint32_t last_tkoff_arm_time;
@@ -637,11 +640,12 @@ private:
             FUNCTOR_BIND_MEMBER(&Plane::adjusted_relative_altitude_cm, int32_t),
             FUNCTOR_BIND_MEMBER(&Plane::disarm_if_autoland_complete, void),
             FUNCTOR_BIND_MEMBER(&Plane::update_flight_stage, void)};
-
+#if HAL_ADSB_ENABLED
     AP_ADSB adsb;
 
-    // avoidance of adsb enabled vehicles (normally manned vheicles)
+    // avoidance of adsb enabled vehicles (normally manned vehicles)
     AP_Avoidance_Plane avoidance_adsb{adsb};
+#endif
 
     // Outback Challenge Failsafe Support
 #if ADVANCED_FAILSAFE == ENABLED
@@ -756,7 +760,7 @@ private:
     uint32_t last_home_update_ms;
 
     // Camera/Antenna mount tracking and stabilisation stuff
-#if MOUNT == ENABLED
+#if HAL_MOUNT_ENABLED
     AP_Mount camera_mount;
 #endif
 
@@ -783,7 +787,11 @@ private:
     float rudder_dt;
 
     // soaring mode-change timer
-    uint32_t soaring_mode_timer;
+    uint32_t soaring_mode_timer_ms;
+
+    // terrain disable for non AUTO modes, set with an RC Option switch
+    bool non_auto_terrain_disable;
+    bool terrain_disabled();
 
     // Attitude.cpp
     void adjust_nav_pitch_throttle(void);
@@ -965,7 +973,6 @@ private:
     void update_logging2(void);
     void update_control_mode(void);
     void update_flight_stage();
-    void update_navigation();
     void set_flight_stage(AP_Vehicle::FixedWing::FlightStage fs);
 #if OSD_ENABLED == ENABLED
     void publish_osd_info();
@@ -1014,7 +1021,7 @@ private:
     void startup_INS_ground(void);
     bool should_log(uint32_t mask);
     int8_t throttle_percentage(void);
-    void update_dynamic_notch();
+    void update_dynamic_notch() override;
     void notify_mode(const Mode& mode);
 
     // takeoff.cpp
@@ -1038,6 +1045,7 @@ private:
     void set_servos_flaps(void);
     void set_landing_gear(void);
     void dspoiler_update(void);
+    void airbrake_update(void);
     void servo_output_mixers(void);
     void servos_output(void);
     void servos_auto_trim(void);
@@ -1066,8 +1074,10 @@ private:
 #endif
 
     // soaring.cpp
-#if SOARING_ENABLED == ENABLED
+#if HAL_SOARING_ENABLED
     void update_soaring();
+    bool soaring_exit_heading_aligned() const;
+    void soaring_restore_mode(const char *reason, ModeReason modereason);
 #endif
 
     // reverse_thrust.cpp
@@ -1105,6 +1115,20 @@ private:
     bool ekf_over_threshold();
     void failsafe_ekf_event();
     void failsafe_ekf_off_event(void);
+    
+    enum class CrowMode {
+        NORMAL,
+        PROGRESSIVE,
+        CROW_DISABLED,
+    };
+
+    enum class ThrFailsafe {
+        Disabled    = 0,
+        Enabled     = 1,
+        EnabledNoFS = 2
+    };
+
+    CrowMode crow_mode = CrowMode::NORMAL;
 
 public:
     void failsafe_check(void);

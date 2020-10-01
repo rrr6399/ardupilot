@@ -54,8 +54,8 @@ const AP_Param::GroupInfo AP_Logger::var_info[] = {
     AP_GROUPINFO("_BACKEND_TYPE",  0, AP_Logger, _params.backend_types,       uint8_t(HAL_LOGGING_BACKENDS_DEFAULT)),
 
     // @Param: _FILE_BUFSIZE
-    // @DisplayName: Maximum AP_Logger File Backend buffer size (in kilobytes)
-    // @Description: The AP_Logger_File backend uses a buffer to store data before writing to the block device.  Raising this value may reduce "gaps" in your SD card logging.  This buffer size may be reduced depending on available memory.  PixHawk requires at least 4 kilobytes.  Maximum value available here is 64 kilobytes.
+    // @DisplayName: Maximum AP_Logger File and Block Backend buffer size (in kilobytes)
+    // @Description: The File and Block backends use a buffer to store data before writing to the block device.  Raising this value may reduce "gaps" in your SD card logging.  This buffer size may be reduced depending on available memory.  PixHawk requires at least 4 kilobytes.  Maximum value available here is 64 kilobytes.
     // @User: Standard
     AP_GROUPINFO("_FILE_BUFSIZE",  1, AP_Logger, _params.file_bufsize,       HAL_LOGGING_FILE_BUFSIZE),
 
@@ -75,7 +75,7 @@ const AP_Param::GroupInfo AP_Logger::var_info[] = {
 
     // @Param: _FILE_DSRMROT
     // @DisplayName: Stop logging to current file on disarm
-    // @Description: When set, the current log file is closed when the vehicle is disarmed.  If LOG_DISARMED is set then a fresh log will be opened.
+    // @Description: When set, the current log file is closed when the vehicle is disarmed.  If LOG_DISARMED is set then a fresh log will be opened. Applies to the File and Block logging backends.
     // @Values: 0:Disabled,1:Enabled
     // @User: Standard
     AP_GROUPINFO("_FILE_DSRMROT",  4, AP_Logger, _params.file_disarm_rot,       0),
@@ -319,14 +319,14 @@ bool AP_Logger::labels_string_is_good(const char *labels) const
     // label_offsets.
     char *label_offsets[LS_LABELS_SIZE];
     uint8_t label_offsets_offset = 0;
-    char labels_copy[LS_LABELS_SIZE];
-    strncpy(labels_copy, labels, ARRAY_SIZE(labels_copy));
+    char labels_copy[LS_LABELS_SIZE+1] {};
+    strncpy(labels_copy, labels, LS_LABELS_SIZE);
     if (labels_copy[0] == ',') {
         Debug("Leading comma in (%s)", labels);
         passed = false;
     }
     label_offsets[label_offsets_offset++] = labels_copy;
-    const uint8_t len = strnlen(labels_copy, ARRAY_SIZE(labels_copy));
+    const uint8_t len = strnlen(labels_copy, LS_LABELS_SIZE);
     for (uint8_t i=0; i<len; i++) {
         if (labels_copy[i] == ',') {
             if (labels_copy[i+1] == '\0') {
@@ -727,7 +727,7 @@ void AP_Logger::handle_mavlink_msg(GCS_MAVLINK &link, const mavlink_message_t &m
 {
     switch (msg.msgid) {
     case MAVLINK_MSG_ID_REMOTE_LOG_BLOCK_STATUS:
-        FOR_EACH_BACKEND(remote_log_block_status_msg(link.get_chan(), msg));
+        FOR_EACH_BACKEND(remote_log_block_status_msg(link, msg));
         break;
     case MAVLINK_MSG_ID_LOG_REQUEST_LIST:
         FALLTHROUGH;

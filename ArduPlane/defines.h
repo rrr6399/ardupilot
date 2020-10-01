@@ -144,6 +144,7 @@ enum {
     USE_REVERSE_THRUST_CRUISE                   = (1<<8),
     USE_REVERSE_THRUST_FBWB                     = (1<<9),
     USE_REVERSE_THRUST_GUIDED                   = (1<<10),
+    USE_REVERSE_THRUST_AUTO_LANDING_PATTERN     = (1<<11),
 };
 
 enum FlightOptions {
@@ -164,4 +165,10 @@ enum guided_heading_type_t {
     GUIDED_HEADING_NONE = 0, // no heading track
     GUIDED_HEADING_COG,      // maintain ground track
     GUIDED_HEADING_HEADING,  // maintain a heading
+};
+
+
+enum class AirMode {
+    OFF,
+    ON,
 };

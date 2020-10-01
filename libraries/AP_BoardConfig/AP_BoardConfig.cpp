@@ -24,13 +24,6 @@
 #include <AP_Vehicle/AP_Vehicle.h>
 #include <GCS_MAVLink/GCS.h>
 
-#if HAL_WITH_UAVCAN
-#include <AP_UAVCAN/AP_UAVCAN.h>
-#if CONFIG_HAL_BOARD == HAL_BOARD_LINUX
-#include <AP_HAL_Linux/CAN.h>
-#endif
-#endif
-
 #include <stdio.h>
 
 #ifndef BOARD_TYPE_DEFAULT
@@ -70,7 +63,7 @@
 #endif
 
 #ifndef HAL_BRD_OPTIONS_DEFAULT
-#if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
+#if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS && !APM_BUILD_TYPE(APM_BUILD_UNKNOWN)
 #define HAL_BRD_OPTIONS_DEFAULT BOARD_OPTION_WATCHDOG
 #else
 #define HAL_BRD_OPTIONS_DEFAULT 0

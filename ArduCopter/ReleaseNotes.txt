@@ -1,5 +1,25 @@
 ArduPilot Copter Release Notes:
 ------------------------------------------------------------------
+Copter 4.0.4 16-Sep-2020
+Changes from 4.0.4-rc4
+1) Matek H743, 765-Wing and F405-Wing get DPS310 Baro support 
+------------------------------------------------------------------
+Copter 4.0.4-rc4 28-Aug-2020
+Changes from 4.0.4-rc3
+1) Bug fixes:
+    a) Compass startup reordering based on compass priorities fix
+    b) TradHeli servo test fix
+    c) Precision landing logging fix
+    d) Mavlink commands ignored after reboot request
+------------------------------------------------------------------
+Copter 4.0.4-rc3 30-Jul-2020
+Changes from 4.0.4-rc2
+1) Bug Fixes and minor enhancements:
+    a) Compass ids from missing compasses reset after compass cal
+    b) LIS3MDL compass enabled on all boards
+    c) Lightware I2C lidar fix when out-of-range
+    d) Parameter erase fix for revo-mini and other boards that store to flash  
+------------------------------------------------------------------
 Copter 4.0.4-rc2 16-Jun-2020
 Changes from 4.0.4-rc1
 1) Bug Fixes:
@@ -43,7 +63,7 @@ Changes from 4.0.3
     c) MatekSys H743
     e) mRo Nexus
     d) R9Pilot
-5) GPS moving baseline (aka Yaw from GPS) for UBlox F9 and M9 GPSs
+5) GPS moving baseline (aka Yaw from GPS) for UBlox F9 GPSs
 6) Graupner Hott telemetry support
 7) Landing detector filter improvement improves detection on hard surfaces
 8) Object Avoidances Fixes and improvements:

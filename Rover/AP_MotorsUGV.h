@@ -60,7 +60,20 @@ public:
     float get_throttle() const { return _throttle; }
     void set_throttle(float throttle);
 
-    // set lateral input as a value from -100 to +100
+    // get or set roll as a value from -1 to 1
+    float get_roll() const { return _roll; }
+    void set_roll(float roll);
+
+    // get or set pitch as a value from -1 to 1
+    float get_pitch() const { return _pitch; }
+    void set_pitch(float pitch);
+
+    // get or set walking_height as a value from -1 to 1
+    float get_walking_height() const { return _walking_height; }
+    void set_walking_height(float walking_height);
+
+    // get or set lateral input as a value from -100 to +100
+    float get_lateral() const { return _lateral; }
     void set_lateral(float lateral);
 
     // set or get mainsail input as a value from 0 to 100
@@ -173,6 +186,7 @@ protected:
     AP_Float _thrust_curve_expo; // thrust curve exponent from -1 to +1 with 0 being linear
     AP_Float _vector_throttle_base;  // throttle level above which steering is scaled down when using vector thrust.  zero to disable vectored thrust
     AP_Float _speed_scale_base;  // speed above which steering is scaled down when using regular steering/throttle vehicles.  zero to disable speed scaling
+    AP_Float _steering_throttle_mix; // Steering vs Throttle priorisation.  Higher numbers prioritise steering, lower numbers prioritise throttle.  Only valid for Skid Steering vehicles
 
     // internal variables
     float   _steering;  // requested steering as a value from -4500 to +4500
@@ -180,6 +194,9 @@ protected:
     float   _throttle_prev; // throttle input from previous iteration
     bool    _scale_steering = true; // true if we should scale steering by speed or angle
     float   _lateral;  // requested lateral input as a value from -100 to +100
+    float   _roll;      // requested roll as a value from -1 to +1
+    float   _pitch;     // requested pitch as a value from -1 to +1
+    float   _walking_height; // requested height as a value from -1 to +1   
     float   _mainsail;  // requested mainsail input as a value from 0 to 100
     float   _wingsail;  // requested wing sail input as a value in the range +- 100
 

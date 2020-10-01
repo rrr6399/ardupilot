@@ -260,7 +260,6 @@ def start_SITL(binary,
                gdbserver=False,
                breakpoints=[],
                disable_breakpoints=False,
-               vicon=False,
                customisations=[],
                lldb=False):
 
@@ -299,6 +298,7 @@ def start_SITL(binary,
                     'bash -c "gdb -x /tmp/x.gdb"')
     elif gdb:
         f = open("/tmp/x.gdb", "w")
+        f.write("set pagination off\n")
         for breakpoint in breakpoints:
             f.write("b %s\n" % (breakpoint,))
         if disable_breakpoints:
@@ -348,8 +348,6 @@ def start_SITL(binary,
         cmd.extend(['--defaults', defaults_filepath])
     if unhide_parameters:
         cmd.extend(['--unhide-groups'])
-    if vicon:
-        cmd.extend(["--uartF=sim:vicon:"])
     cmd.extend(customisations)
 
     if (gdb or lldb) and sys.platform == "darwin" and os.getenv('DISPLAY'):

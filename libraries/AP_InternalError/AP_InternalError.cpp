@@ -54,6 +54,7 @@ void AP_InternalError::errors_as_string(uint8_t *buffer, const uint16_t len) con
         "sfs_recursion",  // switch_full_sector_recursion
         "bad_rotation",
         "stack_ovrflw",  // stack_overflow
+        "imu_reset",  // imu_reset
     };
 
     static_assert((1U<<(ARRAY_SIZE(error_bit_descriptions))) == uint32_t(AP_InternalError::error_t::__LAST__), "too few descriptions for bits");
@@ -66,7 +67,7 @@ void AP_InternalError::errors_as_string(uint8_t *buffer, const uint16_t len) con
         }
         if (internal_errors & (1U<<i)) {
             const char *format;
-            if (i == 0) {
+            if (buffer_used == 0) {
                 format = "%s";
             } else {
                 format = ",%s";
@@ -100,7 +101,7 @@ void AP_stack_overflow(const char *thread_name)
     if (!done_stack_overflow) {
         // we don't want to record the thread name more than once, as
         // first overflow can trigger a 2nd
-        strncpy(hal.util->persistent_data.thread_name4, thread_name, 4);
+        strncpy_noterm(hal.util->persistent_data.thread_name4, thread_name, 4);
         done_stack_overflow = true;
     }
     hal.util->persistent_data.fault_type = 42; // magic value

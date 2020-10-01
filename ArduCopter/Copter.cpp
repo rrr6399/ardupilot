@@ -91,7 +91,7 @@ const AP_HAL::HAL& hal = AP_HAL::get_HAL();
 const AP_Scheduler::Task Copter::scheduler_tasks[] = {
     SCHED_TASK(rc_loop,              100,    130),
     SCHED_TASK(throttle_loop,         50,     75),
-    SCHED_TASK(update_GPS,            50,    200),
+    SCHED_TASK_CLASS(AP_GPS, &copter.gps, update, 50, 200),
 #if OPTFLOW == ENABLED
     SCHED_TASK_CLASS(OpticalFlow,          &copter.optflow,             update,         200, 160),
 #endif
@@ -146,11 +146,11 @@ const AP_Scheduler::Task Copter::scheduler_tasks[] = {
     SCHED_TASK(lost_vehicle_check,    10,     50),
     SCHED_TASK_CLASS(GCS,                  (GCS*)&copter._gcs,          update_receive, 400, 180),
     SCHED_TASK_CLASS(GCS,                  (GCS*)&copter._gcs,          update_send,    400, 550),
-#if MOUNT == ENABLED
+#if HAL_MOUNT_ENABLED
     SCHED_TASK_CLASS(AP_Mount,             &copter.camera_mount,        update,          50,  75),
 #endif
 #if CAMERA == ENABLED
-    SCHED_TASK_CLASS(AP_Camera,            &copter.camera,              update_trigger,  50,  75),
+    SCHED_TASK_CLASS(AP_Camera,            &copter.camera,              update,          50,  75),
 #endif
 #if LOGGING_ENABLED == ENABLED
     SCHED_TASK(ten_hz_logging_loop,   10,    350),
@@ -166,7 +166,7 @@ const AP_Scheduler::Task Copter::scheduler_tasks[] = {
     SCHED_TASK(compass_cal_update,   100,    100),
     SCHED_TASK(accel_cal_update,      10,    100),
     SCHED_TASK_CLASS(AP_TempCalibration,   &copter.g2.temp_calibration, update,          10, 100),
-#if ADSB_ENABLED == ENABLED
+#if HAL_ADSB_ENABLED
     SCHED_TASK(avoidance_adsb_update, 10,    100),
 #endif
 #if ADVANCED_FAILSAFE == ENABLED
@@ -179,7 +179,10 @@ const AP_Scheduler::Task Copter::scheduler_tasks[] = {
     SCHED_TASK_CLASS(AP_Gripper,           &copter.g2.gripper,          update,          10,  75),
 #endif
 #if WINCH_ENABLED == ENABLED
-    SCHED_TASK(winch_update,          10,     50),
+    SCHED_TASK_CLASS(AP_Winch,             &copter.g2.winch,            update,          50,  50),
+#endif
+#if GENERATOR_ENABLED
+    SCHED_TASK_CLASS(AP_Generator_RichenPower,     &copter.generator,      update,    10,     50),
 #endif
 #ifdef USERHOOK_FASTLOOP
     SCHED_TASK(userhook_FastLoop,    100,     75),
@@ -257,7 +260,7 @@ void Copter::fast_loop()
     // check if we've landed or crashed
     update_land_and_crash_detectors();
 
-#if MOUNT == ENABLED
+#if HAL_MOUNT_ENABLED
     // camera mount's fast update
     camera_mount.update_fast();
 #endif
@@ -319,7 +322,7 @@ bool Copter::set_target_angle_and_climbrate(float roll_deg, float pitch_deg, flo
     Quaternion q;
     q.from_euler(radians(roll_deg),radians(pitch_deg),radians(yaw_deg));
 
-    mode_guided.set_angle(q,climb_rate_ms*100,use_yaw_rate,radians(yaw_rate_degs));
+    mode_guided.set_angle(q, climb_rate_ms*100, use_yaw_rate, radians(yaw_rate_degs), false);
     return true;
 }
 
@@ -354,8 +357,7 @@ void Copter::throttle_loop()
 
     // compensate for ground effect (if enabled)
     update_ground_effect_detector();
-
-    update_dynamic_notch();
+    update_ekf_terrain_height_stable();
 }
 
 // update_batt_compass - read battery and compass
@@ -423,6 +425,11 @@ void Copter::ten_hz_logging_loop()
     }
 #if FRAME_CONFIG == HELI_FRAME
     Log_Write_Heli();
+#endif
+#if WINCH_ENABLED == ENABLED
+    if (should_log(MASK_LOG_ANY)) {
+        g2.winch.write_log();
+    }
 #endif
 }
 
@@ -506,35 +513,11 @@ void Copter::one_hz_loop()
     // log terrain data
     terrain_logging();
 
-#if ADSB_ENABLED == ENABLED
+#if HAL_ADSB_ENABLED
     adsb.set_is_flying(!ap.land_complete);
 #endif
 
     AP_Notify::flags.flying = !ap.land_complete;
-}
-
-// called at 50hz
-void Copter::update_GPS(void)
-{
-    static uint32_t last_gps_reading[GPS_MAX_INSTANCES];   // time of last gps message
-    bool gps_updated = false;
-
-    gps.update();
-
-    // log after every gps message
-    for (uint8_t i=0; i<gps.num_sensors(); i++) {
-        if (gps.last_message_time_ms(i) != last_gps_reading[i]) {
-            last_gps_reading[i] = gps.last_message_time_ms(i);
-            gps_updated = true;
-            break;
-        }
-    }
-
-    if (gps_updated) {
-#if CAMERA == ENABLED
-        camera.update();
-#endif
-    }
 }
 
 void Copter::init_simple_bearing()
@@ -631,6 +614,8 @@ void Copter::update_altitude()
         Log_Write_Control_Tuning();
 #if HAL_GYROFFT_ENABLED
         gyro_fft.write_log_messages();
+#else
+        write_notch_log_messages();
 #endif
     }
 }

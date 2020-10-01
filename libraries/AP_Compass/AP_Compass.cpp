@@ -20,12 +20,15 @@
 #include "AP_Compass_LIS3MDL.h"
 #include "AP_Compass_AK09916.h"
 #include "AP_Compass_QMC5883L.h"
-#if HAL_WITH_UAVCAN
+#if HAL_ENABLE_LIBUAVCAN_DRIVERS
 #include "AP_Compass_UAVCAN.h"
 #endif
 #include "AP_Compass_MMC3416.h"
 #include "AP_Compass_MAG3110.h"
 #include "AP_Compass_RM3100.h"
+#if HAL_MSP_COMPASS_ENABLED
+#include "AP_Compass_MSP.h"
+#endif
 #include "AP_Compass.h"
 #include "Compass_learn.h"
 #include <stdio.h>
@@ -696,9 +699,12 @@ void Compass::init()
         if (_priority_did_stored_list[i] != 0) {
             _priority_did_list[i] = _priority_did_stored_list[i];
         } else {
-            // Maintain a list without gaps
+            // Maintain a list without gaps and duplicates
             for (Priority j(i+1); j<COMPASS_MAX_INSTANCES; j++) {
                 int32_t temp;
+                if (_priority_did_stored_list[j] == _priority_did_stored_list[i]) {
+                    _priority_did_stored_list[j].set_and_save_ifchanged(0);
+                }
                 if (_priority_did_stored_list[j] == 0) {
                     continue;
                 }
@@ -722,16 +728,35 @@ void Compass::init()
     // interface for users to see unreg compasses, we actually never store it
     // in storage.
     for (uint8_t i=_unreg_compass_count; i<COMPASS_MAX_UNREG_DEV; i++) {
-        extra_dev_id[i].set(0);
+        // cache the extra devices detected in last boot
+        // for detecting replacement mag
+        _previously_unreg_mag[i] = extra_dev_id[i];
+        extra_dev_id[i].set_and_save(0);
     }
 #endif
 
+#if COMPASS_MAX_INSTANCES > 1
+    // This method calls set_and_save_ifchanged on parameters
+    // which are set() but not saved() during normal runtime,
+    // do not move this call without ensuring that is not happening
+    // read comments under set_and_save_ifchanged for details
     _reorder_compass_params();
+#endif
 
     if (_compass_count == 0) {
         // detect available backends. Only called once
         _detect_backends();
     }
+
+#if COMPASS_MAX_UNREG_DEV
+    // We store the list of unregistered mags detected here,
+    // We don't do this during runtime, as we don't want to detect
+    // compasses connected by user as a replacement while the system
+    // is running
+    for (uint8_t i=0; i<COMPASS_MAX_UNREG_DEV; i++) {
+        extra_dev_id[i].save();
+    }
+#endif
 
     if (_compass_count != 0) {
         // get initial health status
@@ -752,6 +777,8 @@ void Compass::init()
 #ifndef HAL_BUILD_AP_PERIPH
     AP::ahrs().set_compass(this);
 #endif
+
+    init_done = true;
 }
 
 #if COMPASS_MAX_INSTANCES > 1 || COMPASS_MAX_UNREG_DEV
@@ -785,6 +812,7 @@ Compass::Priority Compass::_update_priority_list(int32_t dev_id)
 #endif
 
 
+#if COMPASS_MAX_INSTANCES > 1
 // This method reorganises devid list to match
 // priority list, only call before detection at boot
 void Compass::_reorder_compass_params()
@@ -792,7 +820,16 @@ void Compass::_reorder_compass_params()
     mag_state swap_state;
     StateIndex curr_state_id;
     for (Priority i(0); i<COMPASS_MAX_INSTANCES; i++) {
-        curr_state_id = _get_state_id(i);
+        if (_priority_did_list[i] == 0) {
+            continue;
+        }
+        curr_state_id = COMPASS_MAX_INSTANCES;
+        for (StateIndex j(0); j<COMPASS_MAX_INSTANCES; j++) {
+            if (_priority_did_list[i] == _state[j].dev_id) {
+                curr_state_id = j;
+                break;
+            }
+        }
         if (curr_state_id != COMPASS_MAX_INSTANCES && uint8_t(curr_state_id) != uint8_t(i)) {
             //let's swap
             swap_state.copy_from(_state[curr_state_id]);
@@ -801,18 +838,20 @@ void Compass::_reorder_compass_params()
         }
     }
 }
+#endif
 
 void Compass::mag_state::copy_from(const Compass::mag_state& state)
 {
-    external.set_and_save(state.external);
-    orientation.set_and_save(state.orientation);
-    offset.set_and_save(state.offset);
-    diagonals.set_and_save(state.diagonals);
-    offdiagonals.set_and_save(state.offdiagonals);
-    scale_factor.set_and_save(state.scale_factor);
-    dev_id.set_and_save(state.dev_id);
-    motor_compensation.set_and_save(state.motor_compensation);
+    external.set_and_save_ifchanged(state.external);
+    orientation.set_and_save_ifchanged(state.orientation);
+    offset.set_and_save_ifchanged(state.offset);
+    diagonals.set_and_save_ifchanged(state.diagonals);
+    offdiagonals.set_and_save_ifchanged(state.offdiagonals);
+    scale_factor.set_and_save_ifchanged(state.scale_factor);
+    dev_id.set_and_save_ifchanged(state.dev_id);
+    motor_compensation.set_and_save_ifchanged(state.motor_compensation);
     expected_dev_id = state.expected_dev_id;
+    detected_dev_id = state.detected_dev_id;
 }
 //  Register a new compass instance
 //
@@ -900,7 +939,7 @@ Compass::StateIndex Compass::_get_state_id(Compass::Priority priority) const
         return StateIndex(COMPASS_MAX_INSTANCES);
     }
     for (StateIndex i(0); i<COMPASS_MAX_INSTANCES; i++) {
-        if (_priority_did_list[priority] == _state[i].expected_dev_id) {
+        if (_priority_did_list[priority] == _state[i].detected_dev_id) {
             return i;
         }
     }
@@ -975,6 +1014,8 @@ bool Compass::_have_i2c_driver(uint8_t bus, uint8_t address) const
 void Compass::_probe_external_i2c_compasses(void)
 {
     bool all_external = (AP_BoardConfig::get_board_type() == AP_BoardConfig::PX4_BOARD_PIXHAWK2);
+
+#if !defined(HAL_DISABLE_I2C_MAGS_BY_DEFAULT) || defined(HAL_USE_I2C_MAG_HMC5843)
     // external i2c bus
     FOREACH_I2C_EXTERNAL(i) {
         ADD_BACKEND(DRIVER_HMC5843, AP_Compass_HMC5843::probe(GET_I2C_DEVICE(i, HAL_COMPASS_HMC5843_I2C_ADDR),
@@ -989,7 +1030,9 @@ void Compass::_probe_external_i2c_compasses(void)
                         all_external, all_external?ROTATION_ROLL_180:ROTATION_YAW_270));
         }
     }
+#endif
 
+#if !defined(HAL_DISABLE_I2C_MAGS_BY_DEFAULT) || defined(HAL_USE_I2C_MAG_QMC5883L)
     //external i2c bus
     FOREACH_I2C_EXTERNAL(i) {
         ADD_BACKEND(DRIVER_QMC5883L, AP_Compass_QMC5883L::probe(GET_I2C_DEVICE(i, HAL_COMPASS_QMC5883L_I2C_ADDR),
@@ -1005,8 +1048,8 @@ void Compass::_probe_external_i2c_compasses(void)
                         all_external?HAL_COMPASS_QMC5883L_ORIENTATION_EXTERNAL:HAL_COMPASS_QMC5883L_ORIENTATION_INTERNAL));
         }
     }
+#endif
 
-#if !HAL_MINIMIZE_FEATURES
 #ifndef HAL_BUILD_AP_PERIPH
     // AK09916 on ICM20948
     FOREACH_I2C_EXTERNAL(i) {
@@ -1022,6 +1065,7 @@ void Compass::_probe_external_i2c_compasses(void)
     }
 #endif // HAL_BUILD_AP_PERIPH
 
+#if !defined(HAL_DISABLE_I2C_MAGS_BY_DEFAULT) || defined(HAL_USE_I2C_MAG_LIS3MDL)
     // lis3mdl on bus 0 with default address
     FOREACH_I2C_INTERNAL(i) {
         ADD_BACKEND(DRIVER_LIS3MDL, AP_Compass_LIS3MDL::probe(GET_I2C_DEVICE(i, HAL_COMPASS_LIS3MDL_I2C_ADDR),
@@ -1045,7 +1089,9 @@ void Compass::_probe_external_i2c_compasses(void)
         ADD_BACKEND(DRIVER_LIS3MDL, AP_Compass_LIS3MDL::probe(GET_I2C_DEVICE(i, HAL_COMPASS_LIS3MDL_I2C_ADDR2),
                     true, ROTATION_YAW_90));
     }
+#endif
 
+#if !defined(HAL_DISABLE_I2C_MAGS_BY_DEFAULT) || defined(HAL_USE_I2C_MAG_AK09916)
     // AK09916. This can be found twice, due to the ICM20948 i2c bus pass-thru, so we need to be careful to avoid that
     FOREACH_I2C_EXTERNAL(i) {
         ADD_BACKEND(DRIVER_AK09916, AP_Compass_AK09916::probe(GET_I2C_DEVICE(i, HAL_COMPASS_AK09916_I2C_ADDR),
@@ -1055,7 +1101,9 @@ void Compass::_probe_external_i2c_compasses(void)
         ADD_BACKEND(DRIVER_AK09916, AP_Compass_AK09916::probe(GET_I2C_DEVICE(i, HAL_COMPASS_AK09916_I2C_ADDR),
                     all_external, all_external?ROTATION_YAW_270:ROTATION_NONE));
     }
+#endif
 
+#if !defined(HAL_DISABLE_I2C_MAGS_BY_DEFAULT) || defined(HAL_USE_I2C_MAG_IST8310)
     // IST8310 on external and internal bus
     if (AP_BoardConfig::get_board_type() != AP_BoardConfig::PX4_BOARD_FMUV5 &&
         AP_BoardConfig::get_board_type() != AP_BoardConfig::PX4_BOARD_FMUV6) {
@@ -1080,24 +1128,39 @@ void Compass::_probe_external_i2c_compasses(void)
             }
         }
     }
+#endif
 
+#if !defined(HAL_DISABLE_I2C_MAGS_BY_DEFAULT) || defined(HAL_USE_I2C_MAG_IST8308)
     // external i2c bus
     FOREACH_I2C_EXTERNAL(i) {
         ADD_BACKEND(DRIVER_IST8308, AP_Compass_IST8308::probe(GET_I2C_DEVICE(i, HAL_COMPASS_IST8308_I2C_ADDR),
                     true, ROTATION_NONE));
     }
+#endif
 
+#if !defined(HAL_DISABLE_I2C_MAGS_BY_DEFAULT) || defined(HAL_USE_I2C_MAG_RM3100)
+#ifdef HAL_COMPASS_RM3100_I2C_ADDR
+    const uint8_t rm3100_addresses[] = { HAL_COMPASS_RM3100_I2C_ADDR };
+#else
+    // RM3100 can be on 4 different addresses
+    const uint8_t rm3100_addresses[] = { HAL_COMPASS_RM3100_I2C_ADDR1,
+                                         HAL_COMPASS_RM3100_I2C_ADDR2,
+                                         HAL_COMPASS_RM3100_I2C_ADDR3,
+                                         HAL_COMPASS_RM3100_I2C_ADDR4 };
+#endif
     // external i2c bus
     FOREACH_I2C_EXTERNAL(i) {
-        ADD_BACKEND(DRIVER_RM3100, AP_Compass_RM3100::probe(GET_I2C_DEVICE(i, HAL_COMPASS_RM3100_I2C_ADDR),
-                    true, ROTATION_NONE));
-    }
-    FOREACH_I2C_INTERNAL(i) {
-        ADD_BACKEND(DRIVER_RM3100, AP_Compass_RM3100::probe(GET_I2C_DEVICE(i, HAL_COMPASS_RM3100_I2C_ADDR),
-                    all_external, ROTATION_NONE));
+        for (uint8_t j=0; j<ARRAY_SIZE(rm3100_addresses); j++) {
+            ADD_BACKEND(DRIVER_RM3100, AP_Compass_RM3100::probe(GET_I2C_DEVICE(i, rm3100_addresses[j]), true, ROTATION_NONE));
+        }
     }
 
-#endif // HAL_MINIMIZE_FEATURES
+    FOREACH_I2C_INTERNAL(i) {
+        for (uint8_t j=0; j<ARRAY_SIZE(rm3100_addresses); j++) {
+            ADD_BACKEND(DRIVER_RM3100, AP_Compass_RM3100::probe(GET_I2C_DEVICE(i, rm3100_addresses[j]), all_external, ROTATION_NONE));
+        }
+    }
+#endif
 }
 
 /*
@@ -1128,6 +1191,14 @@ void Compass::_detect_backends(void)
     // allow boards to ask for external probing of all i2c compass types in hwdef.dat
     _probe_external_i2c_compasses();
     CHECK_UNREG_LIMIT_RETURN;
+#endif
+
+#if HAL_MSP_COMPASS_ENABLED
+    for (uint8_t i=0; i<8; i++) {
+        if (msp_instance_mask & (1U<<i)) {
+            ADD_BACKEND(DRIVER_MSP, new AP_Compass_MSP(i));
+        }
+    }
 #endif
 
 #if defined(HAL_MAG_PROBE_LIST)
@@ -1247,15 +1318,75 @@ void Compass::_detect_backends(void)
 #endif
 
 
-#if HAL_WITH_UAVCAN
+#if HAL_ENABLE_LIBUAVCAN_DRIVERS
     if (_driver_enabled(DRIVER_UAVCAN)) {
         for (uint8_t i=0; i<COMPASS_MAX_BACKEND; i++) {
             AP_Compass_Backend* _uavcan_backend = AP_Compass_UAVCAN::probe(i);
             if (_uavcan_backend) {
                 _add_backend(_uavcan_backend);
             }
-            CHECK_UNREG_LIMIT_RETURN;
+#if COMPASS_MAX_UNREG_DEV > 0
+            if (_unreg_compass_count == COMPASS_MAX_UNREG_DEV)  {
+                break;
+            }
+#endif
         }
+
+#if COMPASS_MAX_UNREG_DEV > 0
+        // check if there's any uavcan compass in prio slot that's not found
+        // and replace it if there's a replacement compass
+        for (Priority i(0); i<COMPASS_MAX_INSTANCES; i++) {
+            if (AP_HAL::Device::devid_get_bus_type(_priority_did_list[i]) != AP_HAL::Device::BUS_TYPE_UAVCAN
+                || _get_state(i).registered) {
+                continue;
+            }
+            // There's a UAVCAN compass missing
+            // Let's check if there's a replacement
+            for (uint8_t j=0; j<COMPASS_MAX_INSTANCES; j++) {
+                uint32_t detected_devid = AP_Compass_UAVCAN::get_detected_devid(j);
+                // Check if this is a potential replacement mag
+                if (!is_replacement_mag(detected_devid)) {
+                    continue;
+                }
+                // We have found a replacement mag, let's replace the existing one
+                // with this by setting the priority to zero and calling uavcan probe 
+                gcs().send_text(MAV_SEVERITY_ALERT, "Mag: Compass #%d with DEVID %lu replaced", uint8_t(i), (unsigned long)_priority_did_list[i]);
+                _priority_did_stored_list[i].set_and_save(0);
+                _priority_did_list[i] = 0;
+
+                AP_Compass_Backend* _uavcan_backend = AP_Compass_UAVCAN::probe(j);
+                if (_uavcan_backend) {
+                    _add_backend(_uavcan_backend);
+                    // we also need to remove the id from unreg list
+                    remove_unreg_dev_id(detected_devid);
+                } else {
+                    // the mag has already been allocated,
+                    // let's begin the replacement
+                    bool found_replacement = false;
+                    for (StateIndex k(0); k<COMPASS_MAX_INSTANCES; k++) {
+                        if ((uint32_t)_state[k].dev_id == detected_devid) {
+                            if (_state[k].priority <= uint8_t(i)) {
+                                // we are already on higher priority
+                                // nothing to do
+                                break;
+                            }
+                            found_replacement = true;
+                            // reset old priority of replacement mag
+                            _priority_did_stored_list[_state[k].priority].set_and_save(0);
+                            _priority_did_list[_state[k].priority] = 0;
+                            // update new priority
+                            _state[k].priority = i;
+                        }
+                    }
+                    if (!found_replacement) {
+                        continue;
+                    }
+                    _priority_did_stored_list[i].set_and_save(detected_devid);
+                    _priority_did_list[i] = detected_devid;
+                }
+            }
+        }
+#endif
     }
 #endif
 
@@ -1265,11 +1396,84 @@ void Compass::_detect_backends(void)
     }
 }
 
+// Check if the devid is a potential replacement compass
+// Following are the checks done to ensure the compass is a replacement
+// * The compass is an UAVCAN compass
+// * The compass wasn't seen before this boot as additional unreg mag
+// * The compass might have been seen before but never setup
+bool Compass::is_replacement_mag(uint32_t devid) {
+#if COMPASS_MAX_INSTANCES > 1
+    // We only do this for UAVCAN mag
+    if (devid == 0 || (AP_HAL::Device::devid_get_bus_type(devid) != AP_HAL::Device::BUS_TYPE_UAVCAN)) {
+        return false;
+    }
+
+    // Check that its not an unused additional mag
+    for (uint8_t i = 0; i<COMPASS_MAX_UNREG_DEV; i++) {
+        if (_previously_unreg_mag[i] == devid) {
+            return false;
+        }
+    }
+
+    // Check that its not previously setup mag
+    for (StateIndex i(0); i<COMPASS_MAX_INSTANCES; i++) {
+        if ((uint32_t)_state[i].expected_dev_id == devid) {
+            return false;
+        }
+    }
+#endif
+    return true;
+}
+
+void Compass::remove_unreg_dev_id(uint32_t devid)
+{
+#if COMPASS_MAX_INSTANCES > 1
+    // We only do this for UAVCAN mag
+    if (devid == 0 || (AP_HAL::Device::devid_get_bus_type(devid) != AP_HAL::Device::BUS_TYPE_UAVCAN)) {
+        return;
+    }
+
+    for (uint8_t i = 0; i<COMPASS_MAX_UNREG_DEV; i++) {
+        if ((uint32_t)extra_dev_id[i] == devid) {
+            extra_dev_id[i].set_and_save(0);
+            return;
+        }
+    }
+#endif
+}
+
+void Compass::_reset_compass_id()
+{
+#if COMPASS_MAX_INSTANCES > 1
+    // Check if any of the registered devs are not registered
+    for (Priority i(0); i<COMPASS_MAX_INSTANCES; i++) {
+        if (_priority_did_stored_list[i] != _priority_did_list[i] ||
+            _priority_did_stored_list[i] == 0) {
+            //We don't touch priorities that might have been touched by the user
+            continue;
+        }
+        if (!_get_state(i).registered) {
+            _priority_did_stored_list[i].set_and_save(0);
+            gcs().send_text(MAV_SEVERITY_ALERT, "Mag: Compass #%d with DEVID %lu removed", uint8_t(i), (unsigned long)_priority_did_list[i]);
+        }
+    }
+
+    // Check if any of the old registered devs are not registered
+    // and hence can be removed
+    for (StateIndex i(0); i<COMPASS_MAX_INSTANCES; i++) {
+        if (_state[i].dev_id == 0 && _state[i].expected_dev_id != 0) {
+            // also hard reset dev_ids that are not detected
+            _state[i].dev_id.save();
+        }
+    }
+#endif
+}
+
 // Look for devices beyond initialisation
 void
 Compass::_detect_runtime(void)
 {
-#if HAL_WITH_UAVCAN
+#if HAL_ENABLE_LIBUAVCAN_DRIVERS
     //Don't try to add device while armed
     if (hal.util->get_soft_armed()) {
         return;
@@ -1308,8 +1512,10 @@ Compass::read(void)
         _backends[i]->read();
     }
     uint32_t time = AP_HAL::millis();
+    bool any_healthy = false;
     for (StateIndex i(0); i < COMPASS_MAX_INSTANCES; i++) {
         _state[i].healthy = (time - _state[i].last_update_ms < 500);
+        any_healthy |= _state[i].healthy;
     }
 #if COMPASS_LEARN_ENABLED
     if (_learn == LEARN_INFLIGHT && !learn_allocated) {
@@ -1319,14 +1525,13 @@ Compass::read(void)
     if (_learn == LEARN_INFLIGHT && learn != nullptr) {
         learn->update();
     }
-    bool ret = healthy();
-    if (ret && _log_bit != (uint32_t)-1 && AP::logger().should_log(_log_bit) && !AP::ahrs().have_ekf_logging()) {
+#endif
+#ifndef HAL_NO_LOGGING
+    if (any_healthy && _log_bit != (uint32_t)-1 && AP::logger().should_log(_log_bit) && !AP::ahrs().have_ekf_logging()) {
         AP::logger().Write_Compass();
     }
-    return ret;
-#else
-    return healthy();
 #endif
+    return healthy();
 }
 
 uint8_t
@@ -1765,6 +1970,23 @@ bool Compass::have_scale_factor(uint8_t i) const
     return true;
 }
 
+#if HAL_MSP_COMPASS_ENABLED
+void Compass::handle_msp(const MSP::msp_compass_data_message_t &pkt)
+{
+    if (!_driver_enabled(DRIVER_MSP)) {
+        return;
+    }
+    if (!init_done) {
+        if (pkt.instance < 8) {
+            msp_instance_mask |= 1U<<pkt.instance;
+        }
+    } else {
+        for (uint8_t i=0; i<_backend_count; i++) {
+            _backends[i]->handle_msp(pkt);
+        }
+    }
+}
+#endif // HAL_MSP_COMPASS_ENABLED
 
 // singleton instance
 Compass *Compass::_singleton;

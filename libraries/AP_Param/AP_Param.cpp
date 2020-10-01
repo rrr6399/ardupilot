@@ -909,6 +909,26 @@ AP_Param::find_by_index(uint16_t idx, enum ap_var_type *ptype, ParamToken *token
     return ap;    
 }
 
+// by-name equivalent of find_by_index()
+AP_Param* AP_Param::find_by_name(const char* name, enum ap_var_type *ptype, ParamToken *token)
+{
+    AP_Param *ap;
+    uint16_t count = 0;
+    for (ap = AP_Param::first(token, ptype);
+         ap && *ptype != AP_PARAM_GROUP && *ptype != AP_PARAM_NONE;
+         ap = AP_Param::next_scalar(token, ptype)) {
+        int32_t ret = strncasecmp(name, _var_info[token->key].name, AP_MAX_NAME_SIZE);
+        if (ret >= 0) {
+            char buf[AP_MAX_NAME_SIZE];
+            ap->copy_name_token(*token, buf, AP_MAX_NAME_SIZE);
+            if (strncasecmp(name, buf, AP_MAX_NAME_SIZE) == 0) {
+                break;
+            }
+        }
+        count++;
+    }
+    return ap;
+}
 
 /*
   Find a variable by pointer, returning key. This is used for loading pointer variables
@@ -2556,7 +2576,7 @@ void AP_Param::show_all(AP_HAL::BetterStream *port, bool showKeyValues)
          ap;
          ap=AP_Param::next_scalar(&token, &type)) {
         if (showKeyValues) {
-            port->printf("Key %i: Index %i: GroupElement %i  :  ", token.key, token.idx, token.group_element);
+            port->printf("Key %u: Index %u: GroupElement %u  :  ", (unsigned)token.key, (unsigned)token.idx, (unsigned)token.group_element);
         }
         show(ap, token, type, port);
         hal.scheduler->delay(1);

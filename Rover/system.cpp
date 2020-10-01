@@ -20,8 +20,8 @@ void Rover::init_ardupilot()
 #endif
 
     BoardConfig.init();
-#if HAL_WITH_UAVCAN
-    BoardConfig_CAN.init();
+#if HAL_MAX_CAN_PROTOCOL_DRIVERS
+    can_mgr.init();
 #endif
 
     // init gripper
@@ -92,7 +92,7 @@ void Rover::init_ardupilot()
 
     relay.init();
 
-#if MOUNT == ENABLED
+#if HAL_MOUNT_ENABLED
     // initialise camera mount
     camera_mount.init();
 #endif
@@ -166,8 +166,6 @@ void Rover::startup_ground(void)
     // we don't want writes to the serial port to cause us to pause
     // so set serial ports non-blocking once we are ready to drive
     serial_manager.set_blocking_writes_all(false);
-
-    gcs().send_text(MAV_SEVERITY_INFO, "Ready to drive");
 }
 
 // update the ahrs flyforward setting which can allow
@@ -299,6 +297,7 @@ bool Rover::is_boat() const
 
 #include <AP_Avoidance/AP_Avoidance.h>
 #include <AP_ADSB/AP_ADSB.h>
-
+#if HAL_ADSB_ENABLED
 // dummy method to avoid linking AP_Avoidance
 AP_Avoidance *AP::ap_avoidance() { return nullptr; }
+#endif

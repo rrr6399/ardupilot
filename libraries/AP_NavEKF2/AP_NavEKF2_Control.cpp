@@ -3,9 +3,7 @@
 #include "AP_NavEKF2.h"
 #include "AP_NavEKF2_core.h"
 #include <AP_AHRS/AP_AHRS.h>
-#include <AP_Vehicle/AP_Vehicle.h>
 #include <GCS_MAVLink/GCS.h>
-#include <AP_GPS/AP_GPS.h>
 
 #include <stdio.h>
 
@@ -107,6 +105,7 @@ void NavEKF2_core::setWindMagStateLearningMode()
     bool setMagInhibit = !magCalRequested || magCalDenied;
     if (!inhibitMagStates && setMagInhibit) {
         inhibitMagStates = true;
+        // variances will be reset in CovariancePrediction
     } else if (inhibitMagStates && !setMagInhibit) {
         inhibitMagStates = false;
         if (magFieldLearned) {
@@ -119,7 +118,7 @@ void NavEKF2_core::setWindMagStateLearningMode()
             P[21][21] = bodyMagFieldVar.z;
         } else {
             // set the variances equal to the observation variances
-            for (uint8_t index=18; index<=21; index++) {
+            for (uint8_t index=16; index<=21; index++) {
                 P[index][index] = sq(frontend->_magNoise);
             }
 
@@ -565,7 +564,7 @@ void NavEKF2_core::runYawEstimatorCorrection()
         if (gpsDataToFuse) {
             Vector2f gpsVelNE = Vector2f(gpsDataDelayed.vel.x, gpsDataDelayed.vel.y);
             float gpsVelAcc = fmaxf(gpsSpdAccuracy, frontend->_gpsHorizVelNoise);
-            yawEstimator->pushVelData(gpsVelNE, gpsVelAcc);
+            yawEstimator->fuseVelData(gpsVelNE, gpsVelAcc);
         }
 
         // action an external reset request

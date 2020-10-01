@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import time
+import string
 import subprocess
 import sys
 import gzip
@@ -21,6 +22,12 @@ import gzip
 # local imports
 import generate_manifest, gen_stable
 import build_binaries_history
+
+if sys.version_info[0] < 3:
+    running_python3 = False
+else:
+    running_python3 = True
+
 
 class build_binaries(object):
     def __init__(self, tags):
@@ -77,6 +84,10 @@ class build_binaries(object):
                     # select not available on Windows... probably...
                 time.sleep(0.1)
                 continue
+            if running_python3:
+                x = bytearray(x)
+                x = filter(lambda x : chr(x) in string.printable, x)
+                x = "".join([chr(c) for c in x])
             output += x
             x = x.rstrip()
             if show_output:
@@ -548,7 +559,6 @@ is bob we will attempt to checkout bob-AVR'''
         '''returns list of boards common to all vehicles'''
         return ["fmuv2",
                 "fmuv3",
-                "fmuv4",
                 "fmuv5",
                 "mindpx-v2",
                 "erlebrain2",
@@ -621,8 +631,11 @@ is bob we will attempt to checkout bob-AVR'''
                 "f303-Universal",
                 "f303-M10025",
                 "f303-M10070",
+                "f303-MatekGPS",
+                "f103-Airspeed",
                 "CUAV_GPS",
                 "ZubaxGNSS",
+                "CubeOrange-periph",
                 ]
 
     def build_arducopter(self, tag):
@@ -703,6 +716,8 @@ is bob we will attempt to checkout bob-AVR'''
         new_json_filepath_gz = os.path.join(self.binaries,
                                             "manifest.json.gz.new")
         with gzip.open(new_json_filepath_gz, 'wb') as gf:
+            if running_python3:
+                content = bytes(content, 'ascii')
             gf.write(content)
         json_filepath = os.path.join(self.binaries, "manifest.json")
         json_filepath_gz = os.path.join(self.binaries, "manifest.json.gz")

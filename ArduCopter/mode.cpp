@@ -121,7 +121,7 @@ Mode *Copter::mode_from_mode_num(const Mode::Number mode)
             break;
 #endif
 
-#if ADSB_ENABLED == ENABLED
+#if HAL_ADSB_ENABLED
         case Mode::Number::AVOID_ADSB:
             ret = &mode_avoid_adsb;
             break;
@@ -250,6 +250,17 @@ bool Copter::set_mode(Mode::Number mode, ModeReason reason)
         return false;
     }
 
+    // check for valid altitude if old mode did not require it but new one does
+    // we only want to stop changing modes if it could make things worse
+    if (!ignore_checks &&
+        !copter.ekf_alt_ok() &&
+        flightmode->has_manual_throttle() &&
+        !new_flightmode->has_manual_throttle()) {
+        gcs().send_text(MAV_SEVERITY_WARNING, "Mode change failed: %s need alt estimate", new_flightmode->name());
+        AP::logger().Write_Error(LogErrorSubsystem::FLIGHT_MODE, LogErrorCode(mode));
+        return false;
+    }
+
     if (!new_flightmode->init(ignore_checks)) {
         gcs().send_text(MAV_SEVERITY_WARNING,"Flight mode change failed %s", new_flightmode->name());
         AP::logger().Write_Error(LogErrorSubsystem::FLIGHT_MODE, LogErrorCode(mode));
@@ -269,7 +280,7 @@ bool Copter::set_mode(Mode::Number mode, ModeReason reason)
     logger.Write_Mode((uint8_t)control_mode, reason);
     gcs().send_message(MSG_HEARTBEAT);
 
-#if ADSB_ENABLED == ENABLED
+#if HAL_ADSB_ENABLED
     adsb.set_is_auto_mode((mode == Mode::Number::AUTO) || (mode == Mode::Number::RTL) || (mode == Mode::Number::GUIDED));
 #endif
 
@@ -300,7 +311,7 @@ bool Copter::set_mode(const uint8_t new_mode, const ModeReason reason)
         return false;
     }
 #endif
-    return copter.set_mode(static_cast<Mode::Number>(new_mode), ModeReason::GCS_COMMAND);
+    return copter.set_mode(static_cast<Mode::Number>(new_mode), reason);
 }
 
 // update_flight_mode - calls the appropriate attitude controllers based on flight mode
@@ -328,9 +339,9 @@ void Copter::exit_mode(Mode *&old_flightmode,
         if (mode_auto.mission.state() == AP_Mission::MISSION_RUNNING) {
             mode_auto.mission.stop();
         }
-#if MOUNT == ENABLED
+#if HAL_MOUNT_ENABLED
         camera_mount.set_mode_to_default();
-#endif  // MOUNT == ENABLED
+#endif  // HAL_MOUNT_ENABLED
     }
 #endif
 
@@ -359,6 +370,12 @@ void Copter::exit_mode(Mode *&old_flightmode,
 #if MODE_ZIGZAG_ENABLED == ENABLED
     if (old_flightmode == &mode_zigzag) {
         mode_zigzag.exit();
+    }
+#endif
+
+#if MODE_ACRO_ENABLED == ENABLED
+    if (old_flightmode == &mode_acro) {
+        mode_acro.exit();
     }
 #endif
 
@@ -701,6 +718,16 @@ float Mode::get_pilot_desired_throttle() const
     return throttle_out;
 }
 
+float Mode::get_avoidance_adjusted_climbrate(float target_rate)
+{
+#if AC_AVOID_ENABLED == ENABLED
+    AP::ac_avoid()->adjust_velocity_z(pos_control->get_pos_z_p().kP(), pos_control->get_max_accel_z(), target_rate, G_Dt);
+    return target_rate;
+#else
+    return target_rate;
+#endif
+}
+
 Mode::AltHoldModeState Mode::get_alt_hold_state(float target_climb_rate_cms)
 {
     // Alt Hold State Machine Determination
@@ -790,14 +817,12 @@ GCS_Copter &Mode::gcs()
     return copter.gcs();
 }
 
+// set_throttle_takeoff - allows modes to tell throttle controller we
+// are taking off so I terms can be cleared
 void Mode::set_throttle_takeoff()
 {
-    return copter.set_throttle_takeoff();
-}
-
-float Mode::get_avoidance_adjusted_climbrate(float target_rate)
-{
-    return copter.get_avoidance_adjusted_climbrate(target_rate);
+    // tell position controller to reset alt target and reset I terms
+    pos_control->init_takeoff();
 }
 
 uint16_t Mode::get_pilot_speed_dn()

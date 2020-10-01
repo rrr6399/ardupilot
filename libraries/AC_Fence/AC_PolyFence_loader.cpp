@@ -117,7 +117,6 @@ bool AC_PolyFence_loader::get_item(const uint16_t seq, AC_PolyFenceItem &item)
             return false;
         }
         item.radius = fence_storage.read_uint32(offset);
-        offset += 4;
         break;
     case AC_PolyFenceType::POLYGON_INCLUSION:
     case AC_PolyFenceType::POLYGON_EXCLUSION:
@@ -862,6 +861,19 @@ bool AC_PolyFence_loader::get_inclusion_circle(uint8_t index, Vector2f &center_p
     }
     center_pos_cm = _loaded_circle_inclusion_boundary[index].pos_cm;
     radius =  _loaded_circle_inclusion_boundary[index].radius;
+    return true;
+}
+
+bool AC_PolyFence_loader::check_inclusion_circle_margin(float margin) const
+{
+    // check circular includes
+    for (uint8_t i=0; i<_num_loaded_circle_inclusion_boundaries; i++) {
+        const InclusionCircle &circle = _loaded_circle_inclusion_boundary[i];
+        if (circle.radius < margin) {
+            // circle radius should never be less than margin
+            return false;
+        } 
+    }
     return true;
 }
 

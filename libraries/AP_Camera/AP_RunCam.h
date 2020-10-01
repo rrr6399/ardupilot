@@ -379,6 +379,8 @@ private:
     void receive();
     // empty the receive side of the serial port
     void drain();
+    // start the uart with appropriate settings
+    void start_uart();
 
     // get the RunCam device information
     void get_device_info();
@@ -399,9 +401,6 @@ private:
         uint16_t maxRetryTimes, parse_func_t parseFunc);
     // send a packet to the serial port
     void send_packet(Command command, uint8_t param);
-    // crc functions
-    static uint8_t crc8_high_first(uint8_t *ptr, uint8_t len);
-    static uint8_t crc8_dvb_s2(uint8_t crc, uint8_t a);
     // handle a device info response
     void parse_device_info(const Request& request);
     // wait for the RunCam device to be fully ready

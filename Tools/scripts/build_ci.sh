@@ -47,7 +47,7 @@ function run_autotest() {
         popd
         mavproxy_installed=1
         # now uninstall the version of pymavlink pulled in by MAVProxy deps:
-        pip uninstall -y pymavlink
+        python -m pip uninstall -y pymavlink
     fi
     if [ $pymavlink_installed -eq 0 ]; then
         echo "Installing pymavlink"
@@ -143,7 +143,7 @@ for t in $CI_BUILD_TARGET; do
         $waf AP_Periph
         continue
     fi
-    
+
     if [ "$t" == "CubeOrange-bootloader" ]; then
         echo "Building CubeOrange bootloader"
         $waf configure --board CubeOrange --bootloader
@@ -154,7 +154,7 @@ for t in $CI_BUILD_TARGET; do
 
     if [ "$t" == "stm32f7" ]; then
         echo "Building mRoX21-777/"
-        $waf configure --board mRoX21-777
+        $waf configure --Werror --board mRoX21-777
         $waf clean
         $waf plane
         continue
@@ -175,12 +175,19 @@ for t in $CI_BUILD_TARGET; do
         $waf plane
         continue
     fi
-    
+
     if [ "$t" == "iofirmware" ]; then
         echo "Building iofirmware"
         $waf configure --board iomcu
         $waf clean
         $waf iofirmware
+        continue
+    fi
+
+    if [ "$t" == "navigator" ]; then
+        echo "Building navigator"
+        $waf configure --board navigator --toolchain=arm-linux-musleabihf
+        $waf sub --static
         continue
     fi
 
@@ -201,9 +208,10 @@ for t in $CI_BUILD_TARGET; do
         $waf all
         ccache -s && ccache -z
 
-        if [[ $t == linux ]]; then
+        if [[ $t == "linux" ]]; then
             $waf check
         fi
+        continue
     fi
 done
 

@@ -58,8 +58,18 @@ public:
     
     // Check basic filter health metrics and return a consolidated health status
     bool healthy(void) const;
+
     // Check that all cores are started and healthy
     bool all_cores_healthy(void) const;
+
+    // Update instance error scores for all available cores 
+    float updateCoreErrorScores(void);
+
+    // Update relative error scores for all alternate available cores
+    void updateCoreRelativeErrors(void);
+
+    // Reset error scores for all available cores
+    void resetCoreErrors(void);
 
     // returns the index of the primary core
     // return -1 if no primary core selected
@@ -142,9 +152,12 @@ public:
     // An out of range instance (eg -1) returns data for the primary instance
     void getMagXYZ(int8_t instance, Vector3f &magXYZ) const;
 
-    // return the magnetometer in use for the specified instance
+    // return the sensor in use for the specified instance
     // An out of range instance (eg -1) returns data for the primary instance
     uint8_t getActiveMag(int8_t instance) const;
+    uint8_t getActiveBaro(int8_t instance) const;
+    uint8_t getActiveGPS(int8_t instance) const;
+    uint8_t getActiveAirspeed(int8_t instance) const;
 
     // Return estimated magnetometer offsets
     // Return true if magnetometer offsets are valid
@@ -179,7 +192,7 @@ public:
     // return the transformation matrix from XYZ (body) to NED axes
     void getRotationBodyToNED(Matrix3f &mat) const;
 
-    // return the quaternions defining the rotation from NED to XYZ (body) axes
+    // return the quaternions defining the rotation from XYZ (body) to NED axes
     void getQuaternionBodyToNED(int8_t instance, Quaternion &quat) const;
 
     // return the quaternions defining the rotation from NED to XYZ (autopilot) axes
@@ -307,7 +320,8 @@ public:
     void writeExtNavVelData(const Vector3f &vel, float err, uint32_t timeStamp_ms, uint16_t delay_ms);
 
     // called by vehicle code to specify that a takeoff is happening
-    // causes the EKF to compensate for expected barometer errors due to ground effect
+    // causes the EKF to compensate for expected barometer errors due to rotor wash ground interaction
+    // causes the EKF to start the EKF-GSF yaw estimator
     void setTakeoffExpected(bool val);
 
     // called by vehicle code to specify that a touchdown is expected to happen
@@ -316,7 +330,8 @@ public:
 
     // Set to true if the terrain underneath is stable enough to be used as a height reference
     // in combination with a range finder. Set to false if the terrain underneath the vehicle
-    // cannot be used as a height reference
+    // cannot be used as a height reference. Use to prevent range finder operation otherwise
+    // enabled by the combination of EK3_RNG_USE_HGT and EK3_RNG_USE_SPD parameters.
     void setTerrainHgtStable(bool val);
 
     /*
@@ -326,9 +341,9 @@ public:
      1 = velocities are NaN
      2 = badly conditioned X magnetometer fusion
      3 = badly conditioned Y magnetometer fusion
-     5 = badly conditioned Z magnetometer fusion
-     6 = badly conditioned airspeed fusion
-     7 = badly conditioned synthetic sideslip fusion
+     4 = badly conditioned Z magnetometer fusion
+     5 = badly conditioned airspeed fusion
+     6 = badly conditioned synthetic sideslip fusion
      7 = filter is not initialised
     */
     void getFilterFaults(int8_t instance, uint16_t &faults) const;
@@ -340,9 +355,9 @@ public:
      1 = velocity measurement timeout
      2 = height measurement timeout
      3 = magnetometer measurement timeout
+     4 = unassigned
      5 = unassigned
      6 = unassigned
-     7 = unassigned
      7 = unassigned
     */
     void getFilterTimeouts(int8_t instance, uint8_t &timeouts) const;
@@ -493,6 +508,8 @@ private:
     AP_Int8 _gsfUseMask;            // mask controlling which EKF3 instances will use EKF-GSF yaw estimator data to assit with yaw resets
     AP_Int16 _gsfResetDelay;        // number of mSec from loss of navigation to requesting a reset using EKF-GSF yaw estimator data
     AP_Int8 _gsfResetMaxCount;      // maximum number of times the EKF3 is allowed to reset it's yaw to the EKF-GSF estimate
+    AP_Float _err_thresh;           // lanes have to be consistently better than the primary by at least this threshold to reduce their overall relativeCoreError
+    AP_Int32 _affinity;             // bitmask of sensor affinity options
 
 // Possible values for _flowUse
 #define FLOW_USE_NONE    0
@@ -565,9 +582,16 @@ private:
         float core_delta;             // the amount of D position change between cores when a change happened
     } pos_down_reset_data;
 
-    bool runCoreSelection; // true when the primary core has stabilised and the core selection logic can be started
-    bool coreSetupRequired[7]; // true when this core index needs to be setup
-    uint8_t coreImuIndex[7];   // IMU index used by this core
+#define MAX_EKF_CORES     3 // maximum allowed EKF Cores to be instantiated
+#define CORE_ERR_LIM      1 // -LIM to LIM relative error range for a core
+#define BETTER_THRESH   0.5 // a lane should have this much relative error difference to be considered for overriding a healthy primary core
+    
+    bool runCoreSelection;                          // true when the primary core has stabilised and the core selection logic can be started
+    bool coreSetupRequired[MAX_EKF_CORES];          // true when this core index needs to be setup
+    uint8_t coreImuIndex[MAX_EKF_CORES];            // IMU index used by this core
+    float coreRelativeErrors[MAX_EKF_CORES];        // relative errors of cores with respect to primary
+    float coreErrorScores[MAX_EKF_CORES];           // the instance error values used to update relative core error
+    uint64_t coreLastTimePrimary_us[MAX_EKF_CORES]; // last time we were using this core as primary
 
     bool inhibitGpsVertVelUse;  // true when GPS vertical velocity use is prohibited
 
@@ -590,12 +614,17 @@ private:
     // old_primary - index of the ekf instance that we are currently using as the primary
     void updateLaneSwitchPosDownResetData(uint8_t new_primary, uint8_t old_primary);
 
+    // return true if a new core has a better score than an existing core, including
+    // checks for alignment
+    bool coreBetterScore(uint8_t new_core, uint8_t current_core);
+
     // logging functions shared by cores:
     void Log_Write_XKF1(uint8_t core, uint64_t time_us) const;
     void Log_Write_XKF2(uint8_t core, uint64_t time_us) const;
     void Log_Write_XKF3(uint8_t core, uint64_t time_us) const;
     void Log_Write_XKF4(uint8_t core, uint64_t time_us) const;
     void Log_Write_XKF5(uint64_t time_us) const;
+    void Log_Write_XKFS(uint8_t core, uint64_t time_us) const;
     void Log_Write_Quaternion(uint8_t core, uint64_t time_us) const;
     void Log_Write_Beacon(uint64_t time_us) const;
     void Log_Write_BodyOdom(uint64_t time_us) const;

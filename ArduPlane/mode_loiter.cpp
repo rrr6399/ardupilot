@@ -9,13 +9,6 @@ bool ModeLoiter::_enter()
     plane.do_loiter_at_location();
     plane.loiter_angle_reset();
 
-#if SOARING_ENABLED == ENABLED
-    if (plane.g2.soaring_controller.is_active()) {
-        plane.g2.soaring_controller.init_thermalling();
-        plane.g2.soaring_controller.get_target(plane.next_WP_loc); // ahead on flight path
-    }
-#endif
-
     return true;
 }
 
@@ -80,3 +73,10 @@ bool ModeLoiter::isHeadingLinedUp_cd(const int32_t bearing_cd)
     }
     return false;
 }
+
+void ModeLoiter::navigate()
+{
+    // Zero indicates to use WP_LOITER_RAD
+    plane.update_loiter(0);
+}
+

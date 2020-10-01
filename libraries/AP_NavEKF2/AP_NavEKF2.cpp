@@ -1,11 +1,9 @@
 #include <AP_HAL/AP_HAL.h>
 
 #include "AP_NavEKF2_core.h"
-#include <AP_Vehicle/AP_Vehicle.h>
 #include <GCS_MAVLink/GCS.h>
 #include <AP_Logger/AP_Logger.h>
-#include <AP_GPS/AP_GPS.h>
-#include <AP_VisualOdom/AP_VisualOdom.h>
+#include <AP_Vehicle/AP_Vehicle_Type.h>
 #include <new>
 
 /*
@@ -199,7 +197,7 @@ const AP_Param::GroupInfo NavEKF2::var_info[] = {
 
     // @Param: ALT_SOURCE
     // @DisplayName: Primary altitude sensor source
-    // @Description: Primary height sensor used by the EKF. If the selected option cannot be used, baro is used. 1 uses the range finder and only with optical flow navigation (EK2_GPS_TYPE = 3), Do not use "1" for terrain following. NOTE: the EK2_RNG_USE_HGT parameter can be used to switch to range-finder when close to the ground.
+    // @Description: Primary height sensor used by the EKF. If a sensor other than Baro is selected and becomes unavailable, then the Baro sensor will be used as a fallback. NOTE: The EK2_RNG_USE_HGT parameter can be used to switch to range-finder when close to the ground in conjunction with EK2_ALT_SOURCE = 0 or 2 (Baro or GPS).
     // @Values: 0:Use Baro, 1:Use Range Finder, 2:Use GPS, 3:Use Range Beacon
     // @User: Advanced
     // @RebootRequired: True
@@ -245,7 +243,7 @@ const AP_Param::GroupInfo NavEKF2::var_info[] = {
 
     // @Param: MAG_CAL
     // @DisplayName: Magnetometer default fusion mode
-    // @Description: This determines when the filter will use the 3-axis magnetometer fusion model that estimates both earth and body fixed magnetic field states, when it will use a simpler magnetic heading fusion model that does not use magnetic field states and when it will use an alternative method of yaw determination to the magnetometer. The 3-axis magnetometer fusion is only suitable for use when the external magnetic field environment is stable. EK3_MAG_CAL = 0 uses heading fusion on ground, 3-axis fusion in-flight, and is the default setting for Plane users. EK3_MAG_CAL = 1 uses 3-axis fusion only when manoeuvring. EK3_MAG_CAL = 2 uses heading fusion at all times, is recommended if the external magnetic field is varying and is the default for rovers. EK3_MAG_CAL = 3 uses heading fusion on the ground and 3-axis fusion after the first in-air field and yaw reset has completed, and is the default for copters. EK3_MAG_CAL = 4 uses 3-axis fusion at all times. NOTE: The fusion mode can be forced to 2 for specific EKF cores using the EK2_MAG_MASK parameter. NOTE: limited operation without a magnetometer or any other yaw sensor is possible by setting the COMPASS_USE parameters to 0. If this is done, the EK2_GSF_RUN and EK2_GSF_USE masks must be set to the same as EK3_IMU_MASK.
+    // @Description: This determines when the filter will use the 3-axis magnetometer fusion model that estimates both earth and body fixed magnetic field states, when it will use a simpler magnetic heading fusion model that does not use magnetic field states and when it will use an alternative method of yaw determination to the magnetometer. The 3-axis magnetometer fusion is only suitable for use when the external magnetic field environment is stable. EK2_MAG_CAL = 0 uses heading fusion on ground, 3-axis fusion in-flight, and is the default setting for Plane users. EK2_MAG_CAL = 1 uses 3-axis fusion only when manoeuvring. EK2_MAG_CAL = 2 uses heading fusion at all times, is recommended if the external magnetic field is varying and is the default for rovers. EK2_MAG_CAL = 3 uses heading fusion on the ground and 3-axis fusion after the first in-air field and yaw reset has completed, and is the default for copters. EK2_MAG_CAL = 4 uses 3-axis fusion at all times. NOTE: The fusion mode can be forced to 2 for specific EKF cores using the EK2_MAG_MASK parameter. NOTE: limited operation without a magnetometer or any other yaw sensor is possible by setting all COMPASS_USE, COMPASS_USE2, COMPASS_USE3, etc parameters to 0 with COMPASS_ENABLE set to 1. If this is done, the EK2_GSF_RUN and EK2_GSF_USE masks must be set to the same as EK2_IMU_MASK.
     // @Values: 0:When flying,1:When manoeuvring,2:Never,3:After first climb yaw reset,4:Always
     // @User: Advanced
     AP_GROUPINFO("MAG_CAL", 14, NavEKF2, _magCal, MAG_CAL_DEFAULT),
@@ -482,7 +480,7 @@ const AP_Param::GroupInfo NavEKF2::var_info[] = {
 
     // @Param: RNG_USE_HGT
     // @DisplayName: Range finder switch height percentage
-    // @Description: Range finder can be used as the primary height source when below this percentage of its maximum range (see RNGFND_MAX_CM). Set to -1 when EK2_ALT_SOURCE is not set to range finder.  This is not for terrain following.
+    // @Description: Range finder can be used as the primary height source when below this percentage of its maximum range (see RNGFND_MAX_CM). This will not work unless Baro or GPS height is selected as the primary height source vis EK2_ALT_SOURCE = 0 or 2 respectively.  This feature should not be used for terrain following as it is designed  for vertical takeoff and landing with climb above  the range finder use height before commencing the mission, and with horizontal position changes below that height being limited to a flat region around the takeoff and landing point.
     // @Range: -1 70
     // @Increment: 1
     // @User: Advanced
@@ -665,7 +663,7 @@ bool NavEKF2::InitialiseFilter(void)
     imuSampleTime_us = AP_HAL::micros64();
 
     // remember expected frame time
-    _frameTimeUsec = 1e6 / ins.get_sample_rate();
+    _frameTimeUsec = 1e6 / ins.get_loop_rate_hz();
 
     // expected number of IMU frames per prediction
     _framesPerPrediction = uint8_t((EKF_TARGET_DT / (_frameTimeUsec * 1.0e-6) + 0.5));
@@ -756,6 +754,32 @@ bool NavEKF2::InitialiseFilter(void)
     return ret;
 }
 
+/*
+  return true if a new core index has a better score than the current
+  core
+ */
+bool NavEKF2::coreBetterScore(uint8_t new_core, uint8_t current_core)
+{
+    const NavEKF2_core &oldCore = core[current_core];
+    const NavEKF2_core &newCore = core[new_core];
+    if (!newCore.healthy()) {
+        // never consider a new core that isn't healthy
+        return false;
+    }
+    if (newCore.have_aligned_tilt() != oldCore.have_aligned_tilt()) {
+        // tilt alignment is most critical, if one is tilt aligned and
+        // the other isn't then use the tilt aligned lane
+        return newCore.have_aligned_tilt();
+    }
+    if (newCore.have_aligned_yaw() != oldCore.have_aligned_yaw()) {
+        // yaw alignment is next most critical, if one is yaw aligned
+        // and the other isn't then use the yaw aligned lane
+        return newCore.have_aligned_yaw();
+    }
+    // if both cores are aligned then look at error scores
+    return newCore.errorScore() < oldCore.errorScore();
+}
+
 // Update Filter States - this should be called whenever new IMU data is available
 void NavEKF2::UpdateFilter(void)
 {
@@ -800,7 +824,7 @@ void NavEKF2::UpdateFilter(void)
 
             if (coreIndex != primary) {
                 // an alternative core is available for selection only if healthy and if states have been updated on this time step
-                bool altCoreAvailable = core[coreIndex].healthy() && statePredictEnabled[coreIndex];
+                bool altCoreAvailable = statePredictEnabled[coreIndex] && coreBetterScore(coreIndex, newPrimaryIndex);
 
                 // If the primary core is unhealthy and another core is available, then switch now
                 // If the primary core is still healthy,then switching is optional and will only be done if
@@ -850,19 +874,14 @@ void NavEKF2::checkLaneSwitch(void)
         // don't switch twice in 5 seconds
         return;
     }
-    float primaryErrorScore = core[primary].errorScore();
-    float lowestErrorScore = primaryErrorScore;
     uint8_t newPrimaryIndex = primary;
     for (uint8_t coreIndex=0; coreIndex<num_cores; coreIndex++) {
         if (coreIndex != primary) {
+            const NavEKF2_core &newCore = core[coreIndex];
             // an alternative core is available for selection only if healthy and if states have been updated on this time step
-            bool altCoreAvailable = core[coreIndex].healthy();
-            float altErrorScore = core[coreIndex].errorScore();
-            if (altCoreAvailable &&
-                altErrorScore < lowestErrorScore &&
-                altErrorScore < 0.9) {
+            bool altCoreAvailable = coreBetterScore(coreIndex, newPrimaryIndex);
+            if (altCoreAvailable && newCore.errorScore() < 0.9) {
                 newPrimaryIndex = coreIndex;
-                lowestErrorScore = altErrorScore;
             }
         }
     }
@@ -1315,7 +1334,8 @@ void NavEKF2::setTouchdownExpected(bool val)
 
 // Set to true if the terrain underneath is stable enough to be used as a height reference
 // in combination with a range finder. Set to false if the terrain underneath the vehicle
-// cannot be used as a height reference
+// cannot be used as a height reference. Use to prevent range finder operation otherwise
+// enabled by the combination of EK2_RNG_AID_HGT and EK2_RNG_USE_SPD parameters.
 void NavEKF2::setTerrainHgtStable(bool val)
 {
     if (core) {
@@ -1332,9 +1352,9 @@ void NavEKF2::setTerrainHgtStable(bool val)
   1 = velocities are NaN
   2 = badly conditioned X magnetometer fusion
   3 = badly conditioned Y magnetometer fusion
-  5 = badly conditioned Z magnetometer fusion
-  6 = badly conditioned airspeed fusion
-  7 = badly conditioned synthetic sideslip fusion
+  4 = badly conditioned Z magnetometer fusion
+  5 = badly conditioned airspeed fusion
+  6 = badly conditioned synthetic sideslip fusion
   7 = filter is not initialised
 */
 void NavEKF2::getFilterFaults(int8_t instance, uint16_t &faults) const
@@ -1353,9 +1373,9 @@ void NavEKF2::getFilterFaults(int8_t instance, uint16_t &faults) const
   1 = velocity measurement timeout
   2 = height measurement timeout
   3 = magnetometer measurement timeout
+  4 = unassigned
   5 = unassigned
   6 = unassigned
-  7 = unassigned
   7 = unassigned
 */
 void NavEKF2::getFilterTimeouts(int8_t instance, uint8_t &timeouts) const

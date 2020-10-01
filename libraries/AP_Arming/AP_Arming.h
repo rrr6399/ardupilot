@@ -72,6 +72,7 @@ public:
         PILOT_INPUT_FAILSAFE = 29, // only disarm uses this...
         TOYMODELANDTHROTTLE = 30, // only disarm uses this...
         TOYMODELANDFORCE = 31, // only disarm uses this...
+        UNKNOWN = 100,
     };
 
     enum class Required {
@@ -117,6 +118,10 @@ public:
     void set_aux_auth_failed(uint8_t auth_id, const char* fail_msg);
 
     static const struct AP_Param::GroupInfo        var_info[];
+
+    // method that was last used for disarm; invalid unless the
+    // vehicle has been disarmed at least once.
+    Method last_disarm_method() const { return _last_disarm_method; } 
 
 protected:
 
@@ -164,7 +169,11 @@ protected:
 
     bool camera_checks(bool display_failure);
 
+    bool osd_checks(bool display_failure) const;
+
     bool aux_auth_checks(bool display_failure);
+
+    bool generator_checks(bool report) const;
 
     virtual bool system_checks(bool report);
 
@@ -222,6 +231,10 @@ private:
     char* aux_auth_fail_msg;    // buffer for holding failure messages
     bool aux_auth_error;        // true if too many auxiliary authorisers
     HAL_Semaphore aux_auth_sem; // semaphore for accessing the aux_auth_state and aux_auth_fail_msg
+
+    // method that was last used for disarm; invalid unless the
+    // vehicle has been disarmed at least once.
+    Method _last_disarm_method = Method::UNKNOWN;
 };
 
 namespace AP {

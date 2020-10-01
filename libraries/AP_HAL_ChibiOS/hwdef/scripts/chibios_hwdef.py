@@ -588,10 +588,10 @@ def make_line(label):
     return line
 
 
-def enable_can(f):
+def enable_can(f, num_ifaces):
     '''setup for a CAN enabled board'''
-    f.write('#define HAL_WITH_UAVCAN 1\n')
-    env_vars['HAL_WITH_UAVCAN'] = '1'
+    f.write('#define HAL_NUM_CAN_IFACES %d\n' % num_ifaces)
+    env_vars['HAL_NUM_CAN_IFACES'] = str(num_ifaces)
 
 
 def has_sdcard_spi():
@@ -645,8 +645,6 @@ def write_mcu_config(f):
         f.write('#define HAL_USE_SERIAL_USB TRUE\n')
     if 'OTG2' in bytype:
         f.write('#define STM32_USB_USE_OTG2                  TRUE\n')
-    if have_type_prefix('CAN') and 'AP_PERIPH' not in env_vars:
-        enable_can(f)
 
     if get_config('PROCESS_STACK', required=False):
         env_vars['PROCESS_STACK'] = get_config('PROCESS_STACK')
@@ -669,11 +667,20 @@ def write_mcu_config(f):
         env_vars['PERIPH_FW'] = 0
 
     # write any custom STM32 defines
+    using_chibios_can = False
     for d in alllines:
         if d.startswith('STM32_'):
             f.write('#define %s\n' % d)
         if d.startswith('define '):
+            if 'HAL_USE_CAN' in d:
+                using_chibios_can = True
             f.write('#define %s\n' % d[7:])
+
+    if have_type_prefix('CAN') and not using_chibios_can:
+        if 'CAN1' in bytype and 'CAN2' in bytype:
+            enable_can(f, 2)
+        else:
+            enable_can(f, 1)
     flash_size = get_config('FLASH_SIZE_KB', type=int)
     f.write('#define BOARD_FLASH_SIZE %u\n' % flash_size)
     env_vars['BOARD_FLASH_SIZE'] = flash_size
@@ -686,6 +693,8 @@ def write_mcu_config(f):
     if args.bootloader:
         f.write('#define FLASH_BOOTLOADER_LOAD_KB %u\n' % get_config('FLASH_BOOTLOADER_LOAD_KB', type=int))
         f.write('#define FLASH_RESERVE_END_KB %u\n' % get_config('FLASH_RESERVE_END_KB', default=0, type=int))
+        f.write('#define APP_START_OFFSET_KB %u\n' % get_config('APP_START_OFFSET_KB', default=0, type=int))
+
     f.write('\n')
 
     ram_map = get_mcu_config('RAM_MAP', True)
@@ -812,6 +821,8 @@ def write_ldscript(fname):
     else:
         flash_length = get_config('FLASH_BOOTLOADER_LOAD_KB', type=int)
 
+    env_vars['FLASH_TOTAL'] = flash_length * 1024
+
     print("Generating ldscript.ld")
     f = open(fname, 'w')
     ram0_start = ram_map[0][0]
@@ -905,7 +916,9 @@ def write_SPI_table(f):
                mode, lowspeed, highspeed))
         devlist.append('HAL_SPI_DEVICE%u' % devidx)
     f.write('#define HAL_SPI_DEVICE_LIST %s\n\n' % ','.join(devlist))
-
+    for dev in spidev:
+        f.write("#define HAL_WITH_SPI_%s 1\n" % dev[0].upper().replace("-","_"))
+    f.write("\n")
 
 def write_SPI_config(f):
     '''write SPI config defines'''
@@ -1195,7 +1208,7 @@ def write_UART_config(f):
     if OTG2_index is not None:
         f.write('#define HAL_OTG2_UART_INDEX %d\n' % OTG2_index)
         f.write('''
-#if HAL_WITH_UAVCAN
+#if HAL_NUM_CAN_IFACES
 #ifndef HAL_OTG2_PROTOCOL
 #define HAL_OTG2_PROTOCOL SerialProtocol_SLCAN
 #endif
@@ -1239,7 +1252,8 @@ def write_UART_config_bootloader(f):
             unum = int(u[-1])
             devlist.append('(BaseChannel *)&SD%u' % unum)
             have_uart = True
-    f.write('#define BOOTLOADER_DEV_LIST %s\n' % ','.join(devlist))
+    if len(devlist) > 0:
+        f.write('#define BOOTLOADER_DEV_LIST %s\n' % ','.join(devlist))
     if OTG2_index is not None:
         f.write('#define HAL_OTG2_UART_INDEX %d\n' % OTG2_index)
     if not have_uart:
@@ -1974,11 +1988,8 @@ def process_line(line):
                 alllines.remove(line)
         newpins = []
         for pin in allpins:
-            if pin.type == a[1]:
-                continue
-            if pin.label == a[1]:
-                continue
-            if pin.portpin == a[1]:
+            if pin.type == a[1] or pin.label == a[1] or pin.portpin == a[1]:
+                portmap[pin.port][pin.pin] = generic_pin(pin.port, pin.pin, None, 'INPUT', [])
                 continue
             newpins.append(pin)
         allpins = newpins

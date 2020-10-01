@@ -160,6 +160,24 @@ def run_unit_tests():
             success = False
     return success
 
+def run_clang_scan_build():
+    if util.run_cmd("scan-build python waf configure",
+                    directory=util.reltopdir('.')) != 0:
+        print("Failed scan-build-configure")
+        return False
+
+    if util.run_cmd("scan-build python waf clean",
+                    directory=util.reltopdir('.')) != 0:
+        print("Failed scan-build-clean")
+        return False
+
+    if util.run_cmd("scan-build python waf build",
+                    directory=util.reltopdir('.')) != 0:
+        print("Failed scan-build-build")
+        return False
+
+    return True
+
 def param_parse_filepath():
     return util.reltopdir('Tools/autotest/param_metadata/param_parse.py')
 
@@ -341,6 +359,9 @@ def run_step(step):
         "extra_configure_args": opts.waf_configure_args,
     }
 
+    if opts.Werror:
+        build_opts['extra_configure_args'].append("--Werror")
+
     vehicle_binary = None
     if step == 'build.Plane':
         vehicle_binary = 'bin/arduplane'
@@ -418,6 +439,9 @@ def run_step(step):
 
     if step == 'run.unit_tests':
         return run_unit_tests()
+
+    if step == 'clang-scan-build':
+        return run_clang_scan_build()
 
     raise RuntimeError("Unknown step %s" % step)
 
@@ -609,16 +633,36 @@ def run_tests(steps):
 
     return passed
 
-def list_subtests(*args, **kwargs):
-    for vehicle in sorted(['Sub', 'Copter', 'Plane', 'Tracker', 'Rover', 'QuadPlane', 'BalanceBot', 'Helicopter']):
+
+vehicle_list = ['Sub', 'Copter', 'Plane', 'Tracker', 'Rover', 'QuadPlane', 'BalanceBot', 'Helicopter']
+
+
+def list_subtests():
+    """Print the list of tests and tests description for each vehicle."""
+    for vehicle in sorted(vehicle_list):
         tester_class = tester_class_map["test.%s" % vehicle]
         tester = tester_class("/bin/true", None)
         subtests = tester.tests()
         print("%s:" % vehicle)
-        for subtest in sorted(subtests, key=lambda x : x[0]):
+        for subtest in sorted(subtests, key=lambda x: x[0]):
             (name, description, function) = subtest
             print("    %s: %s" % (name, description))
         print("")
+
+
+def list_subtests_for_vehicle(vehicle_type):
+    """Print the list of tests for a vehicle."""
+    # Check that we aren't in a sub test
+    if "Test" in vehicle_type:
+        vehicle_type = re.findall('[A-Z][a-z0-9]*', vehicle_type)[0]
+    if vehicle_type in vehicle_list:
+        tester_class = tester_class_map["test.%s" % vehicle_type]
+        tester = tester_class("/bin/true", None)
+        subtests = tester.tests()
+        for subtest in sorted(subtests, key=lambda x: x[0]):
+            (name, _, _) = subtest
+            print("%s " % name, end='')
+        print("")  # needed to clear the trailing %
 
 if __name__ == "__main__":
     ''' main program '''
@@ -678,6 +722,10 @@ if __name__ == "__main__":
                       action="store_true",
                       default=False,
                       help="validate vehicle parameter files")
+    parser.add_option("--Werror",
+                      action='store_true',
+                      default=False,
+                      help='configure with --Werror')
 
     group_build = optparse.OptionGroup(parser, "Build options")
     group_build.add_option("--no-configure",
@@ -744,6 +792,21 @@ if __name__ == "__main__":
                          help="force a specific AHRS type (e.g. 10 for SITL-ekf")
     parser.add_option_group(group_sim)
 
+    group_completion = optparse.OptionGroup(parser, "Completion helpers")
+    group_completion.add_option("--list-vehicles",
+                                action='store_true',
+                                default=False,
+                                help='list available vehicles')
+    group_completion.add_option("--list-vehicles-test",
+                                action='store_true',
+                                default=False,
+                                help='list available vehicle tester')
+    group_completion.add_option("--list-subtests-for-vehicle",
+                                type='string',
+                                default="",
+                                 help='list available subtests for a vehicle e.g Copter')
+    parser.add_option_group(group_completion)
+
     opts, args = parser.parse_args()
 
     steps = [
@@ -788,6 +851,7 @@ if __name__ == "__main__":
     moresteps = [
         'test.CopterTests1',
         'test.CopterTests2',
+        'clang-scan-build',
     ]
 
     # canonicalise the step names.  This allows
@@ -840,6 +904,18 @@ if __name__ == "__main__":
 
     if opts.list_subtests:
         list_subtests()
+        sys.exit(0)
+
+    if opts.list_subtests_for_vehicle:
+        list_subtests_for_vehicle(opts.list_subtests_for_vehicle)
+        sys.exit(0)
+
+    if opts.list_vehicles_test:
+        print(' '.join(__bin_names.keys()))
+        sys.exit(0)
+
+    if opts.list_vehicles:
+        print(' '.join(vehicle_list))
         sys.exit(0)
 
     util.mkdir_p(buildlogs_dirpath())

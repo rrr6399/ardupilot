@@ -20,19 +20,21 @@
  */
 #pragma once
 
-#pragma GCC optimize("O2")
+#if !defined(HAL_DEBUG_BUILD) || !HAL_DEBUG_BUILD
+    #pragma GCC optimize("O2")
+#endif
 
 #define EK2_DISABLE_INTERRUPTS 0
 
 
 #include <AP_Common/Location.h>
 #include <AP_Math/AP_Math.h>
-#include "AP_NavEKF2.h"
-#include <stdio.h>
 #include <AP_Math/vectorN.h>
 #include <AP_NavEKF/AP_NavEKF_core_common.h>
 #include <AP_NavEKF2/AP_NavEKF2_Buffer.h>
 #include <AP_InertialSensor/AP_InertialSensor.h>
+#include <GCS_MAVLink/GCS_MAVLink.h>
+
 #include "AP_NavEKF/EKFGSF_yaw.h"
 
 // GPS pre-flight check bit locations
@@ -70,7 +72,7 @@ class NavEKF2_core : public NavEKF_core_common
 {
 public:
     // Constructor
-    NavEKF2_core(NavEKF2 *_frontend);
+    NavEKF2_core(class NavEKF2 *_frontend);
 
     // setup this core backend
     bool setup_core(uint8_t _imu_index, uint8_t _core_index);
@@ -234,7 +236,8 @@ public:
 
     // Set to true if the terrain underneath is stable enough to be used as a height reference
     // in combination with a range finder. Set to false if the terrain underneath the vehicle
-    // cannot be used as a height reference
+    // cannot be used as a height reference. Use to prevent range finder operation otherwise
+    // enabled by the combination of EK2_RNG_AID_HGT and EK2_RNG_USE_SPD parameters.
     void setTerrainHgtStable(bool val);
 
     /*
@@ -243,9 +246,9 @@ public:
      1 = velocities are NaN
      2 = badly conditioned X magnetometer fusion
      3 = badly conditioned Y magnetometer fusion
-     5 = badly conditioned Z magnetometer fusion
-     6 = badly conditioned airspeed fusion
-     7 = badly conditioned synthetic sideslip fusion
+     4 = badly conditioned Z magnetometer fusion
+     5 = badly conditioned airspeed fusion
+     6 = badly conditioned synthetic sideslip fusion
      7 = filter is not initialised
     */
     void  getFilterFaults(uint16_t &faults) const;
@@ -356,11 +359,21 @@ public:
     // request a reset the yaw to the EKF-GSF value
     void EKFGSF_requestYawReset();
 
+    // return true if we are tilt aligned
+    bool have_aligned_tilt(void) const {
+        return tiltAlignComplete;
+    }
+
+    // return true if we are yaw aligned
+    bool have_aligned_yaw(void) const {
+        return yawAlignComplete;
+    }
+    
 private:
     EKFGSF_yaw *yawEstimator;
 
     // Reference to the global EKF frontend for parameters
-    NavEKF2 *frontend;
+    class NavEKF2 *frontend;
     uint8_t imu_index; // preferred IMU index
     uint8_t gyro_index_active; // active gyro index (in case preferred fails)
     uint8_t accel_index_active; // active accel index (in case preferred fails)
@@ -648,6 +661,9 @@ private:
     // check for new magnetometer data and update store measurements if available
     void readMagData();
 
+    // try changing compasses on compass failure or timeout
+    void tryChangeCompass(void);
+
     // check for new airspeed data and update stored measurements if available
     void readAirSpdData();
 
@@ -902,6 +918,7 @@ private:
     uint32_t prevTasStep_ms;        // time stamp of last TAS fusion step
     uint32_t prevBetaStep_ms;       // time stamp of last synthetic sideslip fusion step
     uint32_t lastMagUpdate_us;      // last time compass was updated in usec
+    uint32_t lastMagRead_ms;        // last time compass data was successfully read
     Vector3f velDotNED;             // rate of change of velocity in NED frame
     Vector3f velDotNEDfilt;         // low pass filtered velDotNED
     uint32_t imuSampleTime_ms;      // time that the last IMU value was taken
@@ -929,6 +946,8 @@ private:
     float defaultAirSpeed;          // default equivalent airspeed in m/s to be used if the measurement is unavailable. Do not use if not positive.
     bool inhibitWindStates;         // true when wind states and covariances are to remain constant
     bool inhibitMagStates;          // true when magnetic field states and covariances are to remain constant
+    bool lastInhibitMagStates;      // previous inhibitMagStates
+    bool needMagBodyVarReset;       // we need to reset mag body variances at next CovariancePrediction
     bool gpsNotAvailable;           // bool true when valid GPS data is not available
     uint8_t last_gps_idx;           // sensor ID of the GPS receiver used for the last fusion or reset
     struct Location EKF_origin;     // LLH origin of the NED axis system
@@ -964,7 +983,6 @@ private:
     tas_elements tasDataNew;        // TAS data at the current time horizon
     tas_elements tasDataDelayed;    // TAS data at the fusion time horizon
     uint8_t tasStoreIndex;          // TAS data storage index
-    mag_elements magDataNew;        // Magnetometer data at the current time horizon
     mag_elements magDataDelayed;    // Magnetometer data at the fusion time horizon
     uint8_t magStoreIndex;          // Magnetometer data storage index
     gps_elements gpsDataNew;        // GPS data at the current time horizon
@@ -1102,7 +1120,6 @@ private:
     uint32_t lastRngMeasTime_ms;            // Timestamp of last range measurement
     uint8_t rngMeasIndex[2];                // Current range measurement ringbuffer index for dual range sensors
     bool terrainHgtStable;                  // true when the terrain height is stable enough to be used as a height reference
-    uint32_t terrainHgtStableSet_ms;        // system time at which terrainHgtStable was set
 
     // Range Beacon Sensor Fusion
     obs_ring_buffer_t<rng_bcn_elements> storedRangeBeacon; // Beacon range buffer

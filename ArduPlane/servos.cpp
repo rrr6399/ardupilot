@@ -202,7 +202,8 @@ void Plane::dspoiler_update(void)
     const int8_t bitmask = g2.crow_flap_options.get();
     const bool flying_wing       = (bitmask & CrowFlapOptions::FLYINGWING) != 0;
     const bool full_span_aileron = (bitmask & CrowFlapOptions::FULLSPAN) != 0;
-    const bool progresive_crow   = (bitmask & CrowFlapOptions::PROGRESSIVE_CROW) != 0;
+    //progressive crow when option is set or RC switch is set to progressive 
+    const bool progressive_crow   = (bitmask & CrowFlapOptions::PROGRESSIVE_CROW) != 0  || crow_mode == CrowMode::PROGRESSIVE; 
 
     // if flying wing use elevons else use ailerons
     float elevon_left;
@@ -253,7 +254,10 @@ void Plane::dspoiler_update(void)
         }
     }
 
-    const int16_t weight_outer = g2.crow_flap_weight_outer.get();
+    int16_t weight_outer = g2.crow_flap_weight_outer.get();
+    if (crow_mode == Plane::CrowMode::CROW_DISABLED) {   //override totally aileron crow if crow RC switch set to disabled
+        weight_outer = 0;
+    }
     const int16_t weight_inner = g2.crow_flap_weight_inner.get();
     if (weight_outer > 0 || weight_inner > 0) {
         /*
@@ -266,7 +270,7 @@ void Plane::dspoiler_update(void)
         if (flap_percent > 0) {
             float inner_flap_scaled = (float)flap_percent;
             float outer_flap_scaled = (float)flap_percent;
-            if (progresive_crow) {
+            if (progressive_crow) {
                 // apply 0 - full inner from 0 to 50% flap then add in outer above 50%
                 inner_flap_scaled = constrain_float(inner_flap_scaled * 2, 0,100);
                 outer_flap_scaled = constrain_float(outer_flap_scaled - 50, 0,50) * 2;
@@ -283,6 +287,44 @@ void Plane::dspoiler_update(void)
     SRV_Channels::set_output_scaled(SRV_Channel::k_dspoilerLeft2, dspoiler_inner_left);
     SRV_Channels::set_output_scaled(SRV_Channel::k_dspoilerRight1, dspoiler_outer_right);
     SRV_Channels::set_output_scaled(SRV_Channel::k_dspoilerRight2, dspoiler_inner_right);
+}
+
+/*
+ set airbrakes based on reverse thrust and/or manual input RC channel
+ */
+void Plane::airbrake_update(void)
+{
+    // Calculate any manual airbrake input from RC channel option.
+    int8_t manual_airbrake_percent = 0;
+
+    if (channel_airbrake != nullptr && !failsafe.rc_failsafe && failsafe.throttle_counter == 0) {
+        manual_airbrake_percent = channel_airbrake->percent_input();
+    }
+
+    // Calculate auto airbrake from negative throttle.
+    float throttle_min = aparm.throttle_min.get();
+    int16_t airbrake_pc = 0;
+
+    int throttle_pc = SRV_Channels::get_output_scaled(SRV_Channel::k_throttle);
+
+    if (throttle_min < 0) {
+        if (landing.is_flaring()) {
+            // Full airbrakes during the flare.
+            airbrake_pc = 100;
+        }
+        else {
+            // Determine fraction between zero and full negative throttle.
+            airbrake_pc = constrain_int16(-throttle_pc, 0, 100);
+        }
+    }
+
+    // Manual overrides auto airbrake setting.
+    if (airbrake_pc < manual_airbrake_percent) {
+        airbrake_pc = manual_airbrake_percent;
+    }
+
+    // Output to airbrake servo types.
+    SRV_Channels::set_output_scaled(SRV_Channel::k_airbrake, airbrake_pc);
 }
 
 /*
@@ -506,14 +548,29 @@ void Plane::set_servos_controlled(void)
             SRV_Channels::set_output_scaled(SRV_Channel::k_throttle,
                                             constrain_int16(get_throttle_input(true), min_throttle, max_throttle));
         }
-    } else if ((control_mode == &mode_guided || control_mode == &mode_avoidADSB) &&
+    } else if (control_mode->is_guided_mode() &&
                guided_throttle_passthru) {
         // manual pass through of throttle while in GUIDED
         SRV_Channels::set_output_scaled(SRV_Channel::k_throttle, get_throttle_input(true));
     } else if (quadplane.in_vtol_mode()) {
-        // ask quadplane code for forward throttle
-        SRV_Channels::set_output_scaled(SRV_Channel::k_throttle, 
-            constrain_int16(quadplane.forward_throttle_pct(), min_throttle, max_throttle));
+        int16_t fwd_thr = 0;
+        // if armed and not spooled down ask quadplane code for forward throttle
+        if (quadplane.motors->armed() &&
+            quadplane.motors->get_desired_spool_state() != AP_Motors::DesiredSpoolState::SHUT_DOWN) {
+
+            fwd_thr = constrain_int16(quadplane.forward_throttle_pct(), min_throttle, max_throttle);
+        }
+        SRV_Channels::set_output_scaled(SRV_Channel::k_throttle, fwd_thr);
+    }
+
+    // let EKF know to start GSF yaw estimator before takeoff movement starts so that yaw angle is better estimated
+    const float throttle = SRV_Channels::get_output_scaled(SRV_Channel::k_throttle);
+    if (!is_flying() && arming.is_armed()) {
+        bool throw_detected = sq(ahrs.get_accel_ef().x) + sq(ahrs.get_accel_ef().y) > sq(g.takeoff_throttle_min_accel);
+        bool throttle_up_detected = throttle > aparm.throttle_cruise;
+        if (throw_detected || throttle_up_detected) {
+            plane.ahrs.setTakeoffExpected(true);
+        }
     }
 }
 
@@ -527,9 +584,8 @@ void Plane::set_servos_flaps(void)
     int8_t manual_flap_percent = 0;
 
     // work out any manual flap input
-    RC_Channel *flapin = rc().find_channel_for_option(RC_Channel::AUX_FUNC::FLAP);
-    if (flapin != nullptr && !failsafe.rc_failsafe && failsafe.throttle_counter == 0) {
-        manual_flap_percent = flapin->percent_input();
+    if (channel_flap != nullptr && !failsafe.rc_failsafe && failsafe.throttle_counter == 0) {
+        manual_flap_percent = channel_flap->percent_input();
     }
 
     if (auto_throttle_mode) {
@@ -751,6 +807,9 @@ void Plane::set_servos(void)
     // setup landing gear output
     set_landing_gear();
 #endif
+
+    // set airbrake outputs
+    airbrake_update();
     
     if (auto_throttle_mode ||
         quadplane.in_assisted_flight() ||

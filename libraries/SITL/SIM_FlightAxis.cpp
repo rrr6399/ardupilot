@@ -45,6 +45,7 @@ static const struct {
     { "BRD_OPTIONS", 0},
     { "AHRS_EKF_TYPE", 10 },
     { "INS_GYR_CAL", 0 },
+    { "BATT_MONITOR", 4 },
     { "RC1_MIN", 1000, true },
     { "RC1_MAX", 2000, true },
     { "RC2_MIN", 1000, true },
@@ -484,9 +485,9 @@ void FlightAxis::update(const struct sitl_input &input)
     rpm[1] = state.m_propRPM;
 
     /*
-      the interlink interface supports 8 input channels
+      the interlink interface supports 12 input channels
      */
-    rcin_chan_count = 8;
+    rcin_chan_count = 12;
     for (uint8_t i=0; i<rcin_chan_count; i++) {
         rcin[i] = state.rcin[i];
     }

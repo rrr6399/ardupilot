@@ -128,6 +128,10 @@ public:
 
     Sub(void);
 
+protected:
+
+    bool should_zero_rc_outputs_on_reboot() const override { return true; }
+
 private:
 
     // key aircraft parameters passed to multiple libraries
@@ -359,7 +363,7 @@ private:
 #endif
 
     // Camera/Antenna mount tracking and stabilisation stuff
-#if MOUNT == ENABLED
+#if HAL_MOUNT_ENABLED
     AP_Mount camera_mount;
 #endif
 
@@ -409,7 +413,6 @@ private:
     void twentyfive_hz_logging();
     void three_hz_loop();
     void one_hz_loop();
-    void update_GPS(void);
     void update_turn_counter();
     void read_AHRS(void);
     void update_altitude();
@@ -423,7 +426,6 @@ private:
     float get_surface_tracking_climb_rate(int16_t target_rate, float current_alt_target, float dt);
     void update_poscon_alt_max();
     void rotate_body_frame_to_NE(float &x, float &y);
-    void send_heartbeat(mavlink_channel_t chan);
 #if RPM_ENABLED == ENABLED
     void rpm_update();
 #endif
@@ -510,6 +512,7 @@ private:
 
     bool stabilize_init(void);
     void stabilize_run();
+    void control_depth();
     bool manual_init(void);
     void manual_run();
     void failsafe_sensors_check(void);
