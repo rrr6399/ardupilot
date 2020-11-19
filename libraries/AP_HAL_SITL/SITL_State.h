@@ -3,6 +3,9 @@
 #include <AP_HAL/AP_HAL.h>
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+#if defined(HAL_BUILD_AP_PERIPH)
+#include "SITL_Periph_State.h"
+#else
 
 #include "AP_HAL_SITL.h"
 #include "AP_HAL_SITL_Namespace.h"
@@ -14,6 +17,7 @@
 #include <netinet/in.h>
 #include <netinet/udp.h>
 #include <arpa/inet.h>
+#include <vector>
 
 #include <AP_Baro/AP_Baro.h>
 #include <AP_InertialSensor/AP_InertialSensor.h>
@@ -105,6 +109,7 @@ public:
         "tcp:5",
         "tcp:6",
     };
+    std::vector<struct AP_Param::defaults_table_struct> cmdline_param;
 
     /* parse a home location string */
     static bool parse_home(const char *home_str,
@@ -146,7 +151,7 @@ private:
     void _update_gps_mtk(const struct gps_data *d, uint8_t instance);
     void _update_gps_mtk16(const struct gps_data *d, uint8_t instance);
     void _update_gps_mtk19(const struct gps_data *d, uint8_t instance);
-    uint16_t _gps_nmea_checksum(const char *s);
+    uint8_t _gps_nmea_checksum(const char *s);
     void _gps_nmea_printf(uint8_t instance, const char *fmt, ...);
     void _update_gps_nmea(const struct gps_data *d, uint8_t instance);
     void _sbp_send_message(uint16_t msg_type, uint16_t sender_id, uint8_t len, uint8_t *payload, uint8_t instance);
@@ -293,4 +298,5 @@ private:
     const char *_home_str;
 };
 
+#endif // defined(HAL_BUILD_AP_PERIPH)
 #endif // CONFIG_HAL_BOARD == HAL_BOARD_SITL

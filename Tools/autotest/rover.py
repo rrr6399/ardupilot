@@ -253,7 +253,6 @@ class AutoTestRover(AutoTest):
             self.set_parameter("SERVO%u_MAX" % spinner_ch, spinner_ch_max)
 
             self.set_parameter("SIM_SPR_ENABLE", 1)
-            self.fetch_parameters()
             self.set_parameter("SIM_SPR_PUMP", pump_ch)
             self.set_parameter("SIM_SPR_SPIN", spinner_ch)
 
@@ -468,13 +467,24 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
         '''maximum distance allowed from home at end'''
         return 6.5
 
-    def drive_rtl_mission(self):
+    def drive_rtl_mission(self, timeout=120):
         self.wait_ready_to_arm()
         self.arm_vehicle()
 
         self.load_mission("rtl.txt")
         self.change_mode("AUTO")
-        self.mavproxy.expect('Mission: 3 RTL')
+
+        tstart = self.get_sim_time()
+        while True:
+            now = self.get_sim_time_cached()
+            if now - tstart > timeout:
+                raise AutoTestTimeoutException("Didn't see wp 3")
+            m = self.mav.recv_match(type='MISSION_CURRENT',
+                                    blocking=True,
+                                    timeout=1)
+            self.progress("MISSION_CURRENT: %s" % str(m))
+            if m.seq == 3:
+                break
 
         self.drain_mav();
 
@@ -3544,12 +3554,12 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
                 continue
             t = m.get_type()
             if t == "POSITION_TARGET_GLOBAL_INT":
-                self.progress("Target: (%s)" % str(m))
+                self.progress("Target: (%s)" % str(m), send_statustext=False)
             elif t == "GLOBAL_POSITION_INT":
-                self.progress("Position: (%s)" % str(m))
+                self.progress("Position: (%s)" % str(m), send_statustext=False)
                 delta = self.get_distance(mavutil.location(m.lat*1e-7, m.lon*1e-7, 0, 0),
                                           loc)
-                self.progress("delta: %s" % str(delta))
+                self.progress("delta: %s" % str(delta), send_statustext=False)
                 if delta < max_delta:
                     self.progress("Reached destination")
 

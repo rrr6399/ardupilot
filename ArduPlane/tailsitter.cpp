@@ -82,15 +82,24 @@ void QuadPlane::tailsitter_output(void)
               during transitions to vtol mode set the throttle to
               hover thrust, center the rudder and set the altitude controller
               integrator to the same throttle level
+              convert the hover throttle to the same output that would result if used via AP_Motors
+              apply expo, battery scaling and SPIN min/max. 
             */
-            throttle = motors->get_throttle_hover() * 100;
+            throttle = motors->thrust_to_actuator(motors->get_throttle_hover()) * 100;
+            throttle = MAX(throttle,plane.aparm.throttle_cruise.get());
+
             SRV_Channels::set_output_scaled(SRV_Channel::k_rudder, 0);
             pos_control->get_accel_z_pid().set_integrator(throttle*10);
 
             // override AP_MotorsTailsitter throttles during back transition
+
+            // apply PWM min and MAX to throttle left and right, just as via AP_Motors
+            uint16_t throttle_pwm = motors->get_pwm_output_min() + (motors->get_pwm_output_max() - motors->get_pwm_output_min()) * throttle * 0.01f;
+            SRV_Channels::set_output_pwm(SRV_Channel::k_throttleLeft, throttle_pwm);
+            SRV_Channels::set_output_pwm(SRV_Channel::k_throttleRight, throttle_pwm);
+
+            // throttle output is not used by AP_Motors so might have diffrent PWM range, set scaled
             SRV_Channels::set_output_scaled(SRV_Channel::k_throttle, throttle);
-            SRV_Channels::set_output_scaled(SRV_Channel::k_throttleLeft, throttle);
-            SRV_Channels::set_output_scaled(SRV_Channel::k_throttleRight, throttle);
         }
 
         if (!assisted_flight) {
@@ -114,7 +123,8 @@ void QuadPlane::tailsitter_output(void)
     // handle Copter controller
     // the MultiCopter rate controller has already been run in an earlier call
     // to motors_output() from quadplane.update(), unless we are in assisted flight
-    if (assisted_flight && tailsitter_transition_fw_complete()) {
+    // tailsitter in TRANSITION_ANGLE_WAIT_FW is not really in assisted flight, its still in a VTOL mode
+    if (assisted_flight && (transition_state != TRANSITION_ANGLE_WAIT_FW)) {
         hold_stabilize(SRV_Channels::get_output_scaled(SRV_Channel::k_throttle) * 0.01f);
         motors_output(true);
 
@@ -144,7 +154,7 @@ void QuadPlane::tailsitter_output(void)
     SRV_Channels::set_output_scaled(SRV_Channel::k_aileron, (motors->get_yaw())*-SERVO_MAX);
     SRV_Channels::set_output_scaled(SRV_Channel::k_elevator, (motors->get_pitch())*SERVO_MAX);
     SRV_Channels::set_output_scaled(SRV_Channel::k_rudder, (motors->get_roll())*SERVO_MAX);
-    SRV_Channels::set_output_scaled(SRV_Channel::k_throttle, (motors->get_throttle()) * 100);
+    SRV_Channels::set_output_scaled(SRV_Channel::k_throttle, motors->thrust_to_actuator(motors->get_throttle()) * 100);
 
     if (hal.util->get_soft_armed()) {
         // scale surfaces for throttle
@@ -262,9 +272,27 @@ void QuadPlane::tailsitter_check_input(void)
 /*
   return true if we are a tailsitter transitioning to VTOL flight
  */
-bool QuadPlane::in_tailsitter_vtol_transition(void) const
+bool QuadPlane::in_tailsitter_vtol_transition(uint32_t now) const
 {
-    return is_tailsitter() && in_vtol_mode() && transition_state == TRANSITION_ANGLE_WAIT_VTOL;
+    if (!is_tailsitter() || !in_vtol_mode()) {
+        return false;
+    }
+    if (transition_state == TRANSITION_ANGLE_WAIT_VTOL) {
+        return true;
+    }
+    if ((now != 0) && ((now - last_vtol_mode_ms) > 1000)) {
+        // only just come out of forward flight
+        return true;
+    }
+    return false;
+}
+
+/*
+  return true if we are a tailsitter in FW flight
+ */
+bool QuadPlane::is_tailsitter_in_fw_flight(void) const
+{
+    return is_tailsitter() && !in_vtol_mode() && transition_state == TRANSITION_DONE;
 }
 
 /*
@@ -329,6 +357,9 @@ void QuadPlane::tailsitter_speed_scaling(void)
             spd_scaler = constrain_float(hover_throttle / throttle, 1.0f, tailsitter.throttle_scale_max);
         }
     }
+
+    // record for QTUN log
+    log_spd_scaler = spd_scaler;
 
     const SRV_Channel::Aux_servo_function_t functions[] = {
         SRV_Channel::Aux_servo_function_t::k_aileron,

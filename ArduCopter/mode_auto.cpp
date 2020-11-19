@@ -43,8 +43,16 @@ bool ModeAuto::init(bool ignore_checks)
         // clear guided limits
         copter.mode_guided.limit_clear();
 
-        // start/resume the mission (based on MIS_RESTART parameter)
-        mission.start_or_resume();
+        // don't start the mission until we have an origin
+        Location loc;
+        if (copter.ahrs.get_origin(loc)) {
+            // start/resume the mission (based on MIS_RESTART parameter)
+            mission.start_or_resume();
+            waiting_for_origin = false;
+        } else {
+            waiting_for_origin = true;
+        }
+
         return true;
     } else {
         return false;
@@ -103,6 +111,11 @@ void ModeAuto::run()
         break;
     }
 }
+
+bool ModeAuto::allows_arming(bool from_gcs) const
+{
+    return (copter.g2.auto_options & (uint32_t)Options::AllowArming) != 0;
+};
 
 // auto_loiter_start - initialises loitering in auto mode
 //  returns success/failure because this can be called by exit_mission
@@ -372,6 +385,12 @@ void ModeAuto::payload_place_start()
 
 }
 
+// returns true if pilot's yaw input should be used to adjust vehicle's heading
+bool ModeAuto::use_pilot_yaw(void) const
+{
+    return (copter.g2.auto_options.get() & uint32_t(Options::IgnorePilotYaw)) == 0;
+}
+
 // start_command - this function will be called when the ap_mission lib wishes to start a new command
 bool ModeAuto::start_command(const AP_Mission::Mission_Command& cmd)
 {
@@ -592,7 +611,16 @@ bool ModeAuto::get_wp(Location& destination)
 // update mission
 void ModeAuto::run_autopilot()
 {
-    mission.update();
+    Location loc;
+    if (waiting_for_origin) {
+        if (copter.ahrs.get_origin(loc)) {
+            // start/resume the mission (based on MIS_RESTART parameter)
+            mission.start_or_resume();
+            waiting_for_origin = false;
+        }
+    } else {
+        mission.update();
+    }
 }
 
 /*******************************************************************************
@@ -710,10 +738,15 @@ bool ModeAuto::verify_command(const AP_Mission::Mission_Command& cmd)
     return cmd_complete;
 }
 
-// auto_takeoff_run - takeoff in auto mode
+// takeoff_run - takeoff in auto mode
 //      called by auto_run at 100hz or more
 void ModeAuto::takeoff_run()
 {
+    // if the user doesn't want to raise the throttle we can set it automatically
+    // note that this can defeat the disarm check on takeoff
+    if ((copter.g2.auto_options & (int32_t)Options::AllowTakeOffWithoutRaisingThrottle) != 0) {
+        copter.set_auto_armed(true);
+    }
     auto_takeoff_run();
 }
 
@@ -723,7 +756,7 @@ void ModeAuto::wp_run()
 {
     // process pilot's yaw input
     float target_yaw_rate = 0;
-    if (!copter.failsafe.radio) {
+    if (!copter.failsafe.radio && use_pilot_yaw()) {
         // get pilot's desired yaw rate
         target_yaw_rate = get_pilot_desired_yaw_rate(channel_yaw->get_control_in());
         if (!is_zero(target_yaw_rate)) {
@@ -770,7 +803,7 @@ void ModeAuto::spline_run()
 
     // process pilot's yaw input
     float target_yaw_rate = 0;
-    if (!copter.failsafe.radio) {
+    if (!copter.failsafe.radio && use_pilot_yaw()) {
         // get pilot's desired yaw rate
         target_yaw_rate = get_pilot_desired_yaw_rate(channel_yaw->get_control_in());
         if (!is_zero(target_yaw_rate)) {
@@ -831,7 +864,7 @@ void ModeAuto::circle_run()
 {
     // process pilot's yaw input
     float target_yaw_rate = 0;
-    if (!copter.failsafe.radio) {
+    if (!copter.failsafe.radio && use_pilot_yaw()) {
         // get pilot's desired yaw rate
         target_yaw_rate = get_pilot_desired_yaw_rate(channel_yaw->get_control_in());
         if (!is_zero(target_yaw_rate)) {
@@ -877,7 +910,7 @@ void ModeAuto::loiter_run()
 
     // accept pilot input of yaw
     float target_yaw_rate = 0;
-    if (!copter.failsafe.radio) {
+    if (!copter.failsafe.radio && use_pilot_yaw()) {
         target_yaw_rate = get_pilot_desired_yaw_rate(channel_yaw->get_control_in());
     }
 

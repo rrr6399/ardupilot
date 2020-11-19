@@ -38,6 +38,10 @@ public:
     // return false if yaw estimation is inactive
     bool getYawData(float &yaw, float &yawVariance);
 
+    // get the length of the weighted average velocity innovation vector
+    // return false if not available
+    bool getVelInnovLength(float &velInnovLength);
+
 private:
 
     typedef float ftype;
@@ -80,7 +84,6 @@ private:
     float accel_gain;               // gain from accel vector tilt error to rate gyro correction used by AHRS calculation
     Vector3f ahrs_accel;            // filtered body frame specific force vector used by AHRS calculation (m/s/s)
     float ahrs_accel_norm;          // length of body frame specific force vector used by AHRS calculation (m/s/s)
-    bool ahrs_turn_comp_enabled;    // true when compensation for centripetal acceleration in coordinated turns using true airspeed is being used.
     float true_airspeed;            // true airspeed used to correct for centripetal acceleratoin in coordinated turns (m/s)
 
     // Runs quaternion prediction for the selected AHRS using IMU (and optionally true airspeed) data

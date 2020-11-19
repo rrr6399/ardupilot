@@ -64,7 +64,7 @@ void* Util::malloc_type(size_t size, AP_HAL::Util::Memory_Type mem_type)
 void Util::free_type(void *ptr, size_t size, AP_HAL::Util::Memory_Type mem_type)
 {
     if (ptr != NULL) {
-        chHeapFree(ptr);
+        free(ptr);
     }
 }
 
@@ -287,16 +287,6 @@ bool Util::get_system_id_unformatted(uint8_t buf[], uint8_t &len)
     memcpy(buf, (const void *)UDID_START, len);
     return true;
 }
-
-#ifdef USE_POSIX
-/*
-  initialise filesystem
- */
-bool Util::fs_init(void)
-{
-    return sdcard_retry();
-}
-#endif
 
 // return true if the reason for the reboot was a watchdog reset
 bool Util::was_watchdog_reset() const

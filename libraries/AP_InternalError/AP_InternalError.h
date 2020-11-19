@@ -61,7 +61,10 @@ public:
         switch_full_sector_recursion= (1U << 21),  //0x200000  2097152
         bad_rotation                = (1U << 22),  //0x400000  4194304
         stack_overflow              = (1U << 23),  //0x800000  8388608
-        __LAST__                    = (1U << 24),  // used only for sanity check
+        imu_reset                   = (1U << 24),  //0x1000000 16777216
+        gpio_isr                    = (1U << 25),  //0x2000000 33554432
+        mem_guard                   = (1U << 26),  //0x4000000 67108864
+        __LAST__                    = (1U << 27),  // used only for sanity check
     };
 
     // if you've changed __LAST__ to be 32, then you will want to
@@ -99,6 +102,7 @@ namespace AP {
 
 extern "C" {
     void AP_stack_overflow(const char *thread_name);
+    void AP_memory_guard_error(uint32_t size);
 }
 
 #define INTERNAL_ERROR(error_number) \

@@ -163,7 +163,7 @@ void ModeRTL::climb_return_run()
 
     // process pilot's yaw input
     float target_yaw_rate = 0;
-    if (!copter.failsafe.radio) {
+    if (!copter.failsafe.radio && use_pilot_yaw()) {
         // get pilot's desired yaw rate
         target_yaw_rate = get_pilot_desired_yaw_rate(channel_yaw->get_control_in());
         if (!is_zero(target_yaw_rate)) {
@@ -220,7 +220,7 @@ void ModeRTL::loiterathome_run()
 
     // process pilot's yaw input
     float target_yaw_rate = 0;
-    if (!copter.failsafe.radio) {
+    if (!copter.failsafe.radio && use_pilot_yaw()) {
         // get pilot's desired yaw rate
         target_yaw_rate = get_pilot_desired_yaw_rate(channel_yaw->get_control_in());
         if (!is_zero(target_yaw_rate)) {
@@ -319,8 +319,10 @@ void ModeRTL::descent_run()
             }
         }
 
-        // get pilot's desired yaw rate
-        target_yaw_rate = get_pilot_desired_yaw_rate(channel_yaw->get_control_in());
+        if (g.land_repositioning || use_pilot_yaw()) {
+            // get pilot's desired yaw rate
+            target_yaw_rate = get_pilot_desired_yaw_rate(channel_yaw->get_control_in());
+        }
     }
 
     // set motors to full range
@@ -434,39 +436,39 @@ void ModeRTL::compute_return_target()
     int32_t curr_alt = copter.current_loc.alt;
 
     // determine altitude type of return journey (alt-above-home, alt-above-terrain using range finder or alt-above-terrain using terrain database)
-    ReturnTargetAltType alt_type = ReturnTargetAltType::RETURN_TARGET_ALTTYPE_RELATIVE;
+    ReturnTargetAltType alt_type = ReturnTargetAltType::RELATIVE;
     if (terrain_following_allowed && (get_alt_type() == RTLAltType::RTL_ALTTYPE_TERRAIN)) {
         // convert RTL_ALT_TYPE and WPNAV_RFNG_USE parameters to ReturnTargetAltType
         switch (wp_nav->get_terrain_source()) {
         case AC_WPNav::TerrainSource::TERRAIN_UNAVAILABLE:
-            alt_type = ReturnTargetAltType::RETURN_TARGET_ALTTYPE_RELATIVE;
+            alt_type = ReturnTargetAltType::RELATIVE;
             AP::logger().Write_Error(LogErrorSubsystem::NAVIGATION, LogErrorCode::RTL_MISSING_RNGFND);
             gcs().send_text(MAV_SEVERITY_CRITICAL, "RTL: no terrain data, using alt-above-home");
             break;
         case AC_WPNav::TerrainSource::TERRAIN_FROM_RANGEFINDER:
-            alt_type = ReturnTargetAltType::RETURN_TARGET_ALTTYPE_RANGEFINDER;
+            alt_type = ReturnTargetAltType::RANGEFINDER;
             break;
         case AC_WPNav::TerrainSource::TERRAIN_FROM_TERRAINDATABASE:
-            alt_type = ReturnTargetAltType::RETURN_TARGET_ALTTYPE_TERRAINDATABASE;
+            alt_type = ReturnTargetAltType::TERRAINDATABASE;
             break;
         }
     }
 
     // set curr_alt and return_target.alt from range finder
-    if (alt_type == ReturnTargetAltType::RETURN_TARGET_ALTTYPE_RANGEFINDER) {
+    if (alt_type == ReturnTargetAltType::RANGEFINDER) {
         if (copter.get_rangefinder_height_interpolated_cm(curr_alt)) {
             // set return_target.alt
             rtl_path.return_target.set_alt_cm(MAX(curr_alt + MAX(0, g.rtl_climb_min), MAX(g.rtl_altitude, RTL_ALT_MIN)), Location::AltFrame::ABOVE_TERRAIN);
         } else {
             // fallback to relative alt and warn user
-            alt_type = ReturnTargetAltType::RETURN_TARGET_ALTTYPE_RELATIVE;
+            alt_type = ReturnTargetAltType::RELATIVE;
             gcs().send_text(MAV_SEVERITY_CRITICAL, "RTL: rangefinder unhealthy, using alt-above-home");
             AP::logger().Write_Error(LogErrorSubsystem::NAVIGATION, LogErrorCode::RTL_MISSING_RNGFND);
         }
     }
 
     // set curr_alt and return_target.alt from terrain database
-    if (alt_type == ReturnTargetAltType::RETURN_TARGET_ALTTYPE_TERRAINDATABASE) {
+    if (alt_type == ReturnTargetAltType::TERRAINDATABASE) {
         // set curr_alt to current altitude above terrain
         // convert return_target.alt from an abs (above MSL) to altitude above terrain
         //   Note: the return_target may be a rally point with the alt set above the terrain alt (like the top of a building)
@@ -476,14 +478,14 @@ void ModeRTL::compute_return_target()
             curr_alt = curr_terr_alt;
         } else {
             // fallback to relative alt and warn user
-            alt_type = ReturnTargetAltType::RETURN_TARGET_ALTTYPE_RELATIVE;
+            alt_type = ReturnTargetAltType::RELATIVE;
             AP::logger().Write_Error(LogErrorSubsystem::TERRAIN, LogErrorCode::MISSING_TERRAIN_DATA);
             gcs().send_text(MAV_SEVERITY_CRITICAL, "RTL: no terrain data, using alt-above-home");
         }
     }
 
     // for the default case we must convert return-target alt (which is an absolute alt) to alt-above-home
-    if (alt_type == ReturnTargetAltType::RETURN_TARGET_ALTTYPE_RELATIVE) {
+    if (alt_type == ReturnTargetAltType::RELATIVE) {
         if (!rtl_path.return_target.change_alt_frame(Location::AltFrame::ABOVE_HOME)) {
             // this should never happen but just in case
             rtl_path.return_target.set_alt_cm(0, Location::AltFrame::ABOVE_HOME);
@@ -508,7 +510,7 @@ void ModeRTL::compute_return_target()
     }
 
     // set returned target alt to new target_alt (don't change altitude type)
-    rtl_path.return_target.set_alt_cm(target_alt, (alt_type == ReturnTargetAltType::RETURN_TARGET_ALTTYPE_RELATIVE) ? Location::AltFrame::ABOVE_HOME : Location::AltFrame::ABOVE_TERRAIN);
+    rtl_path.return_target.set_alt_cm(target_alt, (alt_type == ReturnTargetAltType::RELATIVE) ? Location::AltFrame::ABOVE_HOME : Location::AltFrame::ABOVE_TERRAIN);
 
 #if AC_FENCE == ENABLED
     // ensure not above fence altitude if alt fence is enabled
@@ -558,6 +560,12 @@ uint32_t ModeRTL::wp_distance() const
 int32_t ModeRTL::wp_bearing() const
 {
     return wp_nav->get_wp_bearing_to_destination();
+}
+
+// returns true if pilot's yaw input should be used to adjust vehicle's heading
+bool ModeRTL::use_pilot_yaw(void) const
+{
+    return (copter.g2.rtl_options.get() & uint32_t(Options::IgnorePilotYaw)) == 0;
 }
 
 #endif

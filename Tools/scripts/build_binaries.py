@@ -603,6 +603,7 @@ is bob we will attempt to checkout bob-AVR'''
                 "mRoControlZeroF7",
                 "mRoNexus",
                 "mRoPixracerPro",
+                "mRoControlZeroOEMH7",
                 "F35Lightning",
                 "speedybeef4",
                 "SuccexF4",
@@ -617,6 +618,7 @@ is bob we will attempt to checkout bob-AVR'''
                 "CubeOrange",
                 "CubeYellow",
                 "R9Pilot",
+                "QioTekZealotF427",
                 # SITL targets
                 "SITL_x86_64_linux_gnu",
                 "SITL_arm_linux_gnueabihf",
@@ -631,8 +633,12 @@ is bob we will attempt to checkout bob-AVR'''
                 "f303-Universal",
                 "f303-M10025",
                 "f303-M10070",
+                "f303-MatekGPS",
+                "f103-Airspeed",
                 "CUAV_GPS",
                 "ZubaxGNSS",
+                "CubeOrange-periph",
+                "CubeBlack-periph",
                 ]
 
     def build_arducopter(self, tag):
