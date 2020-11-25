@@ -222,6 +222,12 @@ void AP_MotorsUGV::set_pitch(float pitch)
     _pitch = constrain_float(pitch, -1.0f, 1.0f);
 }
 
+// set walking_height input as a value from -1 to +1
+void AP_MotorsUGV::set_walking_height(float walking_height)
+{
+    _walking_height = constrain_float(walking_height, -1.0f, 1.0f);
+}
+
 // set mainsail input as a value from 0 to 100
 void AP_MotorsUGV::set_mainsail(float mainsail)
 {
@@ -243,7 +249,7 @@ float AP_MotorsUGV::get_slew_limited_throttle(float throttle, float dt) const
         return throttle;
     }
 
-    const float throttle_change_max = MAX(1.0f, (float)_slew_rate * dt);
+    const float throttle_change_max = static_cast<float>(_slew_rate) * dt;
     return constrain_float(throttle, _throttle_prev - throttle_change_max, _throttle_prev + throttle_change_max);
 }
 

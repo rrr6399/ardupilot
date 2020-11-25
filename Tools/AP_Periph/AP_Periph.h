@@ -1,10 +1,15 @@
+#pragma once
+
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Param/AP_Param.h>
 #include <AP_GPS/AP_GPS.h>
 #include <AP_Compass/AP_Compass.h>
 #include <AP_Baro/AP_Baro.h>
+#include <AP_BattMonitor/AP_BattMonitor.h>
 #include <AP_Airspeed/AP_Airspeed.h>
 #include <AP_RangeFinder/AP_RangeFinder.h>
+#include <AP_MSP/AP_MSP.h>
+#include <AP_MSP/msp.h>
 #include "../AP_Bootloader/app_comms.h"
 #include "hwing_esc.h"
 
@@ -13,8 +18,11 @@
 #endif
 
 #include "Parameters.h"
-#include "ch.h"
 
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+void stm32_watchdog_init();
+void stm32_watchdog_pat();
+#endif
 /*
   app descriptor compatible with MissionPlanner
  */
@@ -34,6 +42,7 @@ public:
     void can_baro_update();
     void can_airspeed_update();
     void can_rangefinder_update();
+    void can_battery_update();
 
     void load_parameters();
 
@@ -51,6 +60,33 @@ public:
     AP_Baro baro;
 #endif
 
+#ifdef HAL_PERIPH_ENABLE_BATTERY
+    struct AP_Periph_Battery {
+        void handle_battery_failsafe(const char* type_str, const int8_t action) { }
+        AP_BattMonitor lib{0, FUNCTOR_BIND_MEMBER(&AP_Periph_FW::AP_Periph_Battery::handle_battery_failsafe, void, const char*, const int8_t), nullptr};
+
+        uint32_t last_read_ms;
+        uint32_t last_can_send_ms;
+    } battery;
+#endif
+
+
+#ifdef HAL_PERIPH_ENABLE_MSP
+    struct {
+        AP_MSP msp;
+        MSP::msp_port_t port;
+        uint32_t last_gps_ms;
+        uint32_t last_baro_ms;
+        uint32_t last_mag_ms;
+    } msp;
+    void msp_init(AP_HAL::UARTDriver *_uart);
+    void msp_sensor_update(void);
+    void send_msp_packet(uint16_t cmd, void *p, uint16_t size);
+    void send_msp_GPS(void);
+    void send_msp_compass(void);
+    void send_msp_baro(void);
+#endif
+    
 #ifdef HAL_PERIPH_ENABLE_ADSB
     void adsb_init();
     void adsb_update();

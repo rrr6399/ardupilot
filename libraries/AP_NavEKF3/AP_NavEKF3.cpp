@@ -4,6 +4,9 @@
 #include <GCS_MAVLink/GCS.h>
 #include <AP_Logger/AP_Logger.h>
 #include <AP_Vehicle/AP_Vehicle_Type.h>
+#include <AP_BoardConfig/AP_BoardConfig.h>
+
+#include "AP_DAL/AP_DAL.h"
 
 #include <new>
 
@@ -114,8 +117,6 @@
 
 #endif // APM_BUILD_DIRECTORY
 
-extern const AP_HAL::HAL& hal;
-
 // Define tuning parameters
 const AP_Param::GroupInfo NavEKF3::var_info[] = {
 
@@ -129,12 +130,7 @@ const AP_Param::GroupInfo NavEKF3::var_info[] = {
 
     // GPS measurement parameters
 
-    // @Param: GPS_TYPE
-    // @DisplayName: GPS mode control
-    // @Description: This controls use of GPS measurements : 0 = use 3D velocity & 2D position, 1 = use 2D velocity and 2D position, 2 = use 2D position, 3 = Inhibit GPS use - this can be useful when flying with an optical flow sensor in an environment where GPS quality is poor and subject to large multipath errors.
-    // @Values: 0:GPS 3D Vel and 2D Pos, 1:GPS 2D vel and 2D pos, 2:GPS 2D pos, 3:No GPS
-    // @User: Advanced
-    AP_GROUPINFO("GPS_TYPE", 1, NavEKF3, _fusionModeGPS, 0),
+    // 1 was GPS_TYPE
 
     // @Param: VELNE_M_NSE
     // @DisplayName: GPS horizontal velocity measurement noise (m/s)
@@ -194,13 +190,7 @@ const AP_Param::GroupInfo NavEKF3::var_info[] = {
 
     // Height measurement parameters
 
-    // @Param: ALT_SOURCE
-    // @DisplayName: Primary altitude sensor source
-    // @Description: Primary height sensor used by the EKF. If a sensor other than Baro is selected and becomes unavailable, then the Baro sensor will be used as a fallback. NOTE: the EK3_RNG_USE_HGT parameter can be used to switch to range-finder when close to the ground in conjunction with EK3_ALT_SOURCE = 0 or 2 (Baro or GPS). NOTE: Setting EK3_ALT_SOURCE = 4 uses external nav system data only if data is also being used for horizontal position
-    // @Values: 0:Use Baro, 1:Use Range Finder, 2:Use GPS, 3:Use Range Beacon, 4:Use External Nav
-    // @User: Advanced
-    // @RebootRequired: True
-    AP_GROUPINFO("ALT_SOURCE", 9, NavEKF3, _altSource, 0),
+    // 9 was ALT_SOURCE
 
     // @Param: ALT_M_NSE
     // @DisplayName: Altitude measurement noise (m)
@@ -244,7 +234,7 @@ const AP_Param::GroupInfo NavEKF3::var_info[] = {
     // @Param: MAG_CAL
     // @DisplayName: Magnetometer default fusion mode
     // @Description: This determines when the filter will use the 3-axis magnetometer fusion model that estimates both earth and body fixed magnetic field states and when it will use a simpler magnetic heading fusion model that does not use magnetic field states. The 3-axis magnetometer fusion is only suitable for use when the external magnetic field environment is stable. EK3_MAG_CAL = 0 uses heading fusion on ground, 3-axis fusion in-flight, and is the default setting for Plane users. EK3_MAG_CAL = 1 uses 3-axis fusion only when manoeuvring. EK3_MAG_CAL = 2 uses heading fusion at all times, is recommended if the external magnetic field is varying and is the default for rovers. EK3_MAG_CAL = 3 uses heading fusion on the ground and 3-axis fusion after the first in-air field and yaw reset has completed, and is the default for copters. EK3_MAG_CAL = 4 uses 3-axis fusion at all times. EK3_MAG_CAL = 5 uses an external yaw sensor with simple heading fusion. NOTE : Use of simple heading magnetometer fusion makes vehicle compass calibration and alignment errors harder for the EKF to detect which reduces the sensitivity of the Copter EKF failsafe algorithm. NOTE: The fusion mode can be forced to 2 for specific EKF cores using the EK3_MAG_MASK parameter. EK3_MAG_CAL = 6 uses an external yaw sensor with fallback to compass when the external sensor is not available if we are flying. NOTE: The fusion mode can be forced to 2 for specific EKF cores using the EK3_MAG_MASK parameter. NOTE: limited operation without a magnetometer or any other yaw sensor is possible by setting all COMPASS_USE, COMPASS_USE2, COMPASS_USE3, etc parameters to 0 and setting COMPASS_ENABLE to 0. If this is done, the EK3_GSF_RUN and EK3_GSF_USE masks must be set to the same as EK3_IMU_MASK. A yaw angle derived from IMU and GPS velocity data using a Gaussian Sum Filter (GSF) will then be used to align the yaw when flight commences and there is sufficient movement.
-    // @Values: 0:When flying,1:When manoeuvring,2:Never,3:After first climb yaw reset,4:Always,5:Use external yaw sensor,6:External yaw sensor with compass fallback
+    // @Values: 0:When flying,1:When manoeuvring,2:Never,3:After first climb yaw reset,4:Always,5:Use external yaw sensor (Deprecated in 4.1+ see EK3_SRCn_YAW),6:External yaw sensor with compass fallback (Deprecated in 4.1+ see EK3_SRCn_YAW)
     // @User: Advanced
     // @RebootRequired: True
     AP_GROUPINFO("MAG_CAL", 14, NavEKF3, _magCal, MAG_CAL_DEFAULT),
@@ -422,13 +412,8 @@ const AP_Param::GroupInfo NavEKF3::var_info[] = {
     // @Units: m
     AP_GROUPINFO("NOAID_M_NSE", 35, NavEKF3, _noaidHorizNoise, 10.0f),
 
-    // @Param: LOG_MASK
-    // @DisplayName: EKF sensor logging IMU mask
-    // @Description: This sets the IMU mask of sensors to do full logging for
-    // @Bitmask: 0:FirstIMU,1:SecondIMU,2:ThirdIMU,3:FourthIMU,4:FifthIMU,5:SixthIMU
-    // @User: Advanced
-    // @RebootRequired: True
-    AP_GROUPINFO("LOG_MASK", 36, NavEKF3, _logging_mask, 1),
+    // 36 was LOG_MASK, used for specifying which IMUs/cores to log
+    // replay data for
 
     // control of magentic yaw angle fusion
 
@@ -655,64 +640,61 @@ const AP_Param::GroupInfo NavEKF3::var_info[] = {
     // @RebootRequired: True
     AP_GROUPINFO("AFFINITY", 62, NavEKF3, _affinity, 0),
 
+    AP_SUBGROUPEXTENSION("", 63, NavEKF3, var_info2),
+
+    AP_GROUPEND
+};
+
+// second table of parameters. allows us to go beyond the 64 parameter limit
+const AP_Param::GroupInfo NavEKF3::var_info2[] = {
+
+    // @Group: SRC
+    // @Path: ../AP_NavEKF/AP_NavEKF_Source.cpp
+    AP_SUBGROUPINFO(sources, "SRC", 1, NavEKF3, AP_NavEKF_Source),
+
     AP_GROUPEND
 };
 
 NavEKF3::NavEKF3()
 {
     AP_Param::setup_object_defaults(this, var_info);
-   _ahrs = &AP::ahrs();
-}
-
-/*
-  see if we should log some sensor data
- */
-void NavEKF3::check_log_write(void)
-{
-    if (!have_ekf_logging()) {
-        return;
-    }
-    if (logging.log_compass) {
-        AP::logger().Write_Compass(imuSampleTime_us);
-        logging.log_compass = false;
-    }
-    if (logging.log_baro) {
-        AP::logger().Write_Baro(imuSampleTime_us);
-        logging.log_baro = false;
-    }
-    if (logging.log_imu) {
-        AP::logger().Write_IMUDT(imuSampleTime_us, _logging_mask.get());
-        logging.log_imu = false;
-    }
-
-    // this is an example of an ad-hoc log in EKF
-    // AP::logger().Write("NKA", "TimeUS,X", "Qf", AP_HAL::micros64(), (double)2.4f);
+    AP_Param::setup_object_defaults(this, var_info2);
 }
 
 
 // Initialise the filter
 bool NavEKF3::InitialiseFilter(void)
 {
-    if (_enable == 0) {
+    if (_enable == 0 || _imuMask == 0) {
         return false;
     }
-    const AP_InertialSensor &ins = AP::ins();
+    const auto &ins = AP::dal().ins();
 
-    imuSampleTime_us = AP_HAL::micros64();
+    AP::dal().start_frame(AP_DAL::FrameType::InitialiseFilterEKF3);
+
+    imuSampleTime_us = AP::dal().micros64();
 
     // remember expected frame time
     _frameTimeUsec = 1e6 / ins.get_loop_rate_hz();
 
     // expected number of IMU frames per prediction
     _framesPerPrediction = uint8_t((EKF_TARGET_DT / (_frameTimeUsec * 1.0e-6) + 0.5));
-    
-    if (core == nullptr) {
 
-        // see if we will be doing logging
-        AP_Logger *logger = AP_Logger::get_singleton();
-        if (logger != nullptr) {
-            logging.enabled = logger->log_replay();
-        }
+#if !APM_BUILD_TYPE(APM_BUILD_AP_DAL_Standalone)
+    // convert parameters if necessary
+    convert_parameters();
+#endif
+
+    // initialise sources
+    sources.init();
+
+#if APM_BUILD_TYPE(APM_BUILD_Replay)
+    if (ins.get_accel_count() == 0) {
+        return false;
+    }
+#endif
+
+    if (core == nullptr) {
 
         // don't run multiple filters for 1 IMU
         uint8_t mask = (1U<<ins.get_accel_count())-1;
@@ -735,17 +717,17 @@ bool NavEKF3::InitialiseFilter(void)
         }
 
         // check if there is enough memory to create the EKF cores
-        if (hal.util->available_memory() < sizeof(NavEKF3_core)*num_cores + 4096) {
-            gcs().send_text(MAV_SEVERITY_CRITICAL, "EKF3 not enough memory");
+        if (AP::dal().available_memory() < sizeof(NavEKF3_core)*num_cores + 4096) {
+            GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "EKF3 not enough memory");
             _enable.set(0);
             return false;
         }
 
         //try to allocate from CCM RAM, fallback to Normal RAM if not available or full
-        core = (NavEKF3_core*)hal.util->malloc_type(sizeof(NavEKF3_core)*num_cores, AP_HAL::Util::MEM_FAST);
-            if (core == nullptr) {
+        core = (NavEKF3_core*)AP::dal().malloc_type(sizeof(NavEKF3_core)*num_cores, AP::dal().MEM_FAST);
+        if (core == nullptr) {
             _enable.set(0);
-            gcs().send_text(MAV_SEVERITY_CRITICAL, "EKF3 allocation failed");
+            GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "EKF3 allocation failed");
             return false;
         }
 
@@ -796,8 +778,33 @@ bool NavEKF3::InitialiseFilter(void)
     memset((void *)&pos_reset_data, 0, sizeof(pos_reset_data));
     memset(&pos_down_reset_data, 0, sizeof(pos_down_reset_data));
 
-    check_log_write();
     return ret;
+}
+
+/*
+  return true if a new core index has a better score than the current
+  core
+ */
+bool NavEKF3::coreBetterScore(uint8_t new_core, uint8_t current_core) const
+{
+    const NavEKF3_core &oldCore = core[current_core];
+    const NavEKF3_core &newCore = core[new_core];
+    if (!newCore.healthy()) {
+        // never consider a new core that isn't healthy
+        return false;
+    }
+    if (newCore.have_aligned_tilt() != oldCore.have_aligned_tilt()) {
+        // tilt alignment is most critical, if one is tilt aligned and
+        // the other isn't then use the tilt aligned lane
+        return newCore.have_aligned_tilt();
+    }
+    if (newCore.have_aligned_yaw() != oldCore.have_aligned_yaw()) {
+        // yaw alignment is next most critical, if one is yaw aligned
+        // and the other isn't then use the yaw aligned lane
+        return newCore.have_aligned_yaw();
+    }
+    // if both cores are aligned then look at relative error scores
+    return coreRelativeErrors[new_core] < coreRelativeErrors[current_core];
 }
 
 /* 
@@ -806,27 +813,25 @@ bool NavEKF3::InitialiseFilter(void)
 */
 void NavEKF3::UpdateFilter(void)
 {
+    AP::dal().start_frame(AP_DAL::FrameType::UpdateFilterEKF3);
+
     if (!core) {
         return;
     }
 
-    imuSampleTime_us = AP_HAL::micros64();
+    imuSampleTime_us = AP::dal().micros64();
 
-    const AP_InertialSensor &ins = AP::ins();
-
-    bool statePredictEnabled[num_cores];
     for (uint8_t i=0; i<num_cores; i++) {
         // if we have not overrun by more than 3 IMU frames, and we
         // have already used more than 1/3 of the CPU budget for this
         // loop then suppress the prediction step. This allows
         // multiple EKF instances to cooperate on scheduling
+        bool allow_state_prediction = true;
         if (core[i].getFramesSincePredict() < (_framesPerPrediction+3) &&
-            (AP_HAL::micros() - ins.get_last_update_usec()) > _frameTimeUsec/3) {
-            statePredictEnabled[i] = false;
-        } else {
-            statePredictEnabled[i] = true;
+            AP::dal().ekf_low_time_remaining(AP_DAL::EKFType::EKF3, i)) {
+            allow_state_prediction = false;
         }
-        core[i].UpdateFilter(statePredictEnabled[i]);
+        core[i].UpdateFilter(allow_state_prediction);
     }
 
     // If the current core selected has a bad error score or is unhealthy, switch to a healthy core with the lowest fault score
@@ -840,8 +845,8 @@ void NavEKF3::UpdateFilter(void)
         runCoreSelection = (imuSampleTime_us - lastUnhealthyTime_us) > 1E7;
     }
 
-    bool armed  = hal.util->get_soft_armed();
-    
+    const bool armed  = AP::dal().get_armed();
+
     // core selection is only available after the vehicle is armed, else forced to lane 0 if its healthy
     if (runCoreSelection && armed) {
         // update this instance's error scores for all active cores and get the primary core's error score
@@ -852,7 +857,6 @@ void NavEKF3::UpdateFilter(void)
 
         bool betterCore = false;
         bool altCoreAvailable = false;
-        float bestCoreError = 0; // looking for cores that have error lower than the current primary
         uint8_t newPrimaryIndex = primary;
 
         // loop through all available cores to find if an alternative core is available
@@ -864,15 +868,13 @@ void NavEKF3::UpdateFilter(void)
                 // 1. healthy and states have been updated on this time step
                 // 2. has relative error less than primary core error
                 // 3. not been the primary core for at least 10 seconds
-                altCoreAvailable = core[coreIndex].healthy() && 
-                                   altCoreError < bestCoreError &&
-                                   (imuSampleTime_us - coreLastTimePrimary_us[coreIndex] > 1E7);
+                altCoreAvailable = coreBetterScore(coreIndex, newPrimaryIndex) &&
+                    imuSampleTime_us - coreLastTimePrimary_us[coreIndex] > 1E7;
 
                 if (altCoreAvailable) {
                     // if this core has a significantly lower relative error to the active primary, we consider it as a 
                     // better core and would like to switch to it even if the current primary is healthy
                     betterCore = altCoreError <= -BETTER_THRESH; // a better core if its relative error is below a substantial level than the primary's
-                    bestCoreError = altCoreError;
                     newPrimaryIndex = coreIndex;
                 }
             }
@@ -891,8 +893,8 @@ void NavEKF3::UpdateFilter(void)
             resetCoreErrors();
             coreLastTimePrimary_us[primary] = imuSampleTime_us;
             primary = newPrimaryIndex;
-            lastLaneSwitch_ms = AP_HAL::millis();
-            gcs().send_text(MAV_SEVERITY_CRITICAL, "EKF3 lane switch %u", primary);
+            lastLaneSwitch_ms = AP::dal().millis();
+            GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "EKF3 lane switch %u", primary);
         }       
     }
 
@@ -907,8 +909,9 @@ void NavEKF3::UpdateFilter(void)
         // performance
         primary = 0;
     }
-    
-    check_log_write();
+
+    // align position of inactive sources to ahrs
+    sources.align_inactive_sources();
 }
 
 /*
@@ -919,7 +922,9 @@ void NavEKF3::UpdateFilter(void)
 */
 void NavEKF3::checkLaneSwitch(void)
 {
-    uint32_t now = AP_HAL::millis();
+    AP::dal().log_event3(AP_DAL::Event::checkLaneSwitch);
+
+    uint32_t now = AP::dal().millis();
     if (lastLaneSwitch_ms != 0 && now - lastLaneSwitch_ms < 5000) {
         // don't switch twice in 5 seconds
         return;
@@ -930,9 +935,10 @@ void NavEKF3::checkLaneSwitch(void)
     uint8_t newPrimaryIndex = primary;
     for (uint8_t coreIndex=0; coreIndex<num_cores; coreIndex++) {
         if (coreIndex != primary) {
+            const NavEKF3_core &newCore = core[coreIndex];
             // an alternative core is available for selection only if healthy and if states have been updated on this time step
-            bool altCoreAvailable = core[coreIndex].healthy();
-            float altErrorScore = core[coreIndex].errorScore();
+            bool altCoreAvailable = newCore.healthy() && newCore.have_aligned_yaw() && newCore.have_aligned_tilt();
+            float altErrorScore = newCore.errorScore();
             if (altCoreAvailable && altErrorScore < lowestErrorScore && altErrorScore < 0.9) {
                 newPrimaryIndex = coreIndex;
                 lowestErrorScore = altErrorScore;
@@ -947,14 +953,16 @@ void NavEKF3::checkLaneSwitch(void)
         updateLaneSwitchPosDownResetData(newPrimaryIndex, primary);
         primary = newPrimaryIndex;
         lastLaneSwitch_ms = now;
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "EKF3 lane switch %u", primary);
+        GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "EKF3 lane switch %u", primary);
     }
 }
 
 void NavEKF3::requestYawReset(void)
 {
+    AP::dal().log_event3(AP_DAL::Event::requestYawReset);
+
     for (uint8_t i = 0; i < num_cores; i++) {
-        core[primary].EKFGSF_requestYawReset();
+        core[i].EKFGSF_requestYawReset();
     }
 }
 
@@ -997,6 +1005,12 @@ void NavEKF3::resetCoreErrors(void)
     }
 }
 
+// set position, velocity and yaw sources to either 0=primary, 1=secondary, 2=tertiary
+void NavEKF3::setPosVelYawSourceSet(uint8_t source_set_idx)
+{
+    sources.setPosVelYawSourceSet(source_set_idx);
+}
+
 // Check basic filter health metrics and return a consolidated health status
 bool NavEKF3::healthy(void) const
 {
@@ -1006,13 +1020,35 @@ bool NavEKF3::healthy(void) const
     return core[primary].healthy();
 }
 
-bool NavEKF3::all_cores_healthy(void) const
+// returns false if we fail arming checks, in which case the buffer will be populated with a failure message
+bool NavEKF3::pre_arm_check(char *failure_msg, uint8_t failure_msg_len) const
 {
+    // check source configuration
+    if (!sources.pre_arm_check(failure_msg, failure_msg_len)) {
+        return false;
+    }
+
+    // check if using compass (i.e. EK3_SRCn_YAW) with deprecated MAG_CAL values (5 was EXTERNAL_YAW, 6 was EXTERNAL_YAW_FALLBACK)
+    const int8_t magCalParamVal = _magCal.get();
+    const AP_NavEKF_Source::SourceYaw yaw_source = sources.getYawSource();
+    if (((magCalParamVal == 5) || (magCalParamVal == 6)) && (yaw_source != AP_NavEKF_Source::SourceYaw::EXTERNAL)) {
+        // yaw source is configured to use compass but MAG_CAL valid is deprecated
+        AP::dal().snprintf(failure_msg, failure_msg_len, "EK3_MAG_CAL and EK3_SRC1_YAW inconsistent");
+        return false;
+    }
+
     if (!core) {
+        AP::dal().snprintf(failure_msg, failure_msg_len, "no EKF3 cores");
         return false;
     }
     for (uint8_t i = 0; i < num_cores; i++) {
         if (!core[i].healthy()) {
+            const char *failure = core[primary].prearm_failure_reason();
+            if (failure != nullptr) {
+                AP::dal().snprintf(failure_msg, failure_msg_len, failure);
+            } else {
+                AP::dal().snprintf(failure_msg, failure_msg_len, "EKF3 core %d unhealthy", (int)i);
+            }
             return false;
         }
     }
@@ -1109,7 +1145,7 @@ void NavEKF3::getAccelBias(int8_t instance, Vector3f &accelBias) const
     }
 }
 
-// return tilt error convergence metric for the specified instance
+// return estimated 1-sigma tilt error for the specified instance in radians
 void NavEKF3::getTiltError(int8_t instance, float &ang) const
 {
     if (instance < 0 || instance >= num_cores) instance = primary;
@@ -1121,6 +1157,8 @@ void NavEKF3::getTiltError(int8_t instance, float &ang) const
 // reset body axis gyro bias estimates
 void NavEKF3::resetGyroBias(void)
 {
+    AP::dal().log_event3(AP_DAL::Event::resetGyroBias);
+
     if (core) {
         for (uint8_t i=0; i<num_cores; i++) {
             core[i].resetGyroBias();
@@ -1135,6 +1173,8 @@ void NavEKF3::resetGyroBias(void)
 // If using a range finder for height no reset is performed and it returns false
 bool NavEKF3::resetHeightDatum(void)
 {
+    AP::dal().log_event3(AP_DAL::Event::resetHeightDatum);
+
     bool status = true;
     if (core) {
         for (uint8_t i=0; i<num_cores; i++) {
@@ -1154,6 +1194,8 @@ bool NavEKF3::resetHeightDatum(void)
 // Returns 1 if command accepted
 uint8_t NavEKF3::setInhibitGPS(void)
 {
+    AP::dal().log_event3(AP_DAL::Event::setInhibitGPS);
+
     if (!core) {
         return 0;
     }
@@ -1196,39 +1238,6 @@ void NavEKF3::getMagXYZ(int8_t instance, Vector3f &magXYZ) const
     if (instance < 0 || instance >= num_cores) instance = primary;
     if (core) {
         core[instance].getMagXYZ(magXYZ);
-    }
-}
-
-// return the magnetometer in use for the specified instance
-uint8_t NavEKF3::getActiveMag(int8_t instance) const
-{
-    if (instance < 0 || instance >= num_cores) instance = primary;
-    if (core) {
-        return core[instance].getActiveMag();
-    } else {
-        return 255;
-    }
-}
-
-// return the baro in use for the specified instance
-uint8_t NavEKF3::getActiveBaro(int8_t instance) const
-{
-    if (instance < 0 || instance >= num_cores) instance = primary;
-    if (core) {
-        return core[instance].getActiveBaro();
-    } else {
-        return 255;
-    }
-}
-
-// return the GPS in use for the specified instance
-uint8_t NavEKF3::getActiveGPS(int8_t instance) const
-{
-    if (instance < 0 || instance >= num_cores) instance = primary;
-    if (core) {
-        return core[instance].getActiveGPS();
-    } else {
-        return 255;
     }
 }
 
@@ -1293,14 +1302,15 @@ bool NavEKF3::getOriginLLH(int8_t instance, struct Location &loc) const
 // Returns false if the filter has rejected the attempt to set the origin
 bool NavEKF3::setOriginLLH(const Location &loc)
 {
+    AP::dal().log_SetOriginLLH3(loc);
+
     if (!core) {
         return false;
     }
-    if (_fusionModeGPS != 3) {
-        // we don't allow setting of the EKF origin unless we are
-        // flying in non-GPS mode. This is to prevent accidental set
-        // of EKF origin with invalid position or height
-        gcs().send_text(MAV_SEVERITY_WARNING, "EKF3 refusing set origin");
+    if (sources.getPosXYSource() == AP_NavEKF_Source::SourceXY::GPS) {
+        // we don't allow setting of the EKF origin if using GPS to prevent
+        // accidental setting of EKF origin with invalid position or height
+        GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "EKF3 refusing set origin");
         return false;
     }
     bool ret = false;
@@ -1367,15 +1377,6 @@ void NavEKF3::getInnovations(int8_t instance, Vector3f &velInnov, Vector3f &posI
     }
 }
 
-// publish output observer angular, velocity and position tracking error
-void NavEKF3::getOutputTrackingError(int8_t instance, Vector3f &error) const
-{
-    if (instance < 0 || instance >= num_cores) instance = primary;
-    if (core) {
-        core[instance].getOutputTrackingError(error);
-    }
-}
-
 // return the innovation consistency test ratios for the velocity, position, magnetometer and true airspeed measurements
 void NavEKF3::getVariances(int8_t instance, float &velVar, float &posVar, float &hgtVar, Vector3f &magVar, float &tasVar, Vector2f &offset) const
 {
@@ -1385,13 +1386,17 @@ void NavEKF3::getVariances(int8_t instance, float &velVar, float &posVar, float 
     }
 }
 
-// return the diagonals from the covariance matrix for the specified instance
-void NavEKF3::getStateVariances(int8_t instance, float stateVar[24]) const
+// get a source's velocity innovations for the specified instance.  Set instance to -1 for the primary instance
+// returns true on success and results are placed in innovations and variances arguments
+bool NavEKF3::getVelInnovationsAndVariancesForSource(int8_t instance, AP_NavEKF_Source::SourceXY source, Vector3f &innovations, Vector3f &variances) const
 {
-    if (instance < 0 || instance >= num_cores) instance = primary;
-    if (core) {
-        core[instance].getStateVariances(stateVar);
+    if (instance < 0 || instance >= num_cores) {
+        instance = primary;
     }
+    if (core) {
+        return core[instance].getVelInnovationsAndVariancesForSource(source, innovations, variances);
+    }
+    return false;
 }
 
 // should we use the compass? This is public so it can be used for
@@ -1413,6 +1418,13 @@ bool NavEKF3::using_external_yaw(void) const
     return core[primary].using_external_yaw();
 }
 
+// check if configured to use GPS for horizontal position estimation
+bool NavEKF3::configuredToUseGPSForPosXY(void) const
+{
+    // 0 = use 3D velocity, 1 = use 2D velocity, 2 = use no velocity, 3 = do not use GPS
+    return  (sources.getPosXYSource() == AP_NavEKF_Source::SourceXY::GPS);
+}
+
 // write the raw optical flow measurements
 // rawFlowQuality is a measured of quality between 0 and 255, with 255 being the best quality
 // rawFlowRates are the optical flow rates in rad/sec about the X and Y sensor axes.
@@ -1422,6 +1434,8 @@ bool NavEKF3::using_external_yaw(void) const
 // posOffset is the XYZ flow sensor position in the body frame in m
 void NavEKF3::writeOptFlowMeas(const uint8_t rawFlowQuality, const Vector2f &rawFlowRates, const Vector2f &rawGyroRates, const uint32_t msecFlowMeas, const Vector3f &posOffset)
 {
+    AP::dal().writeOptFlowMeas(rawFlowQuality, rawFlowRates, rawGyroRates, msecFlowMeas, posOffset);
+
     if (core) {
         for (uint8_t i=0; i<num_cores; i++) {
             core[i].writeOptFlowMeas(rawFlowQuality, rawFlowRates, rawGyroRates, msecFlowMeas, posOffset);
@@ -1432,6 +1446,8 @@ void NavEKF3::writeOptFlowMeas(const uint8_t rawFlowQuality, const Vector2f &raw
 // write yaw angle sensor measurements
 void NavEKF3::writeEulerYawAngle(float yawAngle, float yawAngleErr, uint32_t timeStamp_ms, uint8_t type)
 {
+    AP::dal().log_writeEulerYawAngle(yawAngle, yawAngleErr, timeStamp_ms, type);
+
     if (core) {
         for (uint8_t i=0; i<num_cores; i++) {
             core[i].writeEulerYawAngle(yawAngle, yawAngleErr, timeStamp_ms, type);
@@ -1453,6 +1469,8 @@ void NavEKF3::writeEulerYawAngle(float yawAngle, float yawAngleErr, uint32_t tim
 */
 void NavEKF3::writeExtNavData(const Vector3f &pos, const Quaternion &quat, float posErr, float angErr, uint32_t timeStamp_ms, uint16_t delay_ms, uint32_t resetTime_ms)
 {
+    AP::dal().writeExtNavData(pos, quat, posErr, angErr, timeStamp_ms, delay_ms, resetTime_ms);
+
     if (core) {
         for (uint8_t i=0; i<num_cores; i++) {
             core[i].writeExtNavData(pos, quat, posErr, angErr, timeStamp_ms, delay_ms, resetTime_ms);
@@ -1468,6 +1486,8 @@ void NavEKF3::writeExtNavData(const Vector3f &pos, const Quaternion &quat, float
 */
 void NavEKF3::writeExtNavVelData(const Vector3f &vel, float err, uint32_t timeStamp_ms, uint16_t delay_ms)
 {
+    AP::dal().writeExtNavVelData(vel, err, timeStamp_ms, delay_ms);
+
     if (core) {
         for (uint8_t i=0; i<num_cores; i++) {
             core[i].writeExtNavVelData(vel, err, timeStamp_ms, delay_ms);
@@ -1476,15 +1496,6 @@ void NavEKF3::writeExtNavVelData(const Vector3f &vel, float err, uint32_t timeSt
 }
 
 // return data for debugging optical flow fusion
-void NavEKF3::getFlowDebug(int8_t instance, float &varFlow, float &gndOffset, float &flowInnovX, float &flowInnovY, float &auxInnov,
-                           float &HAGL, float &rngInnov, float &range, float &gndOffsetErr) const
-{
-    if (instance < 0 || instance >= num_cores) instance = primary;
-    if (core) {
-        core[instance].getFlowDebug(varFlow, gndOffset, flowInnovX, flowInnovY, auxInnov, HAGL, rngInnov, range, gndOffsetErr);
-    }
-}
-
 /*
  * Write body frame linear and angular displacement measurements from a visual odometry sensor
  *
@@ -1498,6 +1509,8 @@ void NavEKF3::getFlowDebug(int8_t instance, float &varFlow, float &gndOffset, fl
 */
 void NavEKF3::writeBodyFrameOdom(float quality, const Vector3f &delPos, const Vector3f &delAng, float delTime, uint32_t timeStamp_ms, uint16_t delay_ms, const Vector3f &posOffset)
 {
+    AP::dal().writeBodyFrameOdom(quality, delPos, delAng, delTime, timeStamp_ms, delay_ms, posOffset);
+
     if (core) {
         for (uint8_t i=0; i<num_cores; i++) {
             core[i].writeBodyFrameOdom(quality, delPos, delAng, delTime, timeStamp_ms, delay_ms, posOffset);
@@ -1515,6 +1528,8 @@ void NavEKF3::writeBodyFrameOdom(float quality, const Vector3f &delPos, const Ve
 */
 void NavEKF3::writeWheelOdom(float delAng, float delTime, uint32_t timeStamp_ms, const Vector3f &posOffset, float radius)
 {
+    AP::dal().writeWheelOdom(delAng, delTime, timeStamp_ms, posOffset, radius);
+
     if (core) {
         for (uint8_t i=0; i<num_cores; i++) {
             core[i].writeWheelOdom(delAng, delTime, timeStamp_ms, posOffset, radius);
@@ -1537,28 +1552,104 @@ uint32_t NavEKF3::getBodyFrameOdomDebug(int8_t instance, Vector3f &velInnov, Vec
     return ret;
 }
 
-// return data for debugging EKF-GSF yaw estimator
-// return false if data not available
-bool NavEKF3::getDataEKFGSF(int8_t instance, float &yaw_composite, float &yaw_composite_variance, float yaw[N_MODELS_EKFGSF], float innov_VN[N_MODELS_EKFGSF], float innov_VE[N_MODELS_EKFGSF], float weight[N_MODELS_EKFGSF]) const
+// parameter conversion of EKF3 parameters
+void NavEKF3::convert_parameters()
 {
-    if (instance < 0 || instance >= num_cores) instance = primary;
-    if (core) {
-        if (core[instance].getDataEKFGSF(yaw_composite, yaw_composite_variance, yaw, innov_VN, innov_VE, weight)) {
-            return true;
+    // exit immediately if param conversion has been done before
+    if (sources.configured_in_storage()) {
+        return;
+    }
+
+    // find EKF3's top level key
+    uint16_t k_param_ekf3;
+    if (!AP_Param::find_top_level_key_by_pointer(this, k_param_ekf3)) {
+        return;
+    }
+
+    // use EK3_GPS_TYPE to set EK3_SRC1_POSXY, EK3_SRC1_VELXY, EK3_SRC1_VELZ
+    const AP_Param::ConversionInfo gps_type_info = {k_param_ekf3, 1, AP_PARAM_INT8, "EK3_GPS_TYPE"};
+    AP_Int8 gps_type_old;
+    const bool found_gps_type = AP_Param::find_old_parameter(&gps_type_info, &gps_type_old);
+    if (found_gps_type) {
+        switch (gps_type_old.get()) {
+        case 0:
+            // EK3_GPS_TYPE == 0 (GPS 3D Vel and 2D Pos)
+            AP_Param::set_and_save_by_name("EK3_SRC1_POSXY", (int8_t)AP_NavEKF_Source::SourceXY::GPS);
+            AP_Param::set_and_save_by_name("EK3_SRC1_VELXY", (int8_t)AP_NavEKF_Source::SourceXY::GPS);
+            AP_Param::set_and_save_by_name("EK3_SRC1_VELZ", (int8_t)AP_NavEKF_Source::SourceZ::GPS);
+            break;
+        case 1:
+            // EK3_GPS_TYPE == 1 (GPS 2D Vel and 2D Pos) then EK3_SRC1_POSXY = GPS(1), EK3_SRC1_VELXY = GPS(1), EK3_SRC1_VELZ = NONE(0)
+            AP_Param::set_and_save_by_name("EK3_SRC1_POSXY", (int8_t)AP_NavEKF_Source::SourceXY::GPS);
+            AP_Param::set_and_save_by_name("EK3_SRC1_VELXY", (int8_t)AP_NavEKF_Source::SourceXY::GPS);
+            AP_Param::set_and_save_by_name("EK3_SRC1_VELZ", (int8_t)AP_NavEKF_Source::SourceZ::NONE);
+            break;
+        case 2:
+            // EK3_GPS_TYPE == 2 (GPS 2D Pos) then EK3_SRC1_POSXY = GPS(1), EK3_SRC1_VELXY = None(0), EK3_SRC1_VELZ = NONE(0)
+            AP_Param::set_and_save_by_name("EK3_SRC1_POSXY", (int8_t)AP_NavEKF_Source::SourceXY::GPS);
+            AP_Param::set_and_save_by_name("EK3_SRC1_VELXY", (int8_t)AP_NavEKF_Source::SourceXY::NONE);
+            AP_Param::set_and_save_by_name("EK3_SRC1_VELZ", (int8_t)AP_NavEKF_Source::SourceZ::NONE);
+            break;
+        case 3:
+        default:
+            // EK3_GPS_TYPE == 3 (No GPS) we don't know what to do, could be optical flow or external nav
+            AP_BoardConfig::config_error("Configure EK3_SRC1_POSXY and _VELXY");
+            break;
+        }
+    } else {
+        // mark configured in storage so conversion is only run once
+        sources.mark_configured_in_storage();
+    }
+
+    // use EK3_ALT_SOURCE to set EK3_SRC1_POSZ
+    const AP_Param::ConversionInfo alt_source_info = {k_param_ekf3, 9, AP_PARAM_INT8, "EK3_ALT_SOURCE"};
+    AP_Int8 alt_source_old;
+    if (AP_Param::find_old_parameter(&alt_source_info, &alt_source_old)) {
+        switch (alt_source_old.get()) {
+        case 0:
+            // EK3_ALT_SOURCE = BARO, the default so do nothing
+            break;
+        case 1:
+            // EK3_ALT_SOURCE == 1 (RangeFinder)
+            AP_Param::set_and_save_by_name("EK3_SRC1_POSZ", (int8_t)AP_NavEKF_Source::SourceZ::RANGEFINDER);
+            break;
+        case 2:
+            // EK3_ALT_SOURCE == 2 (GPS)
+            AP_Param::set_and_save_by_name("EK3_SRC1_POSZ", (int8_t)AP_NavEKF_Source::SourceZ::GPS);
+            break;
+        case 3:
+            // EK3_ALT_SOURCE == 3 (Beacon)
+            AP_Param::set_and_save_by_name("EK3_SRC1_POSZ", (int8_t)AP_NavEKF_Source::SourceZ::BEACON);
+            break;
+        case 4:
+            // EK3_ALT_SOURCE == 4 (ExtNav)
+            AP_Param::set_and_save_by_name("EK3_SRC1_POSZ", (int8_t)AP_NavEKF_Source::SourceZ::EXTNAV);
+            break;
+        default:
+            // do nothing
+            break;
         }
     }
-    return false;
-}
 
-// return data for debugging range beacon fusion
-bool NavEKF3::getRangeBeaconDebug(int8_t instance, uint8_t &ID, float &rng, float &innov, float &innovVar, float &testRatio, Vector3f &beaconPosNED,
-                                  float &offsetHigh, float &offsetLow, Vector3f &posNED) const
-{
-    if (instance < 0 || instance >= num_cores) instance = primary;
-    if (core) {
-        return core[instance].getRangeBeaconDebug(ID, rng, innov, innovVar, testRatio, beaconPosNED, offsetHigh, offsetLow, posNED);
-    } else {
-        return false;
+    // use EK3_MAG_CAL to set EK3_SRC1_YAW
+    switch (_magCal.get()) {
+    case 5:
+        // EK3_MAG_CAL = 5 (External Yaw sensor).  We rely on effective_magCal to interpret old "5" values as "Never"
+        AP_Param::set_and_save_by_name("EK3_SRC1_YAW", (int8_t)AP_NavEKF_Source::SourceYaw::EXTERNAL);
+        break;
+    case 6:
+        // EK3_MAG_CAL = 6 (ExtYaw with Compass fallback).  We rely on effective_magCal to interpret old "6" values as "When Flying"
+        AP_Param::set_and_save_by_name("EK3_SRC1_YAW", (int8_t)AP_NavEKF_Source::SourceYaw::EXTERNAL_COMPASS_FALLBACK);
+        break;
+    default:
+        // do nothing
+        break;
+    }
+
+    // if GPS and optical flow enabled set EK3_SRC2_VELXY to optical flow
+    // EK3_SRC_OPTIONS should default to 1 meaning both GPS and optical flow velocities will be fused
+    if (AP::dal().opticalflow_enabled() && (!found_gps_type || (gps_type_old.get() <= 2))) {
+        AP_Param::set_and_save_by_name("EK3_SRC2_VELXY", (int8_t)AP_NavEKF_Source::SourceXY::OPTFLOW);
     }
 }
 
@@ -1567,6 +1658,12 @@ bool NavEKF3::getRangeBeaconDebug(int8_t instance, uint8_t &ID, float &rng, floa
 // causes the EKF to start the EKF-GSF yaw estimator
 void NavEKF3::setTakeoffExpected(bool val)
 {
+    if (val) {
+        AP::dal().log_event3(AP_DAL::Event::setTakeoffExpected);
+    } else {
+        AP::dal().log_event3(AP_DAL::Event::unsetTakeoffExpected);
+    }
+
     if (core) {
         for (uint8_t i=0; i<num_cores; i++) {
             core[i].setTakeoffExpected(val);
@@ -1578,6 +1675,12 @@ void NavEKF3::setTakeoffExpected(bool val)
 // causes the EKF to compensate for expected barometer errors due to ground effect
 void NavEKF3::setTouchdownExpected(bool val)
 {
+    if (val) {
+        AP::dal().log_event3(AP_DAL::Event::setTouchdownExpected);
+    } else {
+        AP::dal().log_event3(AP_DAL::Event::unsetTouchdownExpected);
+    }
+
     if (core) {
         for (uint8_t i=0; i<num_cores; i++) {
             core[i].setTouchdownExpected(val);
@@ -1591,6 +1694,12 @@ void NavEKF3::setTouchdownExpected(bool val)
 // enabled by the combination of EK3_RNG_USE_HGT and EK3_RNG_USE_SPD parameters.
 void NavEKF3::setTerrainHgtStable(bool val)
 {
+    if (val) {
+        AP::dal().log_event3(AP_DAL::Event::setTerrainHgtStable);
+    } else {
+        AP::dal().log_event3(AP_DAL::Event::unsetTerrainHgtStable);
+    }
+
     if (core) {
         for (uint8_t i=0; i<num_cores; i++) {
             core[i].setTerrainHgtStable(val);
@@ -1772,21 +1881,6 @@ uint32_t NavEKF3::getLastVelNorthEastReset(Vector2f &vel) const
     return core[primary].getLastVelNorthEastReset(vel);
 }
 
-// report the reason for why the backend is refusing to initialise
-const char *NavEKF3::prearm_failure_reason(void) const
-{
-    if (!core) {
-        return "no EKF3 cores";
-    }
-    for (uint8_t i = 0; i < num_cores; i++) {
-        const char * failure = core[primary].prearm_failure_reason();
-        if (failure != nullptr) {
-            return failure;
-        }
-    }
-    return nullptr;
-}
-
 // Returns the amount of vertical position change due to the last reset or core switch in metres
 // Returns the time of the last reset or 0 if no reset or core switch has ever occurred
 // Where there are multiple consumers, they must access this function on the same frame as each other
@@ -1903,24 +1997,11 @@ void NavEKF3::updateLaneSwitchPosDownResetData(uint8_t new_primary, uint8_t old_
 
 }
 
-/*
-  get timing statistics structure
-*/
-void NavEKF3::getTimingStatistics(int8_t instance, struct ekf_timing &timing) const
-{
-    if (instance < 0 || instance >= num_cores) {
-        instance = primary;
-    }
-    if (core) {
-        core[instance].getTimingStatistics(timing);
-    } else {
-        memset(&timing, 0, sizeof(timing));
-    }
-}
-
 // Writes the default equivalent airspeed in m/s to be used in forward flight if a measured airspeed is required and not available.
 void NavEKF3::writeDefaultAirSpeed(float airspeed)
 {
+    AP::dal().log_writeDefaultAirSpeed3(airspeed);
+
     if (core) {
         for (uint8_t i=0; i<num_cores; i++) {
             core[i].writeDefaultAirSpeed(airspeed);

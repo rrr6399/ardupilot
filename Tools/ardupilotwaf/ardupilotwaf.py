@@ -36,6 +36,7 @@ COMMON_VEHICLE_DEPENDENT_LIBRARIES = [
     'AP_InertialSensor',
     'AP_Math',
     'AP_Mission',
+    'AP_DAL',
     'AP_NavEKF',
     'AP_NavEKF2',
     'AP_NavEKF3',
@@ -101,6 +102,7 @@ COMMON_VEHICLE_DEPENDENT_LIBRARIES = [
     'AP_RCTelemetry',
     'AP_Generator',
     'AP_MSP',
+    'AP_OLC',
 ]
 
 def get_legacy_defines(sketch_name):
@@ -383,6 +385,14 @@ def ap_find_benchmarks(bld, use=[]):
         return
 
     includes = [bld.srcnode.abspath() + '/benchmarks/']
+    to_remove = '-Werror=suggest-override'
+    if to_remove in bld.env.CXXFLAGS:
+        need_remove = True
+    else:
+        need_remove = False
+    if need_remove:
+        while to_remove in bld.env.CXXFLAGS:
+            bld.env.CXXFLAGS.remove(to_remove)
 
     for f in bld.path.ant_glob(incl='*.cpp'):
         ap_program(

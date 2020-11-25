@@ -41,25 +41,7 @@ using namespace SITL;
  */
 
 Aircraft::Aircraft(const char *frame_str) :
-    ground_level(0.0f),
-    frame_height(0.0f),
-    dcm(),
-    gyro(),
-    velocity_ef(),
-    mass(0.0f),
-    accel_body(0.0f, 0.0f, -GRAVITY_MSS),
-    time_now_us(0),
-    gyro_noise(radians(0.1f)),
-    accel_noise(0.3f),
-    rate_hz(1200.0f),
-    autotest_dir(nullptr),
-    frame(frame_str),
-    num_motors(1),
-#if defined(__CYGWIN__) || defined(__CYGWIN64__)
-    min_sleep_time(20000)
-#else
-    min_sleep_time(5000)
-#endif
+    frame(frame_str)
 {
     // make the SIM_* variables available to simulator backends
     sitl = AP::sitl();
@@ -67,7 +49,6 @@ Aircraft::Aircraft(const char *frame_str) :
     set_speedup(1.0f);
 
     last_wall_time_us = get_wall_time_us();
-    frame_counter = 0;
 
     // allow for orientation settings, such as with tailsitters
     enum ap_var_type ptype;
@@ -371,6 +352,7 @@ void Aircraft::fill_fdm(struct sitl_fdm &fdm)
     fdm.battery_voltage = battery_voltage;
     fdm.battery_current = battery_current;
     fdm.num_motors = num_motors;
+    fdm.vtol_motor_start = vtol_motor_start;
     memcpy(fdm.rpm, rpm, num_motors * sizeof(float));
     fdm.rcin_chan_count = rcin_chan_count;
     fdm.range = range;
@@ -383,6 +365,9 @@ void Aircraft::fill_fdm(struct sitl_fdm &fdm)
 
     // copy rangefinder
     memcpy(fdm.rangefinder_m, rangefinder_m, sizeof(fdm.rangefinder_m));
+
+    fdm.wind_vane_apparent.direction = wind_vane_apparent.direction;
+    fdm.wind_vane_apparent.speed = wind_vane_apparent.speed;
 
     if (is_smoothed) {
         fdm.xAccel = smoothing.accel_body.x;
@@ -580,7 +565,7 @@ void Aircraft::update_dynamics(const Vector3f &rot_accel)
     // constrain height to the ground
     if (on_ground()) {
         if (!was_on_ground && AP_HAL::millis() - last_ground_contact_ms > 1000) {
-            gcs().send_text(MAV_SEVERITY_INFO, "SIM Hit ground at %f m/s", velocity_ef.z);
+            GCS_SEND_TEXT(MAV_SEVERITY_INFO, "SIM Hit ground at %f m/s", velocity_ef.z);
             last_ground_contact_ms = AP_HAL::millis();
         }
         position.z = -(ground_level + frame_height - home.alt * 0.01f + ground_height_difference());
@@ -901,6 +886,11 @@ void Aircraft::update_external_payload(const struct sitl_input &input)
     }
 
     sitl->shipsim.update();
+
+    // update IntelligentEnergy 2.4kW generator
+    if (ie24) {
+        ie24->update(input);
+    }
 }
 
 void Aircraft::add_shove_forces(Vector3f &rot_accel, Vector3f &body_accel)

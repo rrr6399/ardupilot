@@ -26,7 +26,7 @@
 #include <AP_CANManager/AP_CANManager.h>
 #include <AP_Button/AP_Button.h>
 #include <AP_GPS/AP_GPS.h>
-#include <AP_Generator/AP_Generator_RichenPower.h>
+#include <AP_Generator/AP_Generator.h>
 #include <AP_Logger/AP_Logger.h>
 #include <AP_Notify/AP_Notify.h>                    // Notify library
 #include <AP_Param/AP_Param.h>
@@ -43,6 +43,7 @@
 #include <AP_VisualOdom/AP_VisualOdom.h>
 #include <AP_RCTelemetry/AP_VideoTX.h>
 #include <AP_MSP/AP_MSP.h>
+#include <AP_Frsky_Telem/AP_Frsky_Parameters.h>
 
 class AP_Vehicle : public AP_HAL::HAL::Callbacks {
 
@@ -193,6 +194,7 @@ public:
         Lateral = 5,
         MainSail = 6,
         WingSail = 7,
+        Walking_Height = 8,
         Last_ControlOutput  // place new values before this
     };
 
@@ -204,7 +206,18 @@ public:
     void write_notch_log_messages() const;
     // update the harmonic notch
     virtual void update_dynamic_notch() {};
-    
+
+    // zeroing the RC outputs can prevent unwanted motor movement:
+    virtual bool should_zero_rc_outputs_on_reboot() const { return false; }
+
+    // reboot the vehicle in an orderly manner, doing various cleanups
+    // and flashing LEDs as appropriate
+    void reboot(bool hold_in_bootloader);
+
+#if HAL_WITH_FRSKY_TELEM_BIDIRECTIONAL
+    AP_Frsky_Parameters frsky_parameters;
+#endif
+
 protected:
 
     virtual void init_ardupilot() = 0;
@@ -275,7 +288,7 @@ protected:
 #endif
 
 #if GENERATOR_ENABLED
-    AP_Generator_RichenPower generator;
+    AP_Generator generator;
 #endif
 
     static const struct AP_Param::GroupInfo var_info[];

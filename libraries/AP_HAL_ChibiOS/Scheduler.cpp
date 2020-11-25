@@ -19,6 +19,7 @@
 #include "AP_HAL_ChibiOS.h"
 #include "Scheduler.h"
 #include "Util.h"
+#include "GPIO.h"
 
 #include <AP_HAL_ChibiOS/UARTDriver.h>
 #include <AP_HAL_ChibiOS/AnalogIn.h>
@@ -35,8 +36,8 @@
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include "hwdef/common/stm32_util.h"
 #include "hwdef/common/watchdog.h"
+#include <AP_Filesystem/AP_Filesystem.h>
 #include "shared_dma.h"
-#include "sdcard.h"
 
 #if HAL_WITH_IO_MCU
 #include <AP_IOMCU/AP_IOMCU.h>
@@ -257,8 +258,8 @@ void Scheduler::reboot(bool hold_in_bootloader)
         AP::logger().StopLogging();
     }
 
-    // stop sdcard driver, if active
-    sdcard_stop();
+    // unmount filesystem, if active
+    AP::FS().unmount();
 #endif
 
 #if !defined(NO_FASTBOOT)
@@ -365,6 +366,10 @@ void Scheduler::_monitor_thread(void *arg)
         if (using_watchdog) {
             stm32_watchdog_save((uint32_t *)&hal.util->persistent_data, (sizeof(hal.util->persistent_data)+3)/4);
         }
+
+        // if running memory guard then check all allocations
+        malloc_check(nullptr);
+
         uint32_t now = AP_HAL::millis();
         uint32_t loop_delay = now - sched->last_watchdog_pat_ms;
         if (loop_delay >= 200) {
@@ -415,6 +420,10 @@ void Scheduler::_monitor_thread(void *arg)
     }
 #endif // HAL_NO_LOGGING
 
+#ifndef IOMCU_FW
+    // setup GPIO interrupt quotas
+    hal.gpio->timer_tick();
+#endif
     }
 }
 #endif // HAL_NO_MONITOR_THREAD
@@ -460,24 +469,56 @@ void Scheduler::_io_thread(void* arg)
     while (!sched->_hal_initialized) {
         sched->delay_microseconds(1000);
     }
+#ifndef HAL_NO_LOGGING
     uint32_t last_sd_start_ms = AP_HAL::millis();
+#endif
     while (true) {
         sched->delay_microseconds(1000);
 
         // run registered IO processes
         sched->_run_io();
 
+#ifndef HAL_NO_LOGGING
         if (!hal.util->get_soft_armed()) {
             // if sdcard hasn't mounted then retry it every 3s in the IO
             // thread when disarmed
             uint32_t now = AP_HAL::millis();
             if (now - last_sd_start_ms > 3000) {
                 last_sd_start_ms = now;
-                sdcard_retry();
+                AP::FS().retry_mount();
             }
+        }
+#endif
+    }
+}
+
+#if defined(STM32H7)
+/*
+  the H7 has 64k of ITCM memory at address zero. We reserve 1k of it
+  to prevent nullptr being valid. This function checks that memory is
+  always zero
+ */
+void Scheduler::check_low_memory_is_zero()
+{
+    const uint32_t *lowmem = nullptr;
+    // we start at address 0x1 as reading address zero causes a fault
+    for (uint16_t i=1; i<256; i++) {
+        if (lowmem[i] != 0) {
+            // re-use memory guard internal error
+            AP_memory_guard_error(1023);
+            break;
+        }
+    }
+    // we can't do address 0, but can check next 3 bytes
+    const uint8_t *addr0 = (const uint8_t *)0;
+    for (uint8_t i=1; i<4; i++) {
+        if (addr0[i] != 0) {
+            AP_memory_guard_error(1023);
+            break;
         }
     }
 }
+#endif // STM32H7
 
 void Scheduler::_storage_thread(void* arg)
 {
@@ -486,11 +527,21 @@ void Scheduler::_storage_thread(void* arg)
     while (!sched->_hal_initialized) {
         sched->delay_microseconds(10000);
     }
+#if defined STM32H7
+    uint8_t memcheck_counter=0;
+#endif
     while (true) {
         sched->delay_microseconds(10000);
 
         // process any pending storage writes
         hal.storage->_timer_tick();
+
+#if defined STM32H7
+        if (memcheck_counter++ % 50 == 0) {
+            // run check at 2Hz
+            sched->check_low_memory_is_zero();
+        }
+#endif
     }
 }
 

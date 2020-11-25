@@ -46,6 +46,8 @@ brand_map = {
     'Pixracer' : ('PixRacer', 'mRobotics'),
     'mRoX21' : ('mRo X2.1', 'mRobotics'),
     'mRoX21-777' : ('mRo X2.1-777', 'mRobotics'),
+    'mRoPixracerPro' : ('mRo PixracerPro', 'mRobotics'),
+    'mRoControlZeroOEMH7' : ('mRo ControlZero OEM H7', 'mRobotics'),
     'mRoNexus' : ('mRo Nexus', 'mRobotics'),
     'TBS-Colibri-F7' : ('Colibri F7', 'TBS'),
     'sparky2' : ('Sparky2', 'TauLabs'),
@@ -55,6 +57,7 @@ brand_map = {
     'omnibusf4v6' : ('Omnibus F4 V6', 'Airbot'),
     'OmnibusNanoV6' : ('Omnibus Nano V6', 'Airbot'),
     'speedybeef4' : ('SpeedyBee F4', 'SpeedyBee'),
+    'QioTekZealotF427' : ('ZealotF427', 'QioTek'),
 }
 
 class Firmware():

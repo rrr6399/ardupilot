@@ -85,8 +85,8 @@ public:
         VRX_BOARD_UBRAIN52 = 35,
         VRX_BOARD_CORE10   = 36,
         VRX_BOARD_BRAIN54  = 38,
-        PX4_BOARD_OLDDRIVERS = 100,
         PX4_BOARD_FMUV6    = 39,
+        PX4_BOARD_OLDDRIVERS = 100,
     };
 
     // set default value for BRD_SAFETY_MASK
@@ -164,7 +164,13 @@ public:
 
     enum board_options {
         BOARD_OPTION_WATCHDOG = (1 << 0),
+        DISABLE_FTP = (1<<1),
     };
+
+    // return true if ftp is disabled
+    static bool ftp_disabled(void) {
+        return _singleton?(_singleton->_options & DISABLE_FTP)!=0:1;
+    }
 
     // return true if watchdog enabled
     static bool watchdog_enabled(void) {
@@ -190,8 +196,7 @@ private:
         AP_Int16 safety_option;
         AP_Int32 ignore_safety_channels;
 #if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
-        AP_Int8 ser1_rtscts;
-        AP_Int8 ser2_rtscts;
+        AP_Int8 ser_rtscts[6];
         AP_Int8 sbus_out_rate;
 #endif
         AP_Int8 board_type;
@@ -203,6 +208,7 @@ private:
 
     void board_setup_drivers(void);
     bool spi_check_register(const char *devname, uint8_t regnum, uint8_t value, uint8_t read_flag = 0x80);
+    bool spi_check_register_inv2(const char *devname, uint8_t regnum, uint8_t value, uint8_t read_flag = 0x80);
     void validate_board_type(void);
     void board_autodetect(void);
     bool check_ms5611(const char* devname);

@@ -4,6 +4,7 @@
 #include "AP_BattMonitor_SMBus_Solo.h"
 #include "AP_BattMonitor_SMBus_Generic.h"
 #include "AP_BattMonitor_SMBus_Maxell.h"
+#include "AP_BattMonitor_SMBus_Rotoye.h"
 #include "AP_BattMonitor_Bebop.h"
 #include "AP_BattMonitor_BLHeliESC.h"
 #include "AP_BattMonitor_SMBus_SUI.h"
@@ -149,6 +150,11 @@ AP_BattMonitor::init()
                                                                     hal.i2c_mgr->get_device(_params[instance]._i2c_bus, AP_BATTMONITOR_SMBUS_I2C_ADDR,
                                                                                             100000, true, 20));
                 break;
+            case Type::Rotoye:
+                drivers[instance] = new AP_BattMonitor_SMBus_Rotoye(*this, state[instance], _params[instance],
+                                                                    hal.i2c_mgr->get_device(_params[instance]._i2c_bus, AP_BATTMONITOR_SMBUS_I2C_ADDR,
+                                                                                            100000, true, 20));
+                break;
 #endif // HAL_BATTMON_SMBUS_ENABLE
             case Type::BEBOP:
 #if CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_BEBOP || CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_DISCO
@@ -182,9 +188,14 @@ AP_BattMonitor::init()
                                                                  hal.i2c_mgr->get_device(_params[instance]._i2c_bus, AP_BATTMONITOR_SMBUS_I2C_ADDR,
                                                                                          100000, true, 20));
                 break;
-            case Type::Generator:
-                drivers[instance] = new AP_BattMonitor_Generator(*this, state[instance], _params[instance]);
+#if GENERATOR_ENABLED
+            case Type::GENERATOR_ELEC:
+                drivers[instance] = new AP_BattMonitor_Generator_Elec(*this, state[instance], _params[instance]);
                 break;
+            case Type::GENERATOR_FUEL:
+                drivers[instance] = new AP_BattMonitor_Generator_FuelLevel(*this, state[instance], _params[instance]);
+                break;
+#endif // GENERATOR_ENABLED
             case Type::NONE:
             default:
                 break;
@@ -285,11 +296,13 @@ AP_BattMonitor::read()
         }
     }
 
+#ifndef HAL_BUILD_AP_PERIPH
     AP_Logger *logger = AP_Logger::get_singleton();
-    if (logger->should_log(_log_battery_bit)) {
+    if (logger != nullptr && logger->should_log(_log_battery_bit)) {
         logger->Write_Current();
         logger->Write_Power();
     }
+#endif
 
     check_failsafes();
     
@@ -400,10 +413,12 @@ void AP_BattMonitor::check_failsafes(void)
                     break;
             }
 
-            gcs().send_text(MAV_SEVERITY_WARNING, "Battery %d is %s %.2fV used %.0f mAh", i + 1, type_str,
+            GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Battery %d is %s %.2fV used %.0f mAh", i + 1, type_str,
                             (double)voltage(i), (double)state[i].consumed_mah);
             _has_triggered_failsafe = true;
+#ifndef HAL_BUILD_AP_PERIPH
             AP_Notify::flags.failsafe_battery = true;
+#endif
             state[i].failsafe = type;
 
             // map the desired failsafe action to a prioritiy level
@@ -509,15 +524,19 @@ void AP_BattMonitor::checkPoweringOff(void)
 {
     for (uint8_t i = 0; i < _num_instances; i++) {
         if (state[i].is_powering_off && !state[i].powerOffNotified) {
+#ifndef HAL_BUILD_AP_PERIPH
             // Set the AP_Notify flag, which plays the power off tones
             AP_Notify::flags.powering_off = true;
+#endif
 
             // Send a Mavlink broadcast announcing the shutdown
+#ifndef HAL_NO_GCS
             mavlink_command_long_t cmd_msg{};
             cmd_msg.command = MAV_CMD_POWER_OFF_INITIATED;
             cmd_msg.param1 = i+1;
             GCS_MAVLINK::send_to_components(MAVLINK_MSG_ID_COMMAND_LONG, (char*)&cmd_msg, sizeof(cmd_msg));
             gcs().send_text(MAV_SEVERITY_WARNING, "Vehicle %d battery %d is powering off", mavlink_system.sysid, i+1);
+#endif
 
             // only send this once
             state[i].powerOffNotified = true;

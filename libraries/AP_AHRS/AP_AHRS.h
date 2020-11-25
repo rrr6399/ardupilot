@@ -171,18 +171,11 @@ public:
     // Methods
     virtual void update(bool skip_ins_update=false) = 0;
 
-    // report any reason for why the backend is refusing to initialise
-    virtual const char *prearm_failure_reason(void) const {
-        return nullptr;
-    }
+    // returns false if we fail arming checks, in which case the buffer will be populated with a failure message
+    virtual bool pre_arm_check(char *failure_msg, uint8_t failure_msg_len) const = 0;
 
     // check all cores providing consistent attitudes for prearm checks
     virtual bool attitudes_consistent(char *failure_msg, const uint8_t failure_msg_len) const { return true; }
-
-    // is the EKF backend doing its own sensor logging?
-    virtual bool have_ekf_logging(void) const {
-        return false;
-    }
 
     // see if EKF lane switching is possible to avoid EKF failsafe
     virtual void check_lane_switch(void) {}
@@ -192,6 +185,9 @@ public:
     
     // request EKF yaw reset to try and avoid the need for an EKF lane switch or failsafe
     virtual void request_yaw_reset(void) {}
+
+    // set position, velocity and yaw sources to either 0=primary, 1=secondary, 2=tertiary
+    virtual void set_posvelyaw_source_set(uint8_t source_set_idx) {}
 
     // Euler angles (radians)
     float roll;
@@ -482,8 +478,6 @@ public:
     // is the AHRS subsystem healthy?
     virtual bool healthy(void) const = 0;
 
-    virtual bool prearm_healthy(void) const { return healthy(); }
-
     // true if the AHRS has completed initialisation
     virtual bool initialised(void) const {
         return true;
@@ -532,7 +526,13 @@ public:
     // indicates perfect consistency between the measurement and the EKF solution and a value of of 1 is the maximum
     // inconsistency that will be accepted by the filter
     // boolean false is returned if variances are not available
-    virtual bool get_variances(float &velVar, float &posVar, float &hgtVar, Vector3f &magVar, float &tasVar, Vector2f &offset) const {
+    virtual bool get_variances(float &velVar, float &posVar, float &hgtVar, Vector3f &magVar, float &tasVar) const {
+        return false;
+    }
+
+    // get a source's velocity innovations.  source should be from 0 to 7 (see AP_NavEKF_Source::SourceXY)
+    // returns true on success and results are placed in innovations and variances arguments
+    virtual bool get_vel_innovations_and_variances_for_source(uint8_t source, Vector3f &innovations, Vector3f &variances) const WARN_IF_UNUSED {
         return false;
     }
 
@@ -715,12 +715,6 @@ private:
 
 #include "AP_AHRS_DCM.h"
 #include "AP_AHRS_NavEKF.h"
-
-#if AP_AHRS_NAVEKF_AVAILABLE
-#define AP_AHRS_TYPE AP_AHRS_NavEKF
-#else
-#define AP_AHRS_TYPE AP_AHRS
-#endif
 
 namespace AP {
     AP_AHRS &ahrs();

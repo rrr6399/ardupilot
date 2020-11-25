@@ -1,7 +1,14 @@
 #pragma once
 
+#include <AP_HAL/AP_HAL.h>
+
 #ifndef HAL_MSP_ENABLED
 #define HAL_MSP_ENABLED !HAL_MINIMIZE_FEATURES
+#endif
+
+// define for enabling MSP sensor drivers
+#ifndef HAL_MSP_SENSORS_ENABLED
+#define HAL_MSP_SENSORS_ENABLED defined(HAL_MSP_ENABLED) && !HAL_MINIMIZE_FEATURES && !defined(HAL_BUILD_AP_PERIPH)
 #endif
 
 #include <AP_HAL/UARTDriver.h>
@@ -11,6 +18,7 @@
 #include "msp_protocol.h"
 #include "msp_sbuf.h"
 #include "msp_version.h"
+#include "msp_sensors.h"
 
 #if HAL_MSP_ENABLED
 
@@ -25,10 +33,8 @@
 #define MSP_PORT_INBUF_SIZE 192
 #define MSP_PORT_OUTBUF_SIZE 512
 #define MSP_MAX_HEADER_SIZE     9
-// betaflight/src/main/msp/msp_protocol_v2_sensor.h
+// inav/src/main/msp/msp_protocol_v2_sensor.h
 #define MSP2_IS_SENSOR_MESSAGE(x)   ((x) >= 0x1F00U && (x) <= 0x1FFFU)
-#define MSP2_SENSOR_RANGEFINDER     0x1F01
-#define MSP2_SENSOR_OPTIC_FLOW      0x1F02
 
 class AP_MSP_Telem_Backend;
 
@@ -108,17 +114,6 @@ typedef struct msp_port_s {
     uint8_t checksum2;
 } msp_port_t;
 
-typedef struct PACKED {
-    uint8_t quality;    // [0;255]
-    int32_t distance_mm; // Negative value for out of range
-} msp_rangefinder_sensor_t;
-
-typedef struct PACKED {
-    uint8_t quality;    // [0;255]
-    int32_t motion_x;
-    int32_t motion_y;
-} msp_opflow_sensor_t;
-
 // betaflight/src/main/sensors/battery.h
 typedef enum : uint8_t {
     MSP_BATTERY_OK = 0,
@@ -130,7 +125,7 @@ typedef enum : uint8_t {
 
 uint8_t msp_serial_checksum_buf(uint8_t checksum, const uint8_t *data, uint32_t len);
 uint32_t msp_serial_send_frame(msp_port_t *msp, const uint8_t * hdr, uint32_t hdr_len, const uint8_t * data, uint32_t data_len, const uint8_t * crc, uint32_t crc_len);
-uint32_t msp_serial_encode(msp_port_t *msp, msp_packet_t *packet, msp_version_e msp_version);
+uint32_t msp_serial_encode(msp_port_t *msp, msp_packet_t *packet, msp_version_e msp_version, bool is_request=false);
 bool msp_parse_received_data(msp_port_t *msp, uint8_t c);
 }
 

@@ -27,6 +27,14 @@
 #include <GCS_MAVLink/GCS_MAVLink.h>
 #include <AP_Logger/AP_Logger.h>
 
+#ifdef SFML_JOYSTICK
+  #ifdef HAVE_SFML_GRAPHICS_HPP
+    #include <SFML/Window/Joystick.hpp>
+  #elif HAVE_SFML_GRAPHIC_H
+    #include <SFML/Window/Joystick.h>
+  #endif
+#endif // SFML_JOYSTICK
+
 extern const AP_HAL::HAL& hal;
 
 namespace SITL {
@@ -46,6 +54,7 @@ const AP_Param::GroupInfo SITL::var_info[] = {
     AP_GROUPINFO("WIND_TURB",     11, SITL,  wind_turbulance,  0),
     AP_GROUPINFO("SERVO_SPEED",   16, SITL,  servo_speed,  0.14),
     AP_GROUPINFO("BATT_VOLTAGE",  19, SITL,  batt_voltage,  12.6f),
+    AP_GROUPINFO("BATT_CAP_AH",   20, SITL,  batt_capacity_ah,  0),
     AP_GROUPINFO("ACCEL_FAIL",    21, SITL,  accel_fail,  0),
     AP_GROUPINFO("SONAR_GLITCH",  23, SITL,  sonar_glitch, 0),
     AP_GROUPINFO("SONAR_RND",     24, SITL,  sonar_noise, 0),
@@ -217,6 +226,9 @@ const AP_Param::GroupInfo SITL::var_info3[] = {
     // @Path: ./SIM_RichenPower.cpp
     AP_SUBGROUPINFO(richenpower_sim, "RICH_", 31, SITL, RichenPower),
 
+    // @Path: ./SIM_IntelligentEnergy24.cpp
+    AP_SUBGROUPINFO(ie24_sim, "IE24_", 32, SITL, IntelligentEnergy24),
+
     // user settable parameters for the 1st barometer
     AP_GROUPINFO("BARO_RND",      35, SITL,  baro_noise[0], 0.2f),
     AP_GROUPINFO("BARO_DRIFT",    36, SITL,  baro_drift[0], 0),
@@ -252,6 +264,10 @@ const AP_Param::GroupInfo SITL::var_info3[] = {
     // user settable common airspeed parameters
     AP_GROUPINFO("ARSPD_SIGN",    62, SITL,  arspd_signflip, 0),
 
+#ifdef SFML_JOYSTICK
+    AP_SUBGROUPEXTENSION("",      63, SITL,  var_sfml_joystick),
+#endif // SFML_JOYSTICK
+
     AP_GROUPEND
 };
 
@@ -265,7 +281,7 @@ const AP_Param::GroupInfo SITL::var_gps[] = {
     AP_GROUPINFO("GPS_GLITCH",     6, SITL,  gps_glitch[0],  0),
     AP_GROUPINFO("GPS_HZ",         7, SITL,  gps_hertz[0],  5),
     AP_GROUPINFO("GPS_DRIFTALT",   8, SITL,  gps_drift_alt[0], 0),
-    AP_GROUPINFO("GPS_POS1",       9, SITL,  gps_pos_offset[0], 0),
+    AP_GROUPINFO("GPS_POS",        9, SITL,  gps_pos_offset[0], 0),
     AP_GROUPINFO("GPS_NOISE",     10, SITL,  gps_noise[0], 0),
     AP_GROUPINFO("GPS_LOCKTIME",  11, SITL,  gps_lock_time[0], 0),
     AP_GROUPINFO("GPS_ALT_OFS",   12, SITL,  gps_alt_offset[0], 0),
@@ -281,7 +297,7 @@ const AP_Param::GroupInfo SITL::var_gps[] = {
     AP_GROUPINFO("GPS2_GLTCH",    35, SITL,  gps_glitch[1],  0),
     AP_GROUPINFO("GPS2_HZ",       36, SITL,  gps_hertz[1],  5),
     AP_GROUPINFO("GPS2_DRFTALT",  37, SITL,  gps_drift_alt[1], 0),
-    AP_GROUPINFO("GPS2_POS1",     38, SITL,  gps_pos_offset[1], 0),
+    AP_GROUPINFO("GPS2_POS",      38, SITL,  gps_pos_offset[1], 0),
     AP_GROUPINFO("GPS2_NOISE",    39, SITL,  gps_noise[1], 0),
     AP_GROUPINFO("GPS2_LCKTIME",  40, SITL,  gps_lock_time[1], 0),
     AP_GROUPINFO("GPS2_ALT_OFS",  41, SITL,  gps_alt_offset[1], 0),
@@ -303,7 +319,7 @@ const AP_Param::GroupInfo SITL::var_mag[] = {
     AP_GROUPINFO("MAG_DIA",        7, SITL,  mag_diag[0], 0),
     AP_GROUPINFO("MAG_ODI",        8, SITL,  mag_offdiag[0], 0),
     AP_GROUPINFO("MAG_ORIENT",     9, SITL,  mag_orient[0], 0),
-    AP_GROUPINFO("MAG_SCALING",   10, SITL,  mag_scaling, 1),
+    AP_GROUPINFO("MAG1_SCALING",  10, SITL,  mag_scaling[0], 1),
     AP_GROUPINFO("MAG1_DEVID",    11, SITL,  mag_devid[0], 97539),
     AP_GROUPINFO("MAG2_DEVID",    12, SITL,  mag_devid[1], 131874),
     AP_GROUPINFO("MAG3_DEVID",    13, SITL,  mag_devid[2], 263178),
@@ -311,21 +327,42 @@ const AP_Param::GroupInfo SITL::var_mag[] = {
     AP_GROUPINFO("MAG5_DEVID",    15, SITL,  mag_devid[4], 97795),
     AP_GROUPINFO("MAG6_DEVID",    16, SITL,  mag_devid[5], 98051),
     AP_GROUPINFO("MAG7_DEVID",    17, SITL,  mag_devid[6], 0),
-    AP_GROUPINFO("MAG8_DEVID",    18, SITL, mag_devid[7], 0),
+    AP_GROUPINFO("MAG8_DEVID",    18, SITL,  mag_devid[7], 0),
+    AP_GROUPINFO("MAG1_FAIL",     26, SITL,  mag_fail[0], 0),
 #if HAL_COMPASS_MAX_SENSORS > 1
     AP_GROUPINFO("MAG2_OFS",      19, SITL,  mag_ofs[1], 0),
     AP_GROUPINFO("MAG2_DIA",      20, SITL,  mag_diag[1], 0),
     AP_GROUPINFO("MAG2_ODI",      21, SITL,  mag_offdiag[1], 0),
     AP_GROUPINFO("MAG2_ORIENT",   22, SITL,  mag_orient[1], 0),
+    AP_GROUPINFO("MAG2_FAIL",     27, SITL,  mag_fail[1], 0),
+    AP_GROUPINFO("MAG2_SCALING",  28, SITL,  mag_scaling[1], 1),
 #endif
 #if HAL_COMPASS_MAX_SENSORS > 2
     AP_GROUPINFO("MAG3_OFS",      23, SITL,  mag_ofs[2], 0),
     AP_GROUPINFO("MAG3_DIA",      24, SITL,  mag_diag[2], 0),
     AP_GROUPINFO("MAG3_ODI",      25, SITL,  mag_offdiag[2], 0),
+    AP_GROUPINFO("MAG3_FAIL",     29, SITL,  mag_fail[2], 0),
+    AP_GROUPINFO("MAG3_SCALING",  30, SITL,  mag_scaling[2], 1),
     AP_GROUPINFO("MAG3_ORIENT",   36, SITL,  mag_orient[2], 0),
 #endif
     AP_GROUPEND
 };
+
+#ifdef SFML_JOYSTICK
+const AP_Param::GroupInfo SITL::var_sfml_joystick[] = {
+    AP_GROUPINFO("SF_JS_STICK",    1, SITL,  sfml_joystick_id,   0),
+    AP_GROUPINFO("SF_JS_AXIS1",    2, SITL,  sfml_joystick_axis[0], sf::Joystick::Axis::X),
+    AP_GROUPINFO("SF_JS_AXIS2",    3, SITL,  sfml_joystick_axis[1], sf::Joystick::Axis::Y),
+    AP_GROUPINFO("SF_JS_AXIS3",    4, SITL,  sfml_joystick_axis[2], sf::Joystick::Axis::Z),
+    AP_GROUPINFO("SF_JS_AXIS4",    5, SITL,  sfml_joystick_axis[3], sf::Joystick::Axis::U),
+    AP_GROUPINFO("SF_JS_AXIS5",    6, SITL,  sfml_joystick_axis[4], sf::Joystick::Axis::V),
+    AP_GROUPINFO("SF_JS_AXIS6",    7, SITL,  sfml_joystick_axis[5], sf::Joystick::Axis::R),
+    AP_GROUPINFO("SF_JS_AXIS7",    8, SITL,  sfml_joystick_axis[6], sf::Joystick::Axis::PovX),
+    AP_GROUPINFO("SF_JS_AXIS8",    9, SITL,  sfml_joystick_axis[7], sf::Joystick::Axis::PovY),
+    AP_GROUPEND
+};
+
+#endif //SFML_JOYSTICK
     
 /* report SITL state via MAVLink */
 void SITL::simstate_send(mavlink_channel_t chan)
