@@ -571,7 +571,8 @@ void AP_GPS::detect_instance(uint8_t instance)
         if ((_type[instance] == GPS_TYPE_AUTO ||
              _type[instance] == GPS_TYPE_UBLOX) &&
             ((!_auto_config && _baudrates[dstate->current_baud] >= 38400) ||
-             _baudrates[dstate->current_baud] == 115200) &&
+//             _baudrates[dstate->current_baud] == 115200) &&
+            _baudrates[dstate->current_baud] == 460800) &&
             AP_GPS_UBLOX::_detect(dstate->ublox_detect_state, data)) {
             new_gps = new AP_GPS_UBLOX(*this, state[instance], _port[instance], GPS_ROLE_NORMAL);
         }
@@ -769,7 +770,8 @@ void AP_GPS::update_instance(uint8_t instance)
 
     if (data_should_be_logged) {
         // keep count of delayed frames and average frame delay for health reporting
-        const uint16_t gps_max_delta_ms = 245; // 200 ms (5Hz) + 45 ms buffer
+//        const uint16_t gps_max_delta_ms = 245; // 200 ms (5Hz) + 45 ms buffer
+        const uint16_t gps_max_delta_ms = 445; // 400 ms  + 45 ms buffer
         GPS_timing &t = timing[instance];
 
         if (t.delta_time_ms > gps_max_delta_ms) {
@@ -784,6 +786,7 @@ void AP_GPS::update_instance(uint8_t instance)
                 t.average_delta_ms = 0.98f * t.average_delta_ms + 0.02f * t.delta_time_ms;
             }
         }
+        //GCS_SEND_TEXT(MAV_SEVERITY_INFO, "GPS: delta_time_ms=%d, average_delta_ms=%f",t.delta_time_ms,t.average_delta_ms);
     }
     
 #ifndef HAL_BUILD_AP_PERIPH
@@ -1735,7 +1738,8 @@ bool AP_GPS::is_healthy(uint8_t instance) const
       happens with the RTCMv3 data
      */
     const uint8_t delay_threshold = 2;
-    const float delay_avg_max = _type[instance] == GPS_TYPE_UBLOX_RTK_ROVER?245:215;
+//    const float delay_avg_max = _type[instance] == GPS_TYPE_UBLOX_RTK_ROVER?245:215;
+    const float delay_avg_max = _type[instance] == GPS_TYPE_UBLOX_RTK_ROVER?245:445; // for TMRS moving base scenario
     const GPS_timing &t = timing[instance];
     bool delay_ok = (t.delayed_count < delay_threshold) && t.average_delta_ms < delay_avg_max;
 
