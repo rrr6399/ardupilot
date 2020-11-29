@@ -1360,20 +1360,6 @@ AP_GPS_UBLOX::_parse_gps(void)
 			state.have_gps_yaw = false;
 			state.have_gps_yaw_accuracy = false;
             if(version > 0) {
-                const Vector3f antenna_offset = offset0 - offset1;
-                const float offset_dist = antenna_offset.length();
-                const float rel_dist = _buffer.relposned_v01.rel_pos_length_cm * 0.01;
-                const float dist_error = offset_dist - rel_dist;
-                const float strict_length_error_allowed = 0.2; // allow for up to 20% error
-                const float min_separation = 0.05;
-                bool tilt_ok = true;
-                const float min_dist = MIN(offset_dist, rel_dist);
-    #ifndef HAL_BUILD_AP_PERIPH
-                // when ahrs is available use it to constrain vertical component
-                const Vector3f antenna_tilt = AP::ahrs().get_rotation_body_to_ned() * antenna_offset;
-                const float alt_error = _buffer.relposned_v01.rel_pos_d_cm*0.01 + antenna_tilt.z;
-                tilt_ok = fabsf(alt_error) < strict_length_error_allowed * min_dist;
-    #endif
                 _check_new_itow(_buffer.relposned_v01.itow_ms);
                 if (_buffer.relposned_v01.itow_ms != _last_relposned_itow+200) {
                     // useful for looking at packet loss on links
@@ -1382,27 +1368,11 @@ AP_GPS_UBLOX::_parse_gps(void)
                 _last_relposned_itow = _buffer.relposned_v01.itow_ms;
                 _last_relposned_ms = AP_HAL::millis();
 
-                // useful for looking at packet loss on links
-
-                  rover. It comes from the rover
-                 */
-                MB_Debug("RELPOSNED[%u]: od:%.2f rd:%.2f ae:%.2f flags:0x%04x t=%u",
-                         state.instance+1,
-                         offset_dist, rel_dist, alt_error,
-                         unsigned(_buffer.relposned.flags),
-                         unsigned(_buffer.relposned.iTOW));
-
                 if (((_buffer.relposned_v01.flags & valid_mask) == valid_mask) &&
                     ((_buffer.relposned_v01.flags & invalid_mask) == 0) &&
-                    rel_dist > min_separation &&
-                    offset_dist > min_separation &&
-                    fabsf(dist_error) < strict_length_error_allowed * min_dist &&
-                    tilt_ok) {
-                    float rotation_offset_rad;
-                    const Vector3f diff = offset1 - offset0;
-                    rotation_offset_rad = Vector2f(diff.x, diff.y).angle();
-                    state.gps_yaw = wrap_360(_buffer.relposned_v01.rel_pos_heading_deg * 1e-5 - degrees(rotation_offset_rad));
-                    state.have_gps_yaw = true;
+                    calculate_moving_base_yaw(_buffer.relposned_v01.rel_pos_heading_deg * 1e-5,
+                                              _buffer.relposned_v01.rel_pos_length_cm * 0.01,
+                                              _buffer.relposned_v01.rel_pos_d_cm*0.01)) {
                     state.gps_yaw_accuracy = _buffer.relposned_v01.acc_heading_deg * 1e-5;
                     state.have_gps_yaw_accuracy = true;
                 }
@@ -1590,7 +1560,7 @@ AP_GPS_UBLOX::_parse_gps(void)
         return true;
     }
     return false;
-}
+//}
 
 
 // UBlox auto configuration

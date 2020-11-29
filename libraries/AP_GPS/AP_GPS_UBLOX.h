@@ -25,7 +25,7 @@
 #include "AP_GPS.h"
 #include "GPS_Backend.h"
 
-#define GPS_UBLOX_MOVING_BASELINE 1
+//#define GPS_UBLOX_MOVING_BASELINE 1
 /*
  *  try to put a UBlox into binary mode. This is in two parts. 
  *
@@ -41,7 +41,7 @@
 #define UBLOX_SET_BINARY_115200 "\265\142\006\001\003\000\001\006\001\022\117$PUBX,41,1,0023,0001,115200,0*1C\r\n"
 
 #define UBLOX_SET_BINARY "\265\142\006\001\003\000\001\006\001\022\117$PUBX,41,1,0023,0001,460800,0*1C\r\n"
-// a varient with 230400 baudrate
+
 // a varient with 230400 baudrate
 #define UBLOX_SET_BINARY_230400 "\265\142\006\001\003\000\001\006\001\022\117$PUBX,41,1,0023,0001,230400,0*1E\r\n"
 
@@ -122,7 +122,7 @@ public:
 
     static bool _detect(struct UBLOX_detect_state &state, uint8_t data);
 
-    bool supports_mavlink_gps_rtk_message() override { return state.rtk_time_week_ms > 0; }
+    bool supports_mavlink_gps_rtk_message() const override { return state.rtk_time_week_ms > 0; }
 
     bool is_configured(void) override {
 #if CONFIG_HAL_BOARD != HAL_BOARD_SITL
