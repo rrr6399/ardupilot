@@ -2238,6 +2238,84 @@ class AutoTestCopter(AutoTest):
         if ex is not None:
             raise ex
 
+    def fly_gps_vicon_switching(self):
+        """Fly GPS and Vicon switching test"""
+        self.customise_SITL_commandline(["--uartF=sim:vicon:"])
+
+        """Setup parameters including switching to EKF3"""
+        self.context_push()
+        ex = None
+        try:
+            self.set_parameter("VISO_TYPE", 2)      # enable vicon
+            self.set_parameter("SERIAL5_PROTOCOL", 2)
+            self.set_parameter("EK3_ENABLE", 1)
+            self.set_parameter("EK3_SRC2_POSXY", 6) # External Nav
+            self.set_parameter("EK3_SRC2_POSZ", 6)  # External Nav
+            self.set_parameter("EK3_SRC2_VELXY", 6) # External Nav
+            self.set_parameter("EK3_SRC2_VELZ", 6)  # External Nav
+            self.set_parameter("EK3_SRC2_YAW", 2)   # External Nav
+            self.set_parameter("RC7_OPTION", 80)    # RC aux switch 7 set to Viso Align
+            self.set_parameter("RC8_OPTION", 90)    # RC aux switch 8 set to EKF source selector
+            self.reboot_sitl()
+            self.set_parameter("EK2_ENABLE", 0)
+            self.set_parameter("AHRS_EKF_TYPE", 3)
+
+            # switch to use GPS
+            self.set_rc(8, 1000)
+
+            # require_absolute=True infers a GPS is present
+            self.wait_ready_to_arm(require_absolute=True)
+
+            # record starting position
+            old_pos = self.get_global_position_int()
+            print("old_pos=%s" % str(old_pos))
+
+            # align vicon yaw with ahrs heading
+            self.set_rc(7, 2000)
+
+            # takeoff to 10m in Loiter
+            self.progress("Moving to ensure location is tracked")
+            self.takeoff(10, mode="LOITER")
+
+            # fly forward in Loiter
+            self.set_rc(2, 1300)
+
+            # disable vicon
+            self.set_parameter("SIM_VICON_FAIL", 1)
+
+            # ensure vehicle remain in Loiter for 15 seconds
+            tstart = self.get_sim_time();
+            while self.get_sim_time() - tstart < 15:
+                if not self.mode_is('LOITER'):
+                    raise NotAchievedException("Expected to stay in loiter for >15 seconds")
+
+            # re-enable vicon
+            self.set_parameter("SIM_VICON_FAIL", 0)
+
+            # switch to vicon, disable GPS and wait 10sec to ensure vehicle remains in Loiter
+            self.set_rc(8, 1500)
+            self.set_parameter("GPS_TYPE", 0)
+
+            # ensure vehicle remain in Loiter for 15 seconds
+            tstart = self.get_sim_time();
+            while self.get_sim_time() - tstart < 15:
+                if not self.mode_is('LOITER'):
+                    raise NotAchievedException("Expected to stay in loiter for >15 seconds")
+
+            # RTL and check vehicle arrives within 10m of home
+            self.set_rc(2, 1500)
+            self.do_RTL()
+
+        except Exception as e:
+            self.progress("Caught exception: %s" %
+                          self.get_exception_stacktrace(e))
+            ex = e
+        self.context_pop()
+        self.disarm_vehicle(force=True)
+        self.reboot_sitl()
+        if ex is not None:
+            raise ex
+
     def fly_rtl_speed(self):
         """Test RTL Speed parameters"""
         rtl_speed_ms = 7
@@ -3476,13 +3554,25 @@ class AutoTestCopter(AutoTest):
         self.watch_altitude_maintained(-1, 0.2) # should not take off in guided
         self.run_cmd_do_set_mode(
             "ACRO",
-            want_result=mavutil.mavlink.MAV_RESULT_UNSUPPORTED) # should fix this result code!
+            want_result=mavutil.mavlink.MAV_RESULT_FAILED)
         self.run_cmd_do_set_mode(
             "STABILIZE",
-            want_result=mavutil.mavlink.MAV_RESULT_UNSUPPORTED) # should fix this result code!
+            want_result=mavutil.mavlink.MAV_RESULT_FAILED)
         self.run_cmd_do_set_mode(
             "DRIFT",
-            want_result=mavutil.mavlink.MAV_RESULT_UNSUPPORTED) # should fix this result code!
+            want_result=mavutil.mavlink.MAV_RESULT_FAILED)
+        self.progress("Check setting an invalid mode")
+        self.run_cmd(mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+                     mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+                     126,
+                     0,
+                     0,
+                     0,
+                     0,
+                     0,
+                     want_result=mavutil.mavlink.MAV_RESULT_FAILED,
+                     timeout=1
+        )
         self.set_rc(3, 1000)
         self.run_cmd_do_set_mode("ACRO")
         self.wait_disarmed()
@@ -4872,7 +4962,10 @@ class AutoTestCopter(AutoTest):
             self.set_parameter("AVOID_ENABLE", 4)
             self.set_parameter("GPS_TYPE", 0)
             self.set_parameter("EK3_ENABLE", 1)
-            self.set_parameter("EK3_GPS_TYPE", 3) # NOGPS
+            self.set_parameter("EK3_SRC1_POSXY", 4) # Beacon
+            self.set_parameter("EK3_SRC1_POSZ", 1)  # Baro
+            self.set_parameter("EK3_SRC1_VELXY", 0) # None
+            self.set_parameter("EK3_SRC1_VELZ", 0)  # None
             self.set_parameter("EK2_ENABLE", 0)
             self.reboot_sitl()
             self.set_parameter("AHRS_EKF_TYPE", 3)
@@ -5008,6 +5101,8 @@ class AutoTestCopter(AutoTest):
         self.set_parameter("RC9_OPTION", 85)
         self.set_parameter("LOG_DISARMED", 1)
         self.set_parameter("BATT2_MONITOR", 17)
+        self.set_parameter("GEN_TYPE", 3)
+        self.reboot_sitl()
         self.set_rc(9, 1000) # remember this is a switch position - stop
         self.customise_SITL_commandline(["--uartF=sim:richenpower"])
         self.mavproxy.expect("requested state is not RUN")
@@ -5065,6 +5160,50 @@ class AutoTestCopter(AutoTest):
         self.set_parameter("LOG_DISARMED", 0)
         if not self.current_onboard_log_contains_message("GEN"):
             raise NotAchievedException("Did not find expected GEN message")
+
+    def test_ie24(self):
+        self.context_push()
+        ex = None
+        try:
+            self.set_parameter("SERIAL5_PROTOCOL", 30)
+            self.set_parameter("SERIAL5_BAUD", 115200)
+            self.set_parameter("GEN_TYPE", 2)
+            self.set_parameter("BATT2_MONITOR", 17)
+            self.set_parameter("SIM_IE24_ENABLE", 1)
+            self.set_parameter("LOG_DISARMED", 1)
+
+            self.customise_SITL_commandline(["--uartF=sim:ie24"])
+            self.wait_ready_to_arm()
+            self.arm_vehicle()
+            self.disarm_vehicle()
+
+            # Test for pre-arm check fail when state is not running
+            self.start_subtest("If you haven't taken off generator error should cause instant failsafe and disarm")
+            self.set_parameter("SIM_IE24_STATE", 8)
+            self.wait_statustext("Status not running")
+            self.try_arm(result=False,
+                         expect_msg="Status not running")
+            self.set_parameter("SIM_IE24_STATE", 2) # Explicitly set state to running
+
+            # Test that error code does result in failsafe
+            self.start_subtest("If you haven't taken off generator error should cause instant failsafe and disarm")
+            self.change_mode("STABILIZE")
+            self.set_parameter("DISARM_DELAY", 0)
+            self.arm_vehicle()
+            self.set_parameter("SIM_IE24_ERROR", 30)
+            self.disarm_wait(timeout=1)
+            self.set_parameter("SIM_IE24_ERROR", 0)
+            self.set_parameter("DISARM_DELAY", 10)
+
+        except Exception as e:
+            self.progress("Exception caught: %s" % (
+                self.get_exception_stacktrace(e)))
+            ex = e
+
+        self.context_pop()
+
+        if ex is not None:
+            raise ex
 
     def get_mission_count(self):
         return self.get_parameter("MIS_TOTAL")
@@ -5293,6 +5432,36 @@ class AutoTestCopter(AutoTest):
             ex = e
         self.context_pop()
         self.disarm_vehicle(force=True)
+        if ex is not None:
+            raise ex
+
+    def test_ekf_source(self):
+        self.context_push()
+        ex = None
+        try:
+            self.set_parameter("EK3_ENABLE", 1)
+            self.set_parameter("AHRS_EKF_TYPE", 3)
+            self.wait_ready_to_arm()
+
+            self.start_subtest("bad yaw source")
+            self.set_parameter("EK3_SRC3_YAW", 17)
+            self.assert_prearm_failure("Check EK3_SRC3_YAW")
+
+            self.context_push()
+            self.start_subtest("missing required yaw source")
+            self.set_parameter("EK3_SRC3_YAW", 1)
+            self.set_parameter("COMPASS_USE", 0)
+            self.set_parameter("COMPASS_USE2", 0)
+            self.set_parameter("COMPASS_USE3", 0)
+            self.assert_prearm_failure("EK3 sources require Compass")
+            self.context_pop()
+
+        except Exception as e:
+            self.disarm_vehicle(force=True)
+            ex = e
+        self.context_pop()
+        if ex is not None:
+            raise ex
 
     def test_replay(self):
         '''test replay correctness'''
@@ -5549,6 +5718,10 @@ class AutoTestCopter(AutoTest):
             ("VisionPosition",
              "Fly Vision Position",
              self.fly_vision_position), #24s
+
+            ("GPSViconSwitching",
+             "Fly GPS and Vicon Switching",
+             self.fly_gps_vicon_switching),
         ])
         return ret
 
@@ -5627,6 +5800,10 @@ class AutoTestCopter(AutoTest):
              "Test RichenPower generator",
              self.test_richenpower),
 
+            ("IE24",
+             "Test IntelligentEnergy 2.4kWh generator",
+             self.test_ie24),
+
             ("LogUpload",
              "Log upload",
              self.log_upload),
@@ -5689,6 +5866,10 @@ class AutoTestCopter(AutoTest):
             ("AltEstimation",
              "Test that Alt Estimation is mandatory for ALT_HOLD",
              self.test_alt_estimate_prearm), #20secs ish
+
+            ("EKFSource",
+             "Check EKF Source Prearms work",
+             self.test_ekf_source),
 
             ("DataFlash",
              "Test DataFlash Block backend",

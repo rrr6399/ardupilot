@@ -186,6 +186,9 @@ public:
     // request EKF yaw reset to try and avoid the need for an EKF lane switch or failsafe
     virtual void request_yaw_reset(void) {}
 
+    // set position, velocity and yaw sources to either 0=primary, 1=secondary, 2=tertiary
+    virtual void set_posvelyaw_source_set(uint8_t source_set_idx) {}
+
     // Euler angles (radians)
     float roll;
     float pitch;
@@ -524,6 +527,12 @@ public:
     // inconsistency that will be accepted by the filter
     // boolean false is returned if variances are not available
     virtual bool get_variances(float &velVar, float &posVar, float &hgtVar, Vector3f &magVar, float &tasVar) const {
+        return false;
+    }
+
+    // get a source's velocity innovations.  source should be from 0 to 7 (see AP_NavEKF_Source::SourceXY)
+    // returns true on success and results are placed in innovations and variances arguments
+    virtual bool get_vel_innovations_and_variances_for_source(uint8_t source, Vector3f &innovations, Vector3f &variances) const WARN_IF_UNUSED {
         return false;
     }
 

@@ -497,7 +497,7 @@ void NavEKF3_core::readIMUData()
         runUpdates = true;
 
         // extract the oldest available data from the FIFO buffer
-        imuDataDelayed = storedIMU.pop_oldest_element();
+        imuDataDelayed = storedIMU.get_oldest_element();
 
         // protect against delta time going to zero
         float minDT = 0.1f * dtEkfAvg;
@@ -616,7 +616,7 @@ void NavEKF3_core::readGpsData()
             }
 
             // Check if GPS can output vertical velocity, vertical velocity use is permitted and set GPS fusion mode accordingly
-            if (gps.have_vertical_velocity(selected_gps) && (frontend->_fusionModeGPS == 0) && !frontend->inhibitGpsVertVelUse) {
+            if (gps.have_vertical_velocity(selected_gps) && frontend->sources.useVelZSource(AP_NavEKF_Source::SourceZ::GPS) && !frontend->inhibitGpsVertVelUse) {
                 useGpsVertVel = true;
             } else {
                 useGpsVertVel = false;
@@ -765,11 +765,11 @@ void NavEKF3_core::correctEkfOriginHeight()
 
     // calculate the variance of our a-priori estimate of the ekf origin height
     float deltaTime = constrain_float(0.001f * (imuDataDelayed.time_ms - lastOriginHgtTime_ms), 0.0f, 1.0f);
-    if (activeHgtSource == HGT_SOURCE_BARO) {
+    if (activeHgtSource == AP_NavEKF_Source::SourceZ::BARO) {
         // Use the baro drift rate
         const float baroDriftRate = 0.05f;
         ekfOriginHgtVar += sq(baroDriftRate * deltaTime);
-    } else if (activeHgtSource == HGT_SOURCE_RNG) {
+    } else if (activeHgtSource == AP_NavEKF_Source::SourceZ::RANGEFINDER) {
         // use the worse case expected terrain gradient and vehicle horizontal speed
         const float maxTerrGrad = 0.25f;
         ekfOriginHgtVar += sq(maxTerrGrad * norm(stateStruct.velocity.x , stateStruct.velocity.y) * deltaTime);
@@ -1040,12 +1040,13 @@ void NavEKF3_core::writeExtNavVelData(const Vector3f &vel, float err, uint32_t t
     timeStamp_ms -= localFilterTimeStep_ms/2;
     // Prevent time delay exceeding age of oldest IMU data in the buffer
     timeStamp_ms = MAX(timeStamp_ms,imuDataDelayed.time_ms);
-    const ext_nav_vel_elements extNavVelNew {
-        vel,
-        err,
-        timeStamp_ms,
-        false
-    };
+
+    ext_nav_vel_elements extNavVelNew;
+    extNavVelNew.time_ms = timeStamp_ms;
+    extNavVelNew.vel = vel;
+    extNavVelNew.err = err;
+    extNavVelNew.corrected = false;
+
     storedExtNavVel.push(extNavVelNew);
 }
 
@@ -1174,13 +1175,6 @@ void NavEKF3_core::updateTimingStatistics(void)
     timing.count++;
 }
 
-// get timing statistics structure
-void NavEKF3_core::getTimingStatistics(struct ekf_timing &_timing)
-{
-    _timing = timing;
-    memset(&timing, 0, sizeof(timing));
-}
-
 /*
   update estimates of inactive bias states. This keeps inactive IMUs
   as hot-spares so we can switch to them without causing a jump in the
@@ -1279,7 +1273,8 @@ float NavEKF3_core::MagDeclination(void) const
 */
 void NavEKF3_core::updateMovementCheck(void)
 {
-    const bool runCheck = onGround && (effectiveMagCal == MagCal::EXTERNAL_YAW || effectiveMagCal == MagCal::EXTERNAL_YAW_FALLBACK || !use_compass());
+    const AP_NavEKF_Source::SourceYaw yaw_source = frontend->sources.getYawSource();
+    const bool runCheck = onGround && (yaw_source == AP_NavEKF_Source::SourceYaw::EXTERNAL || yaw_source == AP_NavEKF_Source::SourceYaw::EXTERNAL_COMPASS_FALLBACK || !use_compass());
     if (!runCheck)
     {
         onGroundNotMoving = false;

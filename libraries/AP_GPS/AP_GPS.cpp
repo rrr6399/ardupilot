@@ -1497,6 +1497,11 @@ bool AP_GPS::calc_blend_weights(void)
         if (get_rate_ms(i) > max_rate_ms) {
             max_rate_ms = get_rate_ms(i);
         }
+        if (isinf(state[i].speed_accuracy) ||
+            isinf(state[i].horizontal_accuracy) ||
+            isinf(state[i].vertical_accuracy)) {
+            return false;
+        }
     }
     if ((int32_t)(max_ms - min_ms) < (int32_t)(2 * max_rate_ms)) {
         // data is not too delayed so use the oldest time_stamp to give a chance for data from that receiver to be updated
@@ -1623,6 +1628,10 @@ bool AP_GPS::calc_blend_weights(void)
         }
     }
 
+    if (!is_positive(sum_of_all_weights)) {
+        return false;
+    }
+
     // calculate an overall weight
     for (uint8_t i=0; i<GPS_MAX_RECEIVERS; i++) {
         _blend_weights[i] = (hpos_blend_weights[i] + vpos_blend_weights[i] + spd_blend_weights[i]) / sum_of_all_weights;
@@ -1659,6 +1668,9 @@ void AP_GPS::calc_blended_state(void)
     _blended_antenna_offset.zero();
     _blended_lag_sec = 0;
 
+#ifndef HAL_BUILD_AP_PERIPH
+    const uint32_t last_blended_message_time_ms = timing[GPS_BLENDED_INSTANCE].last_message_time_ms;
+#endif
     timing[GPS_BLENDED_INSTANCE].last_fix_time_ms = 0;
     timing[GPS_BLENDED_INSTANCE].last_message_time_ms = 0;
 
@@ -1717,7 +1729,6 @@ void AP_GPS::calc_blended_state(void)
         if (timing[i].last_message_time_ms > timing[GPS_BLENDED_INSTANCE].last_message_time_ms) {
             timing[GPS_BLENDED_INSTANCE].last_message_time_ms = timing[i].last_message_time_ms;
         }
-
     }
 
     /*
@@ -1801,6 +1812,13 @@ void AP_GPS::calc_blended_state(void)
     }
     timing[GPS_BLENDED_INSTANCE].last_fix_time_ms = (uint32_t)temp_time_1;
     timing[GPS_BLENDED_INSTANCE].last_message_time_ms = (uint32_t)temp_time_2;
+
+#ifndef HAL_BUILD_AP_PERIPH
+    if (timing[GPS_BLENDED_INSTANCE].last_message_time_ms > last_blended_message_time_ms &&
+        should_log()) {
+        AP::logger().Write_GPS(GPS_BLENDED_INSTANCE);
+    }
+#endif
 }
 #endif // GPS_BLENDED_INSTANCE
 

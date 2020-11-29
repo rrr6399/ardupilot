@@ -11,6 +11,7 @@
 
 #include "LogStructure.h"
 
+#include <stdio.h>
 #include <stdint.h>
 #include <cstddef>
 
@@ -190,6 +191,10 @@ public:
 
     uint32_t get_time_flying_ms(void) const {
         return _RFRH.time_flying_ms;
+    }
+
+    bool opticalflow_enabled(void) const {
+        return _RFRN.opticalflow_enabled;
     }
 
     // log optical flow data

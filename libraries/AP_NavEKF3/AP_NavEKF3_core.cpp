@@ -46,7 +46,7 @@ bool NavEKF3_core::setup_core(uint8_t _imu_index, uint8_t _core_index)
                                   ))));
 
     // GPS sensing can have large delays and should not be included if disabled
-    if (frontend->_fusionModeGPS != 3) {
+    if (frontend->sources.usingGPS()) {
         // Wait for the configuration of all GPS units to be confirmed. Until this has occurred the GPS driver cannot provide a correct time delay
         float gps_delay_sec = 0;
         if (!dal.gps().get_lag(selected_gps, gps_delay_sec)) {
@@ -317,7 +317,8 @@ void NavEKF3_core::InitialiseVariables()
     delAngBiasLearned = false;
     memset(&filterStatus, 0, sizeof(filterStatus));
     gpsInhibit = false;
-    activeHgtSource = 0;
+    activeHgtSource = AP_NavEKF_Source::SourceZ::BARO;
+    prevHgtSource = activeHgtSource;
     memset(&rngMeasIndex, 0, sizeof(rngMeasIndex));
     memset(&storedRngMeasTime_ms, 0, sizeof(storedRngMeasTime_ms));
     memset(&storedRngMeas, 0, sizeof(storedRngMeas));
@@ -532,6 +533,10 @@ bool NavEKF3_core::InitialiseFilterBootstrap(void)
     ResetVelocity(resetDataSource::DEFAULT);
     ResetPosition(resetDataSource::DEFAULT);
     ResetHeight();
+
+    // initialise sources
+    posxy_source_last = frontend->sources.getPosXYSource();
+    yaw_source_last = frontend->sources.getYawSource();
 
     // define Earth rotation vector in the NED navigation frame
     calcEarthRateNED(earthRateNED, dal.get_home().lat);

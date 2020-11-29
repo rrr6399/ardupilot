@@ -72,7 +72,7 @@ const struct UnitStructure log_Units[] = {
     { 'v', "V" },             // Volt
     { 'P', "Pa" },            // Pascal
     { 'w', "Ohm" },           // Ohm
-//    { 'W', "Watt" },        // Watt
+    { 'W', "Watt" },        // Watt
     { 'Y', "us" },            // pulse width modulation in microseconds
     { 'z', "Hz" },            // Hertz
     { '#', "instance" }       // (e.g.)Sensor instance number
@@ -207,6 +207,7 @@ struct PACKED log_Error {
 struct PACKED log_GPS {
     LOG_PACKET_HEADER;
     uint64_t time_us;
+    uint8_t  instance;
     uint8_t  status;
     uint32_t gps_week_ms;
     uint16_t gps_week;
@@ -225,6 +226,7 @@ struct PACKED log_GPS {
 struct PACKED log_GPA {
     LOG_PACKET_HEADER;
     uint64_t time_us;
+    uint8_t  instance;
     uint16_t vdop;
     uint16_t hacc;
     uint16_t vacc;
@@ -983,9 +985,10 @@ struct PACKED log_CESC {
     uint8_t power_pct;
 };
 
-struct PACKED log_AIRSPEED {
+struct PACKED log_ARSP {
     LOG_PACKET_HEADER;
     uint64_t time_us;
+    uint8_t instance;
     float   airspeed;
     float   diffpressure;
     int16_t temperature;
@@ -1304,17 +1307,6 @@ struct PACKED log_PSC {
 // UNIT messages define units which can be referenced by FMTU messages
 // FMTU messages associate types (e.g. centimeters/second/second) to FMT message fields
 
-#define GPA_LABELS "TimeUS,VDop,HAcc,VAcc,SAcc,YAcc,VV,SMS,Delta"
-#define GPA_FMT   "QCCCCfBIH"
-#define GPA_UNITS "smmmnd-ss"
-#define GPA_MULTS "FBBBB0-CC"
-
-// see "struct GPS_State" and "Write_GPS":
-#define GPS_LABELS "TimeUS,Status,GMS,GWk,NSats,HDop,Lat,Lng,Alt,Spd,GCrs,VZ,Yaw,U"
-#define GPS_FMT   "QBIHBcLLeffffB"
-#define GPS_UNITS "s---SmDUmnhnh-"
-#define GPS_MULTS "F---0BGGB000--"
-
 #define ISBH_LABELS "TimeUS,N,type,instance,mul,smp_cnt,SampleUS,smp_rate"
 #define ISBH_FMT    "QHBBHHQf"
 #define ISBH_UNITS  "s-----sz"
@@ -1334,11 +1326,6 @@ struct PACKED log_PSC {
 #define QUAT_FMT    "QBffff"
 #define QUAT_UNITS  "s#????"
 #define QUAT_MULTS  "F-????"
-
-#define ARSP_LABELS "TimeUS,Airspeed,DiffPress,Temp,RawPress,Offset,U,Health,Hfp,Pri"
-#define ARSP_FMT "QffcffBBfB"
-#define ARSP_UNITS "snPOPP----"
-#define ARSP_MULTS "F00B00----"
 
 // @LoggerMessage: ACC
 // @Description: IMU accelerometer data
@@ -1383,16 +1370,17 @@ struct PACKED log_PSC {
 // @Field: Forced: true if arm/disarm was forced
 // @Field: Method: method used for arming
 
-// @LoggerMessage: ARSP,ASP2
+// @LoggerMessage: ARSP
 // @Description: Airspeed sensor data
 // @Field: TimeUS: Time since system startup
+// @Field: I: Airspeed sensor instance number
 // @Field: Airspeed: Current airspeed
 // @Field: DiffPress: Pressure difference between static and dynamic port
 // @Field: Temp: Temperature used for calculation
 // @Field: RawPress: Raw pressure less offset
 // @Field: Offset: Offset from parameter
 // @Field: U: True if sensor is being used
-// @Field: Health: True if sensor is healthy
+// @Field: H: True if sensor is healthy
 // @Field: Hfp: Probability sensor has failed
 // @Field: Pri: True if sensor is the primary sensor
 
@@ -1595,8 +1583,9 @@ struct PACKED log_PSC {
 // @Field: UnitIds: each character refers to a UNIT message.  The unit at an offset corresponds to the field at the same offset in FMT.Format
 // @Field: MultIds: each character refers to a MULT message.  The multiplier at an offset corresponds to the field at the same offset in FMT.Format
 
-// @LoggerMessage: GPA,GPA2
+// @LoggerMessage: GPA
 // @Description: GPS accuracy information
+// @Field: I: GPS instance number
 // @Field: TimeUS: Time since system startup
 // @Field: VDop: vertical degree of procession
 // @Field: HAcc: horizontal position accuracy
@@ -1607,42 +1596,10 @@ struct PACKED log_PSC {
 // @Field: SMS: time since system startup this sample was taken
 // @Field: Delta: system time delta between the last two reported positions
 
-//note: GPAB is a copy of GPA and GPA2!
-
-// @LoggerMessage: GPAB
-// @Description: Blended GPS accuracy information
-// @Field: TimeUS: Time since system startup
-// @Field: VDop: vertical degree of procession
-// @Field: HAcc: horizontal position accuracy
-// @Field: VAcc: vertical position accuracy
-// @Field: SAcc: speed accuracy
-// @Field: YAcc: yaw accuracy
-// @Field: VV: true if vertical velocity is available
-// @Field: SMS: time since system startup this sample was taken
-// @Field: Delta: system time delta between the last two reported positions
-
-// @LoggerMessage: GPS,GPS2
+// @LoggerMessage: GPS
 // @Description: Information received from GNSS systems attached to the autopilot
 // @Field: TimeUS: Time since system startup
-// @Field: Status: GPS Fix type; 2D fix, 3D fix etc.
-// @Field: GMS: milliseconds since start of GPS Week
-// @Field: GWk: weeks since 5 Jan 1980
-// @Field: NSats: number of satellites visible
-// @Field: HDop: horizontal precision
-// @Field: Lat: latitude
-// @Field: Lng: longitude
-// @Field: Alt: altitude
-// @Field: Spd: ground speed
-// @Field: GCrs: ground course
-// @Field: VZ: vertical speed
-// @Field: Yaw: vehicle yaw
-// @Field: U: boolean value indicating whether this GPS is in use
-
-// Note: GPSB is a copy of GPS!
-
-// @LoggerMessage: GPSB
-// @Description: Information blended from GNSS systems attached to the autopilot
-// @Field: TimeUS: Time since system startup
+// @Field: I: GPS instance number
 // @Field: Status: GPS Fix type; 2D fix, 3D fix etc.
 // @Field: GMS: milliseconds since start of GPS Week
 // @Field: GWk: weeks since 5 Jan 1980
@@ -2479,17 +2436,9 @@ struct PACKED log_PSC {
     { LOG_PARAMETER_MSG, sizeof(log_Parameter), \
      "PARM", "QNf",        "TimeUS,Name,Value", "s--", "F--"  },       \
     { LOG_GPS_MSG, sizeof(log_GPS), \
-      "GPS",  GPS_FMT, GPS_LABELS, GPS_UNITS, GPS_MULTS }, \
-    { LOG_GPS2_MSG, sizeof(log_GPS), \
-      "GPS2", GPS_FMT, GPS_LABELS, GPS_UNITS, GPS_MULTS }, \
-    { LOG_GPSB_MSG, sizeof(log_GPS), \
-      "GPSB", GPS_FMT, GPS_LABELS, GPS_UNITS, GPS_MULTS }, \
+      "GPS",  "QBBIHBcLLeffffB", "TimeUS,I,Status,GMS,GWk,NSats,HDop,Lat,Lng,Alt,Spd,GCrs,VZ,Yaw,U", "s#---SmDUmnhnh-", "F----0BGGB000--" }, \
     { LOG_GPA_MSG,  sizeof(log_GPA), \
-      "GPA",  GPA_FMT, GPA_LABELS, GPA_UNITS, GPA_MULTS }, \
-    { LOG_GPA2_MSG, sizeof(log_GPA), \
-      "GPA2", GPA_FMT, GPA_LABELS, GPA_UNITS, GPA_MULTS }, \
-    { LOG_GPAB_MSG, sizeof(log_GPA), \
-      "GPAB", GPA_FMT, GPA_LABELS, GPA_UNITS, GPA_MULTS }, \
+      "GPA",  "QBCCCCfBIH", "TimeUS,I,VDop,HAcc,VAcc,SAcc,YAcc,VV,SMS,Delta", "s#mmmnd-ss", "F-BBBB0-CC" }, \
     { LOG_IMU_MSG, sizeof(log_IMU), \
       "IMU",  "QBffffffIIfBBHH",     "TimeUS,I,GyrX,GyrY,GyrZ,AccX,AccY,AccZ,EG,EA,T,GH,AH,GHz,AHz", "s#EEEooo--O--zz", "F-000000-----00" }, \
     { LOG_MESSAGE_MSG, sizeof(log_Message), \
@@ -2516,8 +2465,7 @@ struct PACKED log_PSC {
       "CAM", "QIHLLeeeccC","TimeUS,GPSTime,GPSWeek,Lat,Lng,Alt,RelAlt,GPSAlt,Roll,Pitch,Yaw", "s--DUmmmddd", "F--GGBBBBBB" }, \
     { LOG_TRIGGER_MSG, sizeof(log_Camera), \
       "TRIG", "QIHLLeeeccC","TimeUS,GPSTime,GPSWeek,Lat,Lng,Alt,RelAlt,GPSAlt,Roll,Pitch,Yaw", "s--DUmmmddd", "F--GGBBBBBB" }, \
-    { LOG_ARSP_MSG, sizeof(log_AIRSPEED), "ARSP",  ARSP_FMT, ARSP_LABELS, ARSP_UNITS, ARSP_MULTS }, \
-    { LOG_ASP2_MSG, sizeof(log_AIRSPEED), "ASP2",  ARSP_FMT, ARSP_LABELS, ARSP_UNITS, ARSP_MULTS }, \
+    { LOG_ARSP_MSG, sizeof(log_ARSP), "ARSP",  "QBffcffBBfB", "TimeUS,I,Airspeed,DiffPress,Temp,RawPress,Offset,U,H,Hfp,Pri", "s#nPOPP----", "F-00B00----" }, \
     { LOG_CURRENT_MSG, sizeof(log_Current),                     \
       "BAT", "QBfffffcf", "TimeUS,Instance,Volt,VoltR,Curr,CurrTot,EnrgTot,Temp,Res", "s#vvAiJOw", "F-000!/?0" },  \
     { LOG_CURRENT_CELLS_MSG, sizeof(log_Current_Cells), \
@@ -2718,8 +2666,6 @@ enum LogMessages : uint8_t {
     LOG_XKV2_MSG,
     LOG_PARAMETER_MSG,
     LOG_GPS_MSG,
-    LOG_GPS2_MSG,
-    LOG_GPSB_MSG,
     LOG_IMU_MSG,
     LOG_MESSAGE_MSG,
     LOG_RCIN_MSG,
@@ -2772,8 +2718,6 @@ enum LogMessages : uint8_t {
     LOG_ORGN_MSG,
     LOG_RPM_MSG,
     LOG_GPA_MSG,
-    LOG_GPA2_MSG,
-    LOG_GPAB_MSG,
     LOG_RFND_MSG,
     LOG_MAV_STATS,
     LOG_FORMAT_UNITS_MSG,
@@ -2801,7 +2745,6 @@ enum LogMessages : uint8_t {
     LOG_SRTL_MSG,
     LOG_ISBH_MSG,
     LOG_ISBD_MSG,
-    LOG_ASP2_MSG,
     LOG_PERFORMANCE_MSG,
     LOG_OPTFLOW_MSG,
     LOG_EVENT_MSG,
