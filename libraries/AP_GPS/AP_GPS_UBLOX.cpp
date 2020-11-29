@@ -1560,29 +1560,29 @@ AP_GPS_UBLOX::_parse_gps(void)
         return true;
     }
     return false;
-//}
+}
 
+void
+AP_GPS_UBLOX::_process_rtk_solution_v00(void)
+{
+    Debug("MSG_NAV_RELPOSNED V0 RTK status Received");
 
-// UBlox auto configuration
+    state.rtk_age_ms    = 0xFFFFFFFF;
 
-/*
- *  update checksum for a set of bytes
- */
+    state.rtk_baseline_x_mm = _buffer.relposned_v00.rel_pos_n_cm*10+_buffer.relposned_v00.rel_pos_hp_n_mm/10;
+    state.rtk_baseline_y_mm = _buffer.relposned_v00.rel_pos_e_cm*10+_buffer.relposned_v00.rel_pos_hp_e_mm/10;
+    state.rtk_baseline_z_mm = _buffer.relposned_v00.rel_pos_d_cm*10+_buffer.relposned_v00.rel_pos_hp_d_mm/10;
 
-	state.rtk_baseline_x_mm = _buffer.relposned_v00.rel_pos_n_cm*10+_buffer.relposned_v00.rel_pos_hp_n_mm/10;
-	state.rtk_baseline_y_mm = _buffer.relposned_v00.rel_pos_e_cm*10+_buffer.relposned_v00.rel_pos_hp_e_mm/10;
-	state.rtk_baseline_z_mm = _buffer.relposned_v00.rel_pos_d_cm*10+_buffer.relposned_v00.rel_pos_hp_d_mm/10;
+    const float acc_n_mm = _buffer.relposned_v00.acc_n_mm;
+    const float acc_e_mm = _buffer.relposned_v00.acc_e_mm;
+    const float acc_d_mm = _buffer.relposned_v00.acc_d_mm;
 
-	const float acc_n_mm = _buffer.relposned_v00.acc_n_mm;
-	const float acc_e_mm = _buffer.relposned_v00.acc_e_mm;
-	const float acc_d_mm = _buffer.relposned_v00.acc_d_mm;
-
-	// rms of error terms
-	float rtk_accuracy = acc_n_mm*acc_n_mm + acc_e_mm*acc_e_mm + acc_d_mm*acc_d_mm;
-	state.rtk_accuracy = (uint32_t) safe_sqrt(rtk_accuracy);
-	state.rtk_baseline_coords_type = 1; // NED
-	state.rtk_time_week_ms = _buffer.relposned_v00.itow_ms;
-	state.rtk_week_number = state.time_week;
+    // rms of error terms
+    float rtk_accuracy = acc_n_mm*acc_n_mm + acc_e_mm*acc_e_mm + acc_d_mm*acc_d_mm;
+    state.rtk_accuracy = (uint32_t) safe_sqrt(rtk_accuracy);
+    state.rtk_baseline_coords_type = 1; // NED
+    state.rtk_time_week_ms = _buffer.relposned_v00.itow_ms;
+    state.rtk_week_number = state.time_week;
 
   Debug("MSG_NAV_RELPOSNED RTK status=%u pos_n=%d, pos_e=%d, pos_d=%d, acc_n=%d, acc_e=%d, acc_d=%d",
         _relposned_v00.flags_bitfield,
@@ -1595,24 +1595,24 @@ AP_GPS_UBLOX::_parse_gps(void)
   );
 
 #if UBLOX_DEBUGGING
-	uint32_t flags = _relposned_v00.flags_bitfield;
-	uint8_t gnss_fix_ok = flags & 1;
-	uint8_t diff_soln = flags & (1 << 1);
-	uint8_t rel_pos_valid = flags & (1 << 2);
-	uint8_t carr_soln = ((flags & (1 << 4)) << 1) | (flags & (1 << 3));
-	uint8_t is_moving = flags & (1 << 5);
-	uint8_t ref_pos_miss = flags & (1 << 6);
-	uint8_t ref_obs_miss = flags & (1 << 2);
+    uint32_t flags = _relposned_v00.flags_bitfield;
+    uint8_t gnss_fix_ok = flags & 1;
+    uint8_t diff_soln = flags & (1 << 1);
+    uint8_t rel_pos_valid = flags & (1 << 2);
+    uint8_t carr_soln = ((flags & (1 << 4)) << 1) | (flags & (1 << 3));
+    uint8_t is_moving = flags & (1 << 5);
+    uint8_t ref_pos_miss = flags & (1 << 6);
+    uint8_t ref_obs_miss = flags & (1 << 2);
 
   Debug("MSG_NAV_RELPOSNED RTK Status: fix_ok=%u, diff_soln=%u, rel_pos_valid=%u,"
-  		" carr_soln=%u, is_moving=%u, ref_pos_miss=%u, ref_obs_miss=%u",
-  		gnss_fix_ok,
-  		diff_soln,
-  		rel_pos_valid,
-  		carr_soln,
-  		is_moving,
-  		ref_pos_miss,
-  		ref_obs_miss
+        " carr_soln=%u, is_moving=%u, ref_pos_miss=%u, ref_obs_miss=%u",
+        gnss_fix_ok,
+        diff_soln,
+        rel_pos_valid,
+        carr_soln,
+        is_moving,
+        ref_pos_miss,
+        ref_obs_miss
   );
 #endif
 }
@@ -1671,6 +1671,7 @@ AP_GPS_UBLOX::_process_rtk_solution_v01(void)
   );
 #endif
 }
+
 // UBlox auto configuration
 
 /*
