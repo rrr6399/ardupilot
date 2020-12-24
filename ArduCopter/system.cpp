@@ -216,8 +216,14 @@ void Copter::init_ardupilot()
         enable_motor_output();
     }
 
-    // disable safety if requested
-    BoardConfig.init_safety();
+    // attempt to switch to RTL, if this fails then switch to Land
+    if (!set_mode((enum Mode::Number)g.initial_mode.get(), ModeReason::INITIALISED)) {
+        // set mode to STABILIZE will trigger mode change notification to pilot
+        set_mode(Mode::Number::STABILIZE, ModeReason::UNAVAILABLE);
+    } else {
+        // alert pilot to mode change
+        AP_Notify::events.failsafe_mode_change = 1;
+    }
 
     // flag that initialisation has completed
     ap.initialised = true;
@@ -469,6 +475,8 @@ MAV_TYPE Copter::get_frame_mav_type()
             return MAV_TYPE_COAXIAL;
         case AP_Motors::MOTOR_FRAME_DODECAHEXA:
             return MAV_TYPE_DODECAROTOR;
+        case AP_Motors::MOTOR_FRAME_DECA:
+            return MAV_TYPE_DECAROTOR;
     }
     // unknown frame so return generic
     return MAV_TYPE_GENERIC;
@@ -504,6 +512,8 @@ const char* Copter::get_frame_string()
             return "TAILSITTER";
         case AP_Motors::MOTOR_FRAME_DODECAHEXA:
             return "DODECA_HEXA";
+        case AP_Motors::MOTOR_FRAME_DECA:
+            return "DECA";
         case AP_Motors::MOTOR_FRAME_UNDEFINED:
         default:
             return "UNKNOWN";
@@ -523,6 +533,7 @@ void Copter::allocate_motors(void)
         case AP_Motors::MOTOR_FRAME_OCTA:
         case AP_Motors::MOTOR_FRAME_OCTAQUAD:
         case AP_Motors::MOTOR_FRAME_DODECAHEXA:
+        case AP_Motors::MOTOR_FRAME_DECA:
         default:
             motors = new AP_MotorsMatrix(copter.scheduler.get_loop_rate_hz());
             motors_var_info = AP_MotorsMatrix::var_info;

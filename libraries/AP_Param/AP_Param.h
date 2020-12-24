@@ -62,7 +62,7 @@
 
 // don't shift index 0 to index 63. Use this when you know there will be
 // no conflict with the parent
-#define AP_PARAM_NO_SHIFT           (1<<3)
+#define AP_PARAM_FLAG_NO_SHIFT      (1<<3)
 
 // the var_info is a pointer, allowing for dynamic definition of the var_info tree
 #define AP_PARAM_FLAG_INFO_POINTER  (1<<4)
@@ -1003,3 +1003,15 @@ AP_PARAMDEF(int32_t, Int32, AP_PARAM_INT32);  // defines AP_Int32
 // _suffix is the suffix on the AP_* type name
 // _pt is the enum ap_var_type type
 #define AP_PARAMDEFV(_t, _suffix, _pt)   typedef AP_ParamV<_t, _pt> AP_ ## _suffix;
+
+/*
+  template class for enum types based on AP_Int8
+ */
+template<typename eclass>
+class AP_Enum : public AP_Int8
+{
+public:
+    operator const eclass () const {
+        return (eclass)_value;
+    }
+};

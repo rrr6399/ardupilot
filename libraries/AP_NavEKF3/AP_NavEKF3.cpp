@@ -39,6 +39,7 @@
 #define FLOW_I_GATE_DEFAULT     300
 #define CHECK_SCALER_DEFAULT    100
 #define FLOW_USE_DEFAULT        1
+#define WIND_P_NSE_DEFAULT      0.2
 
 #elif APM_BUILD_TYPE(APM_BUILD_Rover)
 // rover defaults
@@ -64,6 +65,7 @@
 #define FLOW_I_GATE_DEFAULT     300
 #define CHECK_SCALER_DEFAULT    100
 #define FLOW_USE_DEFAULT        1
+#define WIND_P_NSE_DEFAULT      0.1
 
 #elif APM_BUILD_TYPE(APM_BUILD_ArduPlane)
 // plane defaults
@@ -89,6 +91,7 @@
 #define FLOW_I_GATE_DEFAULT     500
 #define CHECK_SCALER_DEFAULT    150
 #define FLOW_USE_DEFAULT        2
+#define WIND_P_NSE_DEFAULT      0.1
 
 #else
 // build type not specified, use copter defaults
@@ -114,6 +117,7 @@
 #define FLOW_I_GATE_DEFAULT     300
 #define CHECK_SCALER_DEFAULT    100
 #define FLOW_USE_DEFAULT        1
+#define WIND_P_NSE_DEFAULT      0.1
 
 #endif // APM_BUILD_DIRECTORY
 
@@ -371,7 +375,7 @@ const AP_Param::GroupInfo NavEKF3::var_info[] = {
     // @Increment: 0.1
     // @User: Advanced
     // @Units: m/s/s
-    AP_GROUPINFO("WIND_P_NSE", 30, NavEKF3, _windVelProcessNoise, 0.1f),
+    AP_GROUPINFO("WIND_P_NSE", 30, NavEKF3, _windVelProcessNoise, WIND_P_NSE_DEFAULT),
 
     // @Param: WIND_PSCALE
     // @DisplayName: Height rate to wind process noise scaler
@@ -652,6 +656,40 @@ const AP_Param::GroupInfo NavEKF3::var_info2[] = {
     // @Path: ../AP_NavEKF/AP_NavEKF_Source.cpp
     AP_SUBGROUPINFO(sources, "SRC", 1, NavEKF3, AP_NavEKF_Source),
 
+    // @Param: DRAG_BCOEF_X
+    // @DisplayName: Ballistic coefficient for X axis drag
+    // @Description: Ratio of mass to drag coefficient measured along the X body axis. This parameter enables estimation of wind drift for vehicles with bluff bodies and without propulsion forces in the X and Y direction (eg multicopters). The drag produced by this effect scales with speed squared.  Set to a postive value > 1.0 to enable. A starting value is the mass in Kg divided by the frontal area. The predicted drag from the rotors is specified separately by the EK3_MCOEF parameter.
+    // @Range: 0.0 1000.0
+    // @Units: kg/m/m
+    // @User: Advanced
+    AP_GROUPINFO("DRAG_BCOEF_X", 2, NavEKF3, _ballisticCoef_x, 0.0f),
+
+    // @Param: DRAG_BCOEF_Y
+    // @DisplayName: Ballistic coefficient for Y axis drag
+    // @Description: Ratio of mass to drag coefficient measured along the Y body axis. This parameter enables estimation of wind drift for vehicles with bluff bodies and without propulsion forces in the X and Y direction (eg multicopters). The drag produced by this effect scales with speed squared.  Set to a postive value > 1.0 to enable. A starting value is the mass in Kg divided by the side area. The predicted drag from the rotors is specified separately by the EK3_MCOEF parameter.
+    // @Range: 50.0 1000.0
+    // @Units: kg/m/m
+    // @User: Advanced
+    AP_GROUPINFO("DRAG_BCOEF_Y", 3, NavEKF3, _ballisticCoef_y, 0.0f),
+
+    // @Param: DRAG_M_NSE
+    // @DisplayName: Observation noise for drag acceleration
+    // @Description: This sets the amount of noise used when fusing X and Y acceleration as an observation that enables esitmation of wind velocity for multi-rotor vehicles. This feature is enabled by the EK3_BCOEF_X and EK3_BCOEF_Y parameters
+    // @Range: 0.1 2.0
+    // @Increment: 0.1
+    // @User: Advanced
+    // @Units: m/s/s
+    AP_GROUPINFO("DRAG_M_NSE", 4, NavEKF3, _dragObsNoise, 0.5f),
+
+    // @Param: DRAG_MCOEF
+    // @DisplayName: Momentum coefficient for propeller drag
+    // @Description: This parameter is used to predict the drag produced by the rotors when flying a multi-copter, enabling estimation of wind drift. It represents the ratio of rotor drag induced acceleration to airspeed. The drag produced by this effect scales with speed not speed squared and is produced because some of the air velocity normal to the rotors axis of rotation is lost when passing through the rotor disc which changes the momentum of the airflow causing drag. For unducted rotors the effect is roughly proportional to the area of the propeller blades when viewed side on an will change with different propellers. For example if flying at 15 m/s at sea level conditions produces a rotor induced drag acceleration of 1.5 m/s/s, then EK3_MCOEF would be set to 0.1 = (1.5/15.0). Set EK3_MCOEFto a postive value to enable wind estimation using this drag effect. To account for the drag produced by the body which scales with speed squared, see documentation for the EK3_BCOEF_X and EK3_BCOEF_Y parameters.
+    // @Range: 0.0 1.0
+    // @Increment: 0.01
+    // @Units: 1/s
+    // @User: Advanced
+    AP_GROUPINFO("DRAG_MCOEF", 5, NavEKF3, _momentumDragCoef, 0.0f),
+
     AP_GROUPEND
 };
 
@@ -684,9 +722,6 @@ bool NavEKF3::InitialiseFilter(void)
     // convert parameters if necessary
     convert_parameters();
 #endif
-
-    // initialise sources
-    sources.init();
 
 #if APM_BUILD_TYPE(APM_BUILD_Replay)
     if (ins.get_accel_count() == 0) {
@@ -1108,6 +1143,18 @@ void NavEKF3::getVelNED(int8_t instance, Vector3f &vel) const
     }
 }
 
+// return estimate of true airspeed vector in body frame in m/s for the specified instance
+// An out of range instance (eg -1) returns data for the primary instance
+// returns false if estimate is unavailable
+bool NavEKF3::getAirSpdVec(int8_t instance, Vector3f &vel) const
+{
+    if (instance < 0 || instance >= num_cores) instance = primary;
+    if (core) {
+        return core[instance].getAirSpdVec(vel);
+    }
+    return false;
+}
+
 // Return the rate of change of vertical position in the down direction (dPosD/dt) in m/s
 float NavEKF3::getPosDownDerivative(int8_t instance) const
 {
@@ -1186,20 +1233,6 @@ bool NavEKF3::resetHeightDatum(void)
         status = false;
     }
     return status;
-}
-
-// Commands the EKF to not use GPS.
-// This command must be sent prior to vehicle arming and EKF commencement of GPS usage
-// Returns 0 if command rejected
-// Returns 1 if command accepted
-uint8_t NavEKF3::setInhibitGPS(void)
-{
-    AP::dal().log_event3(AP_DAL::Event::setInhibitGPS);
-
-    if (!core) {
-        return 0;
-    }
-    return core[primary].setInhibitGPS();
 }
 
 // return the horizontal speed limit in m/s set by optical flow sensor limits

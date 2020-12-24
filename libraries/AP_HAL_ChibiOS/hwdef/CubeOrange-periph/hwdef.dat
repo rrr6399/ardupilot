@@ -22,6 +22,7 @@ define HAL_BUILD_AP_PERIPH
 define HAL_PERIPH_ENABLE_GPS
 define HAL_PERIPH_ENABLE_MAG
 define HAL_PERIPH_ENABLE_BARO
+define HAL_PERIPH_ENABLE_RC_OUT
 
 # use the app descriptor needed by MissionPlanner for CAN upload
 env APP_DESCRIPTOR MissionPlanner
@@ -47,8 +48,6 @@ define HAL_BARO_ALLOW_INIT_NO_BARO
 
 define HAL_PERIPH_ENABLE_BATTERY
 
-define HAL_SUPPORT_RCOUT_SERIAL 0
-
 define HAL_CAN_DEFAULT_NODE_ID 0
 
 define CAN_APP_NODE_NAME "org.ardupilot.CubeOrange-periph"
@@ -69,3 +68,9 @@ MAIN_STACK 0x2000
 PROCESS_STACK 0x6000
 
 define HAL_CAN_DRIVER_DEFAULT 1
+
+# listen for reboot command from uploader.py script
+# undefine to disable. Use -1 to allow on all ports, otherwise serial number index defined in SERIAL_ORDER starting at 0
+define HAL_PERIPH_LISTEN_FOR_SERIAL_UART_REBOOT_CMD_PORT 0
+ 
+

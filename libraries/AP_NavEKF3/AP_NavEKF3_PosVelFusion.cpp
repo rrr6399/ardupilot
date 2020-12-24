@@ -35,26 +35,21 @@ void NavEKF3_core::ResetVelocity(resetDataSource velResetSource)
             stateStruct.velocity.y  = gps_corrected.vel.y;
             // set the variances using the reported GPS speed accuracy
             P[5][5] = P[4][4] = sq(MAX(frontend->_gpsHorizVelNoise,gpsSpdAccuracy));
-            // clear the timeout flags and counters
-            velTimeout = false;
-            lastVelPassTime_ms = imuSampleTime_ms;
         } else if ((imuSampleTime_ms - extNavVelMeasTime_ms < 250 && velResetSource == resetDataSource::DEFAULT) || velResetSource == resetDataSource::EXTNAV) {
             // use external nav data as the 2nd preference
             // already corrected for sensor position
             stateStruct.velocity.x = extNavVelDelayed.vel.x;
             stateStruct.velocity.y = extNavVelDelayed.vel.y;
             P[5][5] = P[4][4] = sq(extNavVelDelayed.err);
-            velTimeout = false;
-            lastVelPassTime_ms = imuSampleTime_ms;
         } else {
             stateStruct.velocity.x  = 0.0f;
             stateStruct.velocity.y  = 0.0f;
             // set the variances using the likely speed range
             P[5][5] = P[4][4] = sq(25.0f);
-            // clear the timeout flags and counters
-            velTimeout = false;
-            lastVelPassTime_ms = imuSampleTime_ms;
         }
+        // clear the timeout flags and counters
+        velTimeout = false;
+        lastVelPassTime_ms = imuSampleTime_ms;
     }
     for (uint8_t i=0; i<imu_buffer_length; i++) {
         storedOutput[i].velocity.x = stateStruct.velocity.x;
@@ -245,7 +240,8 @@ void NavEKF3_core::ResetHeight(void)
 
     // Reset the vertical velocity state using GPS vertical velocity if we are airborne
     // Check that GPS vertical velocity data is available and can be used
-    if (inFlight && !gpsNotAvailable && frontend->sources.useVelZSource(AP_NavEKF_Source::SourceZ::GPS) && !frontend->inhibitGpsVertVelUse) {
+    if (inFlight && !gpsNotAvailable && frontend->sources.useVelZSource(AP_NavEKF_Source::SourceZ::GPS) &&
+        gpsDataNew.have_vz) {
         stateStruct.velocity.z =  gpsDataNew.vel.z;
     } else if (inFlight && useExtNavVel && (activeHgtSource == AP_NavEKF_Source::SourceZ::EXTNAV)) {
         stateStruct.velocity.z = extNavVelDelayed.vel.z;
@@ -575,9 +571,9 @@ void NavEKF3_core::SelectVelPosFusion()
 void NavEKF3_core::FuseVelPosNED()
 {
     // health is set bad until test passed
-    velHealth = false;
-    posHealth = false;
-    hgtHealth = false;
+    bool velHealth = false; // boolean true if velocity measurements have passed innovation consistency check
+    bool posHealth = false; // boolean true if position measurements have passed innovation consistency check
+    bool hgtHealth = false; // boolean true if height measurements have passed innovation consistency check
 
     // declare variables used to check measurement errors
     Vector3f velInnov;
@@ -658,7 +654,7 @@ void NavEKF3_core::FuseVelPosNED()
         // if vertical GPS velocity data and an independent height source is being used, check to see if the GPS vertical velocity and altimeter
         // innovations have the same sign and are outside limits. If so, then it is likely aliasing is affecting
         // the accelerometers and we should disable the GPS and barometer innovation consistency checks.
-        if (useGpsVertVel && fuseVelData && (frontend->sources.getPosZSource() != AP_NavEKF_Source::SourceZ::GPS)) {
+        if (gpsDataDelayed.have_vz && fuseVelData && (frontend->sources.getPosZSource() != AP_NavEKF_Source::SourceZ::GPS)) {
             // calculate innovations for height and vertical GPS vel measurements
             const float hgtErr  = stateStruct.position.z - velPosObs[5];
             const float velDErr = stateStruct.velocity.z - velPosObs[2];
@@ -710,8 +706,6 @@ void NavEKF3_core::FuseVelPosNED()
                         velTestRatio = 0.0f;
                     }
                 }
-            } else {
-                posHealth = false;
             }
         }
 
@@ -719,8 +713,9 @@ void NavEKF3_core::FuseVelPosNED()
         if (fuseVelData) {
             // test velocity measurements
             uint8_t imax = 2;
-            // Don't fuse vertical velocity observations if inhibited by the user or if we are using synthetic data
-            if ((!frontend->sources.haveVelZSource() || PV_AidingMode != AID_ABSOLUTE || frontend->inhibitGpsVertVelUse) && !useExtNavVel) {
+            // Don't fuse vertical velocity observations if disabled in sources or not available
+            if ((!frontend->sources.haveVelZSource() || PV_AidingMode != AID_ABSOLUTE ||
+                 !gpsDataDelayed.have_vz) && !useExtNavVel) {
                 imax = 1;
             }
             float innovVelSumSq = 0; // sum of squares of velocity innovations
@@ -755,8 +750,6 @@ void NavEKF3_core::FuseVelPosNED()
                     // Reset the normalised innovation to avoid failing the bad fusion tests
                     velTestRatio = 0.0f;
                 }
-            } else {
-                velHealth = false;
             }
         }
 

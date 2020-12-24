@@ -129,14 +129,6 @@ public:
     // this makes initial config easier
     void update_orientation();
 
-    void set_airspeed(AP_Airspeed *airspeed) {
-        _airspeed = airspeed;
-    }
-
-    const AP_Airspeed *get_airspeed(void) const {
-        return _airspeed;
-    }
-
     // return the index of the primary core or -1 if no primary core selected
     virtual int8_t get_primary_core_index() const { return -1; }
 
@@ -254,7 +246,7 @@ public:
     virtual bool get_position(struct Location &loc) const = 0;
 
     // get latest altitude estimate above ground level in meters and validity flag
-    virtual bool get_hagl(float &height) const { return false; }
+    virtual bool get_hagl(float &height) const WARN_IF_UNUSED { return false; }
 
     // return a wind estimation vector, in m/s
     virtual Vector3f wind_estimate(void) const = 0;
@@ -273,6 +265,12 @@ public:
         return true;
     }
 
+    // return estimate of true airspeed vector in body frame in m/s
+    // returns false if estimate is unavailable
+    virtual bool airspeed_vector_true(Vector3f &vec) const WARN_IF_UNUSED {
+        return false;
+    }
+
     // return a synthetic airspeed estimate (one derived from sensors
     // other than an actual airspeed sensor), if available. return
     // true if we have a synthetic airspeed.  ret will not be modified
@@ -285,12 +283,14 @@ public:
     // return true if airspeed comes from an airspeed sensor, as
     // opposed to an IMU estimate
     bool airspeed_sensor_enabled(void) const {
+        const AP_Airspeed *_airspeed = AP::airspeed();
         return _airspeed != nullptr && _airspeed->use() && _airspeed->healthy();
     }
 
     // return true if airspeed comes from a specific airspeed sensor, as
     // opposed to an IMU estimate
     bool airspeed_sensor_enabled(uint8_t airspeed_index) const {
+        const AP_Airspeed *_airspeed = AP::airspeed();
         return _airspeed != nullptr && _airspeed->use(airspeed_index) && _airspeed->healthy(airspeed_index);
     }
 
@@ -661,7 +661,6 @@ protected:
     const OpticalFlow *_optflow;
 
     // pointer to airspeed object, if available
-    AP_Airspeed     * _airspeed;
 
     // time in microseconds of last compass update
     uint32_t _compass_last_update;

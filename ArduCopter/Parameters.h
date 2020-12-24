@@ -315,6 +315,7 @@ public:
         k_param_flight_mode6,
         k_param_simple_modes,
         k_param_flight_mode_chan,
+        k_param_initial_mode,
 
         //
         // 210: Waypoint data
@@ -431,6 +432,7 @@ public:
     AP_Int8         flight_mode6;
     AP_Int8         simple_modes;
     AP_Int8         flight_mode_chan;
+    AP_Int8         initial_mode;
 
     // Misc
     //
@@ -447,7 +449,7 @@ public:
     AP_Int16        gcs_pid_mask;
 
 #if MODE_THROW_ENABLED == ENABLED
-    AP_Int8         throw_motor_start;
+    AP_Enum<ModeThrow::PreThrowMotorState>         throw_motor_start;
 #endif
 
     AP_Int8         rtl_alt_type;
@@ -497,7 +499,7 @@ public:
 #if MODE_THROW_ENABLED == ENABLED
     // Throw mode parameters
     AP_Int8 throw_nextmode;
-    AP_Int8 throw_type;
+    AP_Enum<ModeThrow::ThrowType> throw_type;
 #endif
 
     // ground effect compensation enable/disable

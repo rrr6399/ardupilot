@@ -45,6 +45,7 @@ static HAL_UARTE_DRIVER;
 static HAL_UARTF_DRIVER;
 static HAL_UARTG_DRIVER;
 static HAL_UARTH_DRIVER;
+static HAL_UARTI_DRIVER;
 #else
 static Empty::UARTDriver uartADriver;
 static Empty::UARTDriver uartBDriver;
@@ -54,6 +55,7 @@ static Empty::UARTDriver uartEDriver;
 static Empty::UARTDriver uartFDriver;
 static Empty::UARTDriver uartGDriver;
 static Empty::UARTDriver uartHDriver;
+static Empty::UARTDriver uartIDriver;
 #endif
 
 #if HAL_USE_I2C == TRUE && defined(HAL_I2C_DEVICE_LIST)
@@ -124,6 +126,7 @@ HAL_ChibiOS::HAL_ChibiOS() :
         &uartFDriver,
         &uartGDriver,
         &uartHDriver,
+        &uartIDriver,
         &i2cDeviceManager,
         &spiDeviceManager,
         &analogIn,
@@ -192,15 +195,13 @@ static void main_loop()
     ChibiOS::Shared_DMA::init();
     peripheral_power_enable();
 
-    hal.uartA->begin(115200);
+    hal.serial(0)->begin(115200);
 
 #ifdef HAL_SPI_CHECK_CLOCK_FREQ
     // optional test of SPI clock frequencies
     ChibiOS::SPIDevice::test_clock_freq();
 #endif
 
-    hal.uartB->begin(38400);
-    hal.uartC->begin(57600);
     hal.analogin->init();
     hal.scheduler->init();
 
@@ -228,11 +229,9 @@ static void main_loop()
         stm32_watchdog_init();
     }
 
-#ifndef HAL_NO_LOGGING
     if (hal.util->was_watchdog_reset()) {
         INTERNAL_ERROR(AP_InternalError::error_t::watchdog_reset);
     }
-#endif // HAL_NO_LOGGING
 #endif // IOMCU_FW
 
     schedulerInstance.watchdog_pat();

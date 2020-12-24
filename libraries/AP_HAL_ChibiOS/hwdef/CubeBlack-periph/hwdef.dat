@@ -29,6 +29,7 @@ define HAL_BUILD_AP_PERIPH
 define HAL_PERIPH_ENABLE_GPS
 define HAL_PERIPH_ENABLE_MAG
 define HAL_PERIPH_ENABLE_BARO
+define HAL_PERIPH_ENABLE_RC_OUT
 
 # use the app descriptor needed by MissionPlanner for CAN upload
 env APP_DESCRIPTOR MissionPlanner
@@ -53,8 +54,6 @@ define HAL_NO_RCIN_THREAD
 define HAL_BARO_ALLOW_INIT_NO_BARO
 
 define HAL_PERIPH_ENABLE_BATTERY
-
-define HAL_SUPPORT_RCOUT_SERIAL 0
 
 define HAL_CAN_DEFAULT_NODE_ID 0
 

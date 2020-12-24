@@ -5,6 +5,7 @@
 #include <AP_GPS/AP_GPS.h>
 #include <AP_Compass/AP_Compass.h>
 #include <AP_Baro/AP_Baro.h>
+#include "SRV_Channel/SRV_Channel.h"
 #include <AP_BattMonitor/AP_BattMonitor.h>
 #include <AP_Airspeed/AP_Airspeed.h>
 #include <AP_RangeFinder/AP_RangeFinder.h>
@@ -13,7 +14,7 @@
 #include "../AP_Bootloader/app_comms.h"
 #include "hwing_esc.h"
 
-#if defined(HAL_PERIPH_NEOPIXEL_COUNT) || defined(HAL_PERIPH_ENABLE_NCP5623_LED)
+#if defined(HAL_PERIPH_NEOPIXEL_COUNT) || defined(HAL_PERIPH_ENABLE_NCP5623_LED) || defined(HAL_PERIPH_ENABLE_NCP5623_BGR_LED)
 #define AP_PERIPH_HAVE_LED
 #endif
 
@@ -45,6 +46,11 @@ public:
     void can_battery_update();
 
     void load_parameters();
+    void prepare_reboot();
+
+#ifdef HAL_PERIPH_LISTEN_FOR_SERIAL_UART_REBOOT_CMD_PORT
+    void check_for_serial_reboot_cmd(const int8_t serial_index);
+#endif
 
     AP_SerialManager serial_manager;
 
@@ -78,6 +84,7 @@ public:
         uint32_t last_gps_ms;
         uint32_t last_baro_ms;
         uint32_t last_mag_ms;
+        uint32_t last_airspeed_ms;
     } msp;
     void msp_init(AP_HAL::UARTDriver *_uart);
     void msp_sensor_update(void);
@@ -85,6 +92,7 @@ public:
     void send_msp_GPS(void);
     void send_msp_compass(void);
     void send_msp_baro(void);
+    void send_msp_airspeed(void);
 #endif
     
 #ifdef HAL_PERIPH_ENABLE_ADSB
@@ -122,7 +130,18 @@ public:
     HWESC_Telem hwesc_telem;
     void hwesc_telem_update();
 #endif
-    
+
+#ifdef HAL_PERIPH_ENABLE_RC_OUT
+    SRV_Channels servo_channels;
+
+    void rcout_init();
+    void rcout_init_1Hz();
+    void rcout_esc(int16_t *rc, uint8_t num_channels);
+    void rcout_srv(const uint8_t actuator_id, const float command_value);
+    void rcout_update();
+    void rcout_handle_safety_state(uint8_t safety_state);
+#endif
+
     // setup the var_info table
     AP_Param param_loader{var_info};
 
@@ -132,6 +151,9 @@ public:
     uint32_t last_gps_update_ms;
     uint32_t last_baro_update_ms;
     uint32_t last_airspeed_update_ms;
+
+    // show stack as DEBUG msgs
+    void show_stack_free();
 };
 
 extern AP_Periph_FW periph;

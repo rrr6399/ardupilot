@@ -571,11 +571,13 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
         self.progress("Pin mask changed after relay command")
 
     def test_setting_modes_via_mavproxy_switch(self):
+        self.load_mission(self.arming_test_mission())
+        self.wait_ready_to_arm()
         fnoo = [(1, 'MANUAL'),
                 (2, 'MANUAL'),
                 (3, 'RTL'),
-                # (4, 'AUTO'),  # no mission, can't set auto
-                (5, 'RTL'),  # non-existant mode, should stay in RTL
+                (4, 'AUTO'),
+                (5, 'AUTO'),  # non-existant mode, should stay in RTL
                 (6, 'MANUAL')]
         for (num, expected) in fnoo:
             self.mavproxy.send('switch %u\n' % num)
@@ -4457,7 +4459,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
                      0, # p6 - test order (see MOTOR_TEST_ORDER)
                      0, # p7
         )
-        self.mav.motors_armed_wait()
+        self.wait_armed()
         self.progress("Waiting for magic throttle value")
         self.wait_servo_channel_value(3, magic_throttle_value)
         self.wait_servo_channel_value(3, self.get_parameter("RC3_TRIM", 5), timeout=10)
@@ -5518,6 +5520,14 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
              "Upload/Download of items in different frames",
              self.test_mission_frames),
 
+            ("SetpointGlobalPos",
+             "Test setpoint global position",
+             lambda: self.test_set_position_global_int()),
+
+            ("SetpointGlobalVel",
+             "Test setpoint gloabl velocity",
+             lambda: self.test_set_velocity_global_int()),
+
             ("AccelCal",
              "Accelerometer Calibration testing",
              self.accelcal),
@@ -5535,6 +5545,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
     def disabled_tests(self):
         return {
             "DriveMaxRCIN": "currently triggers Arithmetic Exception",
+            "SlewRate": "got timing report failure on CI",
         }
 
     def rc_defaults(self):
@@ -5542,6 +5553,9 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
         ret[3] = 1500
         ret[8] = 1800
         return ret
+
+    def initial_mode_switch_mode(self):
+        return "MANUAL"
 
     def default_mode(self):
         return 'MANUAL'

@@ -207,16 +207,20 @@ void GCS_MAVLINK::send_battery_status(const uint8_t instance) const
     float temp;
     bool got_temperature = battery.get_temperature(temp, instance);
 
-    // prepare array of individual cell voltage
+    // prepare arrays of individual cell voltages
     uint16_t cell_volts[MAVLINK_MSG_BATTERY_STATUS_FIELD_VOLTAGES_LEN];
+    uint16_t cell_volts_ext[MAVLINK_MSG_BATTERY_STATUS_FIELD_VOLTAGES_EXT_LEN];
     if (battery.has_cell_voltages(instance)) {
         const AP_BattMonitor::cells& batt_cells = battery.get_cell_voltages(instance);
         // copy the first 10 cells
         memcpy(cell_volts, batt_cells.cells, sizeof(cell_volts));
-        // 10th cell reports the lowest voltage of the last 3 cells
-        for (uint8_t i = MAVLINK_MSG_BATTERY_STATUS_FIELD_VOLTAGES_LEN; i < ARRAY_SIZE(batt_cells.cells); i++) {
-            cell_volts[MAVLINK_MSG_BATTERY_STATUS_FIELD_VOLTAGES_LEN-1] = MIN(cell_volts[MAVLINK_MSG_BATTERY_STATUS_FIELD_VOLTAGES_LEN-1],
-                                                                              batt_cells.cells[i]);
+        // 11 ... 14 use a second cell_volts_ext array
+        for (uint8_t i = 0; i < MAVLINK_MSG_BATTERY_STATUS_FIELD_VOLTAGES_EXT_LEN; i++) {
+            if (MAVLINK_MSG_BATTERY_STATUS_FIELD_VOLTAGES_LEN+i < uint8_t(ARRAY_SIZE(batt_cells.cells))) {
+                cell_volts_ext[i] = batt_cells.cells[MAVLINK_MSG_BATTERY_STATUS_FIELD_VOLTAGES_LEN+i];
+            } else {
+                cell_volts_ext[i] = 0;
+            }
         }
     } else {
         // for battery monitors that cannot provide voltages for individual cells the battery's total voltage is put into the first cell
@@ -231,6 +235,9 @@ void GCS_MAVLINK::send_battery_status(const uint8_t instance) const
               cell_volts[i] = MIN(voltage, 65534.0f); // Can't send more then UINT16_MAX - 1 in a cell
               voltage -= 65534.0f;
           }
+        }
+        for (uint8_t i = 0; i < MAVLINK_MSG_BATTERY_STATUS_FIELD_VOLTAGES_EXT_LEN; i++) {
+            cell_volts_ext[i] = 0;
         }
     }
 
@@ -259,7 +266,8 @@ void GCS_MAVLINK::send_battery_status(const uint8_t instance) const
                                     consumed_wh,  // consumed energy in hJ (hecto-Joules)
                                     battery.capacity_remaining_pct(instance),
                                     0, // time remaining, seconds (not provided)
-                                    MAV_BATTERY_CHARGE_STATE_UNDEFINED);
+                                    MAV_BATTERY_CHARGE_STATE_UNDEFINED,
+                                    cell_volts_ext); // Cell 11..14 voltages
 }
 
 // returns true if all battery instances were reported
@@ -299,7 +307,8 @@ void GCS_MAVLINK::send_distance_sensor(const AP_RangeFinder_Backend *sensor, con
         0,                                       // Measurement covariance in centimeters, 0 for unknown / invalid readings
         0,                                       // horizontal FOV
         0,                                       // vertical FOV
-        (const float *)nullptr);                 // quaternion of sensor orientation for MAV_SENSOR_ROTATION_CUSTOM
+        (const float *)nullptr,                  // quaternion of sensor orientation for MAV_SENSOR_ROTATION_CUSTOM
+        0);                                      // Signal quality of the sensor. 0 = unknown/unset signal quality, 1 = invalid signal, 100 = perfect signal.
 }
 // send any and all distance_sensor messages.  This starts by sending
 // any distance sensors not used by a Proximity sensor, then sends the
@@ -387,7 +396,7 @@ void GCS_MAVLINK::send_proximity() const
                         PROXIMITY_SENSOR_ID_START + i,                  // onboard ID of the sensor
                         dist_array.orientation[i],                      // direction the sensor faces from MAV_SENSOR_ORIENTATION enum
                         0,                                              // Measurement covariance in centimeters, 0 for unknown / invalid readings
-                        0, 0, nullptr);
+                        0, 0, nullptr, 0);
             }
         }
     }
@@ -408,7 +417,7 @@ void GCS_MAVLINK::send_proximity() const
                 PROXIMITY_SENSOR_ID_START + PROXIMITY_MAX_DIRECTION + 1,  // onboard ID of the sensor
                 MAV_SENSOR_ROTATION_PITCH_90,                             // direction upwards
                 0,                                                        // Measurement covariance in centimeters, 0 for unknown / invalid readings
-                0, 0, nullptr);
+                0, 0, nullptr, 0);
     }
 }
 

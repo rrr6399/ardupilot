@@ -60,6 +60,7 @@ static UARTDriver sitlUart4Driver(4, &sitlState);
 static UARTDriver sitlUart5Driver(5, &sitlState);
 static UARTDriver sitlUart6Driver(6, &sitlState);
 static UARTDriver sitlUart7Driver(7, &sitlState);
+static UARTDriver sitlUart8Driver(8, &sitlState);
 
 #if defined(HAL_BUILD_AP_PERIPH)
 static Empty::I2CDeviceManager i2c_mgr_instance;
@@ -83,6 +84,7 @@ HAL_SITL::HAL_SITL() :
         &sitlUart5Driver,   /* uartF */
         &sitlUart6Driver,   /* uartG */
         &sitlUart7Driver,   /* uartH */
+        &sitlUart8Driver,   /* uartI */
         &i2c_mgr_instance,
         &emptySPI,          /* spi */
         &sitlAnalogIn,      /* analogin */
@@ -180,7 +182,7 @@ void HAL_SITL::run(int argc, char * const argv[], Callbacks* callbacks) const
     _sitl_state->init(argc, argv);
 
     scheduler->init();
-    uartA->begin(115200);
+    serial(0)->begin(115200);
 
     rcin->init();
     rcout->init();
@@ -191,7 +193,7 @@ void HAL_SITL::run(int argc, char * const argv[], Callbacks* callbacks) const
     if (getenv("SITL_WATCHDOG_RESET")) {
         INTERNAL_ERROR(AP_InternalError::error_t::watchdog_reset);
         if (watchdog_load((uint32_t *)&utilInstance.persistent_data, (sizeof(utilInstance.persistent_data)+3)/4)) {
-            uartA->printf("Loaded watchdog data");
+            serial(0)->printf("Loaded watchdog data");
             utilInstance.last_persistent_data = utilInstance.persistent_data;
         }
     }

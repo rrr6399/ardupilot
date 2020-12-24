@@ -49,6 +49,8 @@
 // #include <SITL/SIM_Frsky_SPort.h>
 // #include <SITL/SIM_Frsky_SPortPassthrough.h>
 #include <SITL/SIM_PS_RPLidarA2.h>
+#include <SITL/SIM_PS_TeraRangerTower.h>
+#include <SITL/SIM_PS_LightWare_SF45B.h>
 
 #include <SITL/SIM_RichenPower.h>
 #include <AP_HAL/utility/Socket.h>
@@ -173,9 +175,6 @@ private:
     void _fdm_input_local(void);
     void _output_to_flightgear(void);
     void _simulator_servos(struct sitl_input &input);
-    void _simulator_output(bool synthetic_clock_mode);
-    uint16_t _airspeed_sensor(float airspeed);
-    uint16_t _ground_sonar();
     void _fdm_input_step(void);
 
     void wait_clock(uint64_t wait_time_usec);
@@ -284,8 +283,14 @@ private:
     SITL::Frsky_D *frsky_d;
     // SITL::Frsky_SPort *frsky_sport;
     // SITL::Frsky_SPortPassthrough *frsky_sportpassthrough;
-    // simulated NMEA rangefinder:
+
+    // simulated RPLidarA2:
     SITL::PS_RPLidarA2 *rplidara2;
+
+    // simulated SF45B proximity sensor:
+    SITL::PS_LightWare_SF45B *sf45b;
+
+    SITL::PS_TeraRangerTower *terarangertower;
 
     // simulated CRSF devices
     SITL::CRSF *crsf;

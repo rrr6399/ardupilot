@@ -189,6 +189,7 @@ public:
         LANDING_FLARE =       89, // force flare, throttle forced idle, pitch to LAND_PITCH_CD, tilts up
         EKF_POS_SOURCE =      90, // change EKF position source between primary, secondary and tertiary sources
         ARSPD_CALIBRATE=      91, // calibrate airspeed ratio 
+        FBWA =                92, // Fly-By-Wire-A
 
         // entries from 100 onwards are expected to be developer
         // options used for testing
@@ -232,10 +233,20 @@ public:
     bool read_3pos_switch(AuxSwitchPos &ret) const WARN_IF_UNUSED;
     AuxSwitchPos get_aux_switch_pos() const;
 
+    virtual void do_aux_function(aux_func_t ch_option, AuxSwitchPos);
+
+#if !HAL_MINIMIZE_FEATURES
+    const char *string_for_aux_function(AUX_FUNC function) const;
+#endif
+
+    // pwm value above which the option will be invoked:
+    static const uint16_t AUX_PWM_TRIGGER_HIGH = 1800;
+    // pwm value below which the option will be disabled:
+    static const uint16_t AUX_PWM_TRIGGER_LOW = 1200;
+
 protected:
 
     virtual void init_aux_function(aux_func_t ch_option, AuxSwitchPos);
-    virtual void do_aux_function(aux_func_t ch_option, AuxSwitchPos);
 
     virtual void do_aux_function_armdisarm(const AuxSwitchPos ch_flag);
     void do_aux_function_avoid_adsb(const AuxSwitchPos ch_flag);
@@ -287,11 +298,6 @@ private:
     int16_t pwm_to_angle() const;
     int16_t pwm_to_angle_dz(uint16_t dead_zone) const;
 
-    // pwm value above which the option will be invoked:
-    static const uint16_t AUX_PWM_TRIGGER_HIGH = 1800;
-    // pwm value below which the option will be disabled:
-    static const uint16_t AUX_PWM_TRIGGER_LOW = 1200;
-
     // Structure used to detect and debounce switch changes
     struct {
         int8_t debounce_position = -1;
@@ -311,7 +317,6 @@ private:
     };
 
     static const LookupTable lookuptable[];
-    const char *string_for_aux_function(AUX_FUNC function) const;
 #endif
 };
 
