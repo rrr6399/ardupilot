@@ -535,10 +535,10 @@ class AutoTestPlane(AutoTest):
     def fly_mission(self, filename, mission_timeout=60.0):
         """Fly a mission from a file."""
         self.progress("Flying mission %s" % filename)
-        self.load_mission(filename)
+        num_wp = self.load_mission(filename)-1
         self.mavproxy.send('switch 1\n')  # auto mode
         self.wait_mode('AUTO')
-        self.wait_waypoint(1, 7, max_dist=60)
+        self.wait_waypoint(1, num_wp, max_dist=60)
         self.wait_groundspeed(0, 0.5, timeout=mission_timeout)
         self.mavproxy.expect("Auto disarmed")
         self.progress("Mission OK")
@@ -978,14 +978,23 @@ class AutoTestPlane(AutoTest):
 
         self.set_parameter("FENCE_CHANNEL", 7)
         self.set_parameter("FENCE_ACTION", 4)
-        self.set_rc(3, 1000)
-        self.set_rc(7, 2000)
+
+        self.wait_sensor_state(mavutil.mavlink.MAV_SYS_STATUS_GEOFENCE,
+                               present=True,
+                               enabled=False,
+                               healthy=True)
+        self.set_rc_from_map({
+            3: 1000,
+            7: 2000,
+        })
 
         self.progress("Checking fence is initially OK")
-        m = self.mav.recv_match(type='SYS_STATUS', blocking=True)
-        print("%s" % str(m))
-        if (not (m.onboard_control_sensors_enabled & fence_bit)):
-            raise NotAchievedException("Fence not initially enabled")
+        self.wait_sensor_state(mavutil.mavlink.MAV_SYS_STATUS_GEOFENCE,
+                               present=True,
+                               enabled=True,
+                               healthy=True,
+                               verbose=True,
+                               timeout=30)
 
         self.set_parameter("THR_FS_VALUE", 960)
         self.progress("Failing receiver (throttle-to-950)")
@@ -1862,13 +1871,31 @@ class AutoTestPlane(AutoTest):
 
     def fly_terrain_mission(self):
 
-        self.customise_SITL_commandline([], wipe=True)
-
         self.mavproxy.send("wp set 1\n")
         self.wait_ready_to_arm()
         self.arm_vehicle()
 
         self.fly_mission("ap-terrain.txt", mission_timeout=600)
+
+    def fly_external_AHRS(self):
+        """Fly with external AHRS (VectorNav)"""
+        self.customise_SITL_commandline(["--uartE=sim:VectorNav"])
+
+        self.set_parameter("EAHRS_TYPE", 1)
+        self.set_parameter("SERIAL4_PROTOCOL", 36)
+        self.set_parameter("SERIAL4_BAUD", 230400)
+        self.set_parameter("GPS_TYPE", 21)
+        self.set_parameter("AHRS_EKF_TYPE", 11)
+        self.set_parameter("INS_GYR_CAL", 1)
+        self.reboot_sitl()
+        self.progress("Running accelcal")
+        self.run_cmd(mavutil.mavlink.MAV_CMD_PREFLIGHT_CALIBRATION,
+                     0,0,0,0,4,0,0,
+                     timeout=5)
+
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+        self.fly_mission("ap1.txt")
 
     def ekf_lane_switch(self):
 
@@ -2156,6 +2183,10 @@ class AutoTestPlane(AutoTest):
              "Test terrain following in mission",
              self.fly_terrain_mission),
 
+            ("ExternalAHRS",
+             "Test external AHRS support",
+             self.fly_external_AHRS),
+             
             ("Deadreckoning",
              "Test deadreckoning support",
              self.deadreckoning),

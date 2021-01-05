@@ -9,9 +9,11 @@
 
 void AP_Periph_FW::msp_init(AP_HAL::UARTDriver *_uart)
 {
-    msp.port.uart = _uart;
-    msp.port.msp_version = MSP::MSP_V2_NATIVE;
-    _uart->begin(115200, 512, 512);
+    if (_uart) {
+        msp.port.uart = _uart;
+        msp.port.msp_version = MSP::MSP_V2_NATIVE;
+        _uart->begin(115200, 512, 512);
+    }
 }
 
 
@@ -39,6 +41,9 @@ void AP_Periph_FW::send_msp_packet(uint16_t cmd, void *p, uint16_t size)
  */
 void AP_Periph_FW::msp_sensor_update(void)
 {
+    if (msp.port.uart == nullptr) {
+        return;
+    }
 #ifdef HAL_PERIPH_ENABLE_GPS
     send_msp_GPS();
 #endif

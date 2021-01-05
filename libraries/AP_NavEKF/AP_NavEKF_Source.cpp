@@ -52,7 +52,7 @@ const AP_Param::GroupInfo AP_NavEKF_Source::var_info[] = {
     // @Param: 1_YAW
     // @DisplayName: Yaw Source
     // @Description: Yaw Source
-    // @Values: 0:None, 1:Compass, 2:External, 3:External with Compass Fallback
+    // @Values: 0:None, 1:Compass, 2:GPS, 3:GPS with Compass Fallback, 6:ExternalNav, 8:GSF
     // @User: Advanced
     AP_GROUPINFO("1_YAW", 5, AP_NavEKF_Source, _source_set[0].yaw, (int8_t)AP_NavEKF_Source::SourceYaw::COMPASS),
 
@@ -88,7 +88,7 @@ const AP_Param::GroupInfo AP_NavEKF_Source::var_info[] = {
     // @Param: 2_YAW
     // @DisplayName: Yaw Source (Secondary)
     // @Description: Yaw Source (Secondary)
-    // @Values: 0:None, 1:Compass, 2:External, 3:External with Compass Fallback
+    // @Values: 0:None, 1:Compass, 2:GPS, 3:GPS with Compass Fallback, 6:ExternalNav, 8:GSF
     // @User: Advanced
     AP_GROUPINFO("2_YAW", 10, AP_NavEKF_Source, _source_set[1].yaw, (int8_t)AP_NavEKF_Source::SourceYaw::NONE),
 #endif
@@ -125,7 +125,7 @@ const AP_Param::GroupInfo AP_NavEKF_Source::var_info[] = {
     // @Param: 3_YAW
     // @DisplayName: Yaw Source (Tertiary)
     // @Description: Yaw Source (Tertiary)
-    // @Values: 0:None, 1:Compass, 2:External, 3:External with Compass Fallback
+    // @Values: 0:None, 1:Compass, 2:GPS, 3:GPS with Compass Fallback, 6:ExternalNav, 8:GSF
     // @User: Advanced
     AP_GROUPINFO("3_YAW", 15, AP_NavEKF_Source, _source_set[2].yaw, (int8_t)AP_NavEKF_Source::SourceYaw::NONE),
 #endif
@@ -274,7 +274,8 @@ bool AP_NavEKF_Source::usingGPS() const
     return getPosXYSource() == SourceXY::GPS ||
            getPosZSource() == SourceZ::GPS ||
            getVelXYSource() == SourceXY::GPS ||
-           getVelZSource() == SourceZ::GPS;
+           getVelZSource() == SourceZ::GPS ||
+           getYawSource() == SourceYaw::GSF;
 }
 
 // true if some parameters have been configured (used during parameter conversion)
@@ -403,14 +404,20 @@ bool AP_NavEKF_Source::pre_arm_check(char *failure_msg, uint8_t failure_msg_len)
         // check yaw
         switch ((SourceYaw)_source_set[i].yaw.get()) {
         case SourceYaw::NONE:
-        case SourceYaw::EXTERNAL:
+        case SourceYaw::GPS:
             // valid yaw value
             break;
         case SourceYaw::COMPASS:
             // skip compass check for easier user setup of compass-less operation
             break;
-        case SourceYaw::EXTERNAL_COMPASS_FALLBACK:
+        case SourceYaw::GPS_COMPASS_FALLBACK:
             compass_required = true;
+            break;
+        case SourceYaw::EXTNAV:
+            visualodom_required = true;
+            break;
+        case SourceYaw::GSF:
+            gps_required = true;
             break;
         default:
             // invalid yaw value
@@ -431,7 +438,7 @@ bool AP_NavEKF_Source::pre_arm_check(char *failure_msg, uint8_t failure_msg_len)
         return false;
     }
 
-    if (compass_required && dal.compass().get_num_enabled() == 0) {
+    if (compass_required && (dal.compass().get_num_enabled() == 0)) {
         hal.util->snprintf(failure_msg, failure_msg_len, ekf_requires_msg, "Compass");
         return false;
     }
@@ -488,6 +495,9 @@ bool AP_NavEKF_Source::ext_nav_enabled(void) const
         if (src.velz == SourceZ::EXTNAV) {
             return true;
         }
+        if (src.yaw == SourceYaw::EXTNAV) {
+            return true;
+        }
     }
     return false;
 }
@@ -504,14 +514,14 @@ bool AP_NavEKF_Source::wheel_encoder_enabled(void) const
     return false;
 }
 
-// return true if ext yaw is enabled on any source
-bool AP_NavEKF_Source::ext_yaw_enabled(void) const
+// return true if GPS yaw is enabled on any source
+bool AP_NavEKF_Source::gps_yaw_enabled(void) const
 {
     for (uint8_t i=0; i<AP_NAKEKF_SOURCE_SET_MAX; i++) {
         const auto &src = _source_set[i];
         const SourceYaw yaw = SourceYaw(src.yaw.get());
-        if (yaw == SourceYaw::EXTERNAL ||
-            yaw == SourceYaw::EXTERNAL_COMPASS_FALLBACK) {
+        if (yaw == SourceYaw::GPS ||
+            yaw == SourceYaw::GPS_COMPASS_FALLBACK) {
             return true;
         }
     }

@@ -33,15 +33,19 @@ public:
         k_param_serial_number,
         k_param_adsb_port,
         k_param_servo_channels,
+        k_param_rangefinder_port,
+        k_param_gps_port,
+        k_param_msp_port,
+        k_param_notify,
     };
 
     AP_Int16 format_version;
     AP_Int16 can_node;
     AP_Int32 can_baudrate;
-#ifdef HAL_PERIPH_ENABLE_BUZZER
+#ifdef HAL_PERIPH_ENABLE_BUZZER_WITHOUT_NOTIFY
     AP_Int8 buzz_volume;
 #endif
-#ifdef AP_PERIPH_HAVE_LED
+#ifdef AP_PERIPH_HAVE_LED_WITHOUT_NOTIFY
     AP_Int8 led_brightness;
 #endif
 #ifdef HAL_PERIPH_ENABLE_BARO
@@ -53,6 +57,7 @@ public:
 
 #ifdef HAL_PERIPH_ENABLE_RANGEFINDER
     AP_Int32 rangefinder_baud;
+    AP_Int8 rangefinder_port;
 #endif
 
 #ifdef HAL_PERIPH_ENABLE_ADSB
@@ -69,6 +74,14 @@ public:
     AP_Int8 esc_number;
 #endif
 
+#ifdef HAL_PERIPH_ENABLE_GPS
+    AP_Int8 gps_port;
+#endif
+
+#ifdef HAL_PERIPH_ENABLE_MSP
+    AP_Int8 msp_port;
+#endif
+    
     AP_Int8 debug;
 
     AP_Int32 serial_number;

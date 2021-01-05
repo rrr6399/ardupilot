@@ -1358,8 +1358,108 @@ class AutoTest(ABC):
                 break
             self.delay_sim_time(1)
 
+    def get_fence_point(self, idx, target_system=1, target_component=1):
+        self.mav.mav.fence_fetch_point_send(target_system,
+                                            target_component,
+                                            idx)
+        m = self.mav.recv_match(type="FENCE_POINT", blocking=True, timeout=2)
+        print("m: %s" % str(m))
+        if m is None:
+            raise NotAchievedException("Did not get fence return point back")
+        if m.idx != idx:
+            raise NotAchievedException("Invalid idx returned (want=%u got=%u)" %
+                                       (idx, m.seq))
+        return m
+
+    def fencepoint_protocol_epsilon(self):
+        return 0.00002
+
+    def roundtrip_fencepoint_protocol(self, offset, count, lat, lng, target_system=1, target_component=1):
+        self.progress("Sending FENCE_POINT offs=%u count=%u" % (offset, count))
+        self.mav.mav.fence_point_send(target_system,
+                                      target_component,
+                                      offset,
+                                      count,
+                                      lat,
+                                      lng)
+
+        self.progress("Requesting fence point")
+        m = self.get_fence_point(offset, target_system=target_system, target_component=target_component)
+        if abs(m.lat - lat) > self.fencepoint_protocol_epsilon():
+            raise NotAchievedException("Did not get correct lat in fencepoint: got=%f want=%f" % (m.lat, lat))
+        if abs(m.lng - lng) > self.fencepoint_protocol_epsilon():
+            raise NotAchievedException("Did not get correct lng in fencepoint: got=%f want=%f" % (m.lng, lng))
+        self.progress("Roundtrip OK")
+
+    def roundtrip_fence_using_fencepoint_protocol(self, loc_list, target_system=1, target_component=1, ordering=None):
+        count = len(loc_list)
+        offset = 0
+        self.set_parameter("FENCE_TOTAL", count)
+        if ordering is None:
+            ordering = range(count)
+        elif len(ordering) != len(loc_list):
+            raise ValueError("ordering list length mismatch")
+
+        for offset in ordering:
+            loc = loc_list[offset]
+            self.roundtrip_fencepoint_protocol(offset,
+                                               count,
+                                               loc.lat,
+                                               loc.lng,
+                                               target_system,
+                                               target_component)
+
+        self.progress("Validating uploaded fence")
+        returned_count = self.get_parameter("FENCE_TOTAL")
+        if returned_count != count:
+            raise NotAchievedException("Returned count mismatch (want=%u got=%u)" %
+                                       (count, returned_count))
+        for i in range(count):
+            self.progress("Requesting fence point")
+            m = self.get_fence_point(offset, target_system=target_system, target_component=target_component)
+            if abs(m.lat-loc.lat) > self.fencepoint_protocol_epsilon():
+                raise NotAchievedException("Returned lat mismatch (want=%f got=%f" %
+                                           (loc.lat, m.lat))
+            if abs(m.lng-loc.lng) > self.fencepoint_protocol_epsilon():
+                raise NotAchievedException("Returned lng mismatch (want=%f got=%f" %
+                                           (loc.lng, m.lng))
+            if m.count != count:
+                raise NotAchievedException("Count mismatch (want=%u got=%u)" %
+                                           (count, m.count))
+
     def load_fence(self, filename):
-        self.load_fence_using_mavproxy(filename)
+        filepath = os.path.join(testdir, self.current_test_name_directory, filename)
+        self.progress("Loading fence from (%s)" % str(filepath))
+        locs = []
+        for line in open(filepath,'rb'):
+            if len(line) == 0:
+                continue
+            m = re.match("([-\d.]+)\s+([-\d.]+)\s*", line.decode('ascii'))
+            if m is None:
+                raise ValueError("Did not match (%s)" % line)
+            locs.append(mavutil.location(float(m.group(1)), float(m.group(2)), 0, 0))
+        if self.is_plane():
+            # create return point as the centroid:
+            total_lat = 0
+            total_lng = 0
+            total_cnt = 0
+            for loc in locs:
+                total_lat += loc.lat
+                total_lng += loc.lng
+                total_cnt += 1
+            locs2 = [mavutil.location(total_lat/total_cnt,
+                                      total_lng/total_cnt,
+                                      0,
+                                      0)]  # return point
+            locs2.extend(locs)
+            locs2.append(copy.copy(locs2[1]))
+            return self.roundtrip_fence_using_fencepoint_protocol(locs2)
+
+        self.upload_fences_from_locations(
+            mavutil.mavlink.MAV_CMD_NAV_FENCE_POLYGON_VERTEX_INCLUSION,
+            [
+                locs
+            ])
 
     def fetch_parameters(self):
         self.mavproxy.send("param fetch\n")
@@ -1916,9 +2016,10 @@ class AutoTest(ABC):
     def reset_SITL_commandline(self):
         self.progress("Resetting SITL commandline to default")
         self.stop_SITL()
-        self.start_SITL(wipe=False)
+        self.start_SITL(wipe=True)
         self.set_streamrate(self.sitl_streamrate()+1)
         self.set_streamrate(self.sitl_streamrate())
+        self.apply_defaultfile_parameters()
         self.progress("Reset SITL commandline to default")
 
     def stop_SITL(self):
@@ -2251,6 +2352,8 @@ class AutoTest(ABC):
                 raise NotAchievedException("Unexpected offset")
             if m.id != log_id:
                 raise NotAchievedException("Unexpected id")
+            if m.count == 0:
+                raise NotAchievedException("Zero bytes read")
             data_downloaded.extend(m.data[0:m.count])
             bytes_read += m.count
             #self.progress("Read %u bytes at offset %u" % (m.count, m.ofs))
@@ -2303,7 +2406,7 @@ class AutoTest(ABC):
         backwards_data_downloaded = []
         last_print = 0
         while bytes_read < bytes_to_read:
-            bytes_to_fetch = int(random.random() * 100)
+            bytes_to_fetch = int(random.random() * 99) + 1
             if bytes_to_fetch > 90:
                 bytes_to_fetch = 90
             if bytes_to_fetch > bytes_to_read - bytes_read:
@@ -2322,6 +2425,8 @@ class AutoTest(ABC):
                                     timeout=2)
             if m is None:
                 raise NotAchievedException("Did not get reply")
+            if m.count == 0:
+                raise NotAchievedException("xZero bytes read")
             stuff = m.data[0:m.count]
             stuff.extend(backwards_data_downloaded)
             backwards_data_downloaded = stuff
@@ -2329,7 +2434,7 @@ class AutoTest(ABC):
             # self.progress("Read %u bytes at offset %u" % (m.count, m.ofs))
             if time.time() - last_print > 10:
                 last_print = time.time()
-                self.progress("Read %u/%u" % (bytes_read, bytes_to_read))
+                self.progress("xRead %u/%u" % (bytes_read, bytes_to_read))
 
         self.assert_bytes_equal(actual_bytes, backwards_data_downloaded, maxlen=bytes_to_read)
         # if len(actual_bytes) != len(backwards_data_downloaded):
@@ -3248,6 +3353,7 @@ class AutoTest(ABC):
         self.cpufailsafe_wait_servo_channel_value(2, 1260)
         self.send_set_rc(2, 1700)
         self.cpufailsafe_wait_servo_channel_value(2, 1660)
+        self.reset_SITL_commandline()
 
     def mavproxy_arm_vehicle(self):
         """Arm vehicle with mavlink arm message send from MAVProxy."""
@@ -3775,7 +3881,15 @@ class AutoTest(ABC):
         '''change vehicle flightmode'''
         self.wait_heartbeat()
         self.progress("Changing mode to %s" % mode)
-        self.mavproxy.send('mode %s\n' % mode)
+        self.send_cmd(mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+                     mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+                     self.get_mode_from_mode_mapping(mode),
+                     0,
+                     0,
+                     0,
+                     0,
+                     0,
+        )
         tstart = self.get_sim_time()
         while not self.mode_is(mode):
             custom_num = self.mav.messages['HEARTBEAT'].custom_mode
@@ -4219,7 +4333,7 @@ class AutoTest(ABC):
             if comparator(m_value, value):
                 return m_value
 
-    def wait_rc_channel_value(self, channel, value, timeout=2):
+    def get_rc_channel_value(self, channel, timeout=2):
         """wait for channel to hit value"""
         channel_field = "chan%u_raw" % channel
         tstart = self.get_sim_time()
@@ -4233,12 +4347,22 @@ class AutoTest(ABC):
             if m is None:
                 continue
             m_value = getattr(m, channel_field)
-            self.progress("RC_CHANNELS.%s=%u want=%u time_boot_ms=%u" %
-                          (channel_field, m_value, value, m.time_boot_ms))
             if m_value is None:
                 raise ValueError("message (%s) has no field %s" %
                                  (str(m), channel_field))
-            if m_value == value:
+            return m_value
+
+    def wait_rc_channel_value(self, channel, value, timeout=2):
+        channel_field = "chan%u_raw" % channel
+        tstart = self.get_sim_time()
+        while True:
+            remaining = timeout - (self.get_sim_time_cached() - tstart)
+            if remaining <= 0:
+                raise NotAchievedException("Channel never achieved value")
+            m_value = self.get_rc_channel_value(channel, timeout=timeout)
+            self.progress("RC_CHANNELS.%s=%u want=%u" %
+                          (channel_field, m_value, value))
+            if value == m_value:
                 return
 
     def wait_location(self,
@@ -4382,11 +4506,12 @@ class AutoTest(ABC):
     def assert_sensor_state(self, sensor, present=True, enabled=True, healthy=True):
         return self.sensor_has_state(sensor, present, enabled, healthy, do_assert=True)
 
-    def sensor_has_state(self, sensor, present=True, enabled=True, healthy=True, do_assert=False):
+    def sensor_has_state(self, sensor, present=True, enabled=True, healthy=True, do_assert=False, verbose=False):
         m = self.mav.recv_match(type='SYS_STATUS', blocking=True, timeout=5)
         if m is None:
             raise NotAchievedException("Did not receive SYS_STATUS")
-#        self.progress("Status: %s" % str(mavutil.dump_message_verbose(sys.stdout, m)))
+        if verbose:
+            self.progress("Status: %s" % str(mavutil.dump_message_verbose(sys.stdout, m)))
         reported_present = m.onboard_control_sensors_present & sensor
         reported_enabled = m.onboard_control_sensors_enabled & sensor
         reported_healthy = m.onboard_control_sensors_health & sensor
@@ -4423,6 +4548,14 @@ class AutoTest(ABC):
                     raise NotAchievedException("Sensor healthy when it shouldn't be")
                 return False
         return True
+
+    def wait_sensor_state(self, sensor, present=True, enabled=True, healthy=True, timeout=5, verbose=False):
+        tstart = self.get_sim_time()
+        while True:
+            if self.get_sim_time_cached() - tstart > timeout:
+                raise NotAchievedException("Sensor did not achieve state")
+            if self.sensor_has_state(sensor, present=present, enabled=enabled, healthy=healthy, verbose=verbose):
+                break
 
     def wait_prearm_sys_status_healthy(self, timeout=60):
         self.do_timesync_roundtrip()
@@ -4639,6 +4772,8 @@ Also, ignores heartbeats not from our target system'''
     def send_statustext(self, text):
         if sys.version_info.major >= 3 and not isinstance(text, bytes):
             text = bytes(text, "ascii")
+        elif type(text) == unicode:
+            text = text.encode('ascii')
         self.mav.mav.statustext_send(mavutil.mavlink.MAV_SEVERITY_WARNING, text)
 
     def get_exception_stacktrace(self, e):
@@ -4705,8 +4840,7 @@ Also, ignores heartbeats not from our target system'''
                           self.get_exception_stacktrace(e))
             ex = e
         self.test_timings[desc] = time.time() - start_time
-        if self.contexts[-1].sitl_commandline_customised:
-            self.reset_SITL_commandline()
+        reset_needed = self.contexts[-1].sitl_commandline_customised
         self.context_pop()
 
         passed = True
@@ -4751,6 +4885,9 @@ Also, ignores heartbeats not from our target system'''
             if interact:
                 self.progress("Starting MAVProxy interaction as directed")
                 self.mavproxy.interact()
+
+        if reset_needed:
+            self.reset_SITL_commandline()
 
         self.clear_mission_using_mavproxy()
 
@@ -6045,8 +6182,8 @@ Also, ignores heartbeats not from our target system'''
                 else:
                     self.progress("SITL is NOT running")
                 raise NotAchievedException("Received %s" % str(e))
-            if int(self.mavproxy.match.group(2)) != 2:
-                raise NotAchievedException("Expected 2 logs")
+            if int(self.mavproxy.match.group(2)) != 3:
+                raise NotAchievedException("Expected 3 logs got %s" % (self.mavproxy.match.group(2)))
 
             self.mavproxy.send("log download 1 logs/dataflash-log-erase2.BIN\n")
             self.mavproxy.expect("Finished downloading", timeout=120)
@@ -7640,24 +7777,14 @@ switch value'''
             self.assert_capability(mavutil.mavlink.MAV_PROTOCOL_CAPABILITY_FLIGHT_TERMINATION)
             self.set_parameter("AFS_TERM_ACTION", 42)
             self.load_sample_mission()
-            messages = []
-            def my_message_hook(mav, m):
-                if m.get_type() != 'STATUSTEXT':
-                    return
-                messages.append(m)
-            self.install_message_hook(my_message_hook)
-            try:
-                self.change_mode("AUTO") # must go to auto for AFS to latch on
-            finally:
-                self.remove_message_hook(my_message_hook)
-
-            if "AFS State: AFS_AUTO" not in [x.text for x in messages]:
-                self.wait_statustext("AFS State: AFS_AUTO")
+            self.context_collect("STATUSTEXT")
+            self.change_mode("AUTO") # must go to auto for AFS to latch on
+            self.wait_statustext("AFS State: AFS_AUTO", check_context=True)
             self.change_mode("MANUAL")
             self.start_subtest("RC Failure")
             self.set_parameter("AFS_RC_FAIL_TIME", 1)
             self.set_parameter("SIM_RC_FAIL", 1)
-            self.wait_statustext("Terminating due to RC failure")
+            self.wait_statustext("Terminating due to RC failure", check_context=True)
             self.set_parameter("AFS_RC_FAIL_TIME", 0)
             self.set_parameter("SIM_RC_FAIL", 0)
             self.set_parameter("AFS_TERMINATE", 0)
@@ -7667,7 +7794,7 @@ switch value'''
                 self.start_subtest("Altitude Limit breach")
                 self.set_parameter("AFS_AMSL_LIMIT", 100)
                 self.mavproxy.send("fence enable\n")
-                self.wait_statustext("Terminating due to fence breach")
+                self.wait_statustext("Terminating due to fence breach", check_context=True)
                 self.set_parameter("AFS_AMSL_LIMIT", 0)
                 self.set_parameter("AFS_TERMINATE", 0)
                 self.mavproxy.send("fence disable\n")
@@ -7675,12 +7802,12 @@ switch value'''
             self.start_subtest("GPS Failure")
             self.set_parameter("AFS_MAX_GPS_LOSS", 1)
             self.set_parameter("SIM_GPS_DISABLE", 1)
-            self.wait_statustext("AFS State: GPS_LOSS")
+            self.wait_statustext("AFS State: GPS_LOSS", check_context=True)
             self.set_parameter("SIM_GPS_DISABLE", 0)
             self.set_parameter("AFS_MAX_GPS_LOSS", 0)
             self.set_parameter("AFS_TERMINATE", 0)
 
-            self.send_cmd(mavutil.mavlink.MAV_CMD_DO_FLIGHTTERMINATION,
+            self.run_cmd(mavutil.mavlink.MAV_CMD_DO_FLIGHTTERMINATION,
                           1,  # terminate
                           0,
                           0,
@@ -7689,7 +7816,7 @@ switch value'''
                           0,
                           0,
             )
-            self.wait_statustext("Terminating due to GCS request")
+            self.wait_statustext("Terminating due to GCS request", check_context=True)
 
         except Exception as e:
             ex = e
@@ -8731,10 +8858,7 @@ switch value'''
             ])
             crsf = CRSF(("127.0.0.1", 6735))
             crsf.connect()
-            self.wait_ready_to_arm()
-            self.drain_mav_unparsed()
 
-            prev = self.get_parameter("LOG_BITMASK")
             self.progress("Writing vtx_frame")
             crsf.write_data_id(crsf.dataid_vtx_frame)
             self.delay_sim_time(5)

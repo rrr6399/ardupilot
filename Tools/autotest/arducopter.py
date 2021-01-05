@@ -1640,38 +1640,43 @@ class AutoTestCopter(AutoTest):
 
         self.takeoff(10, mode="LOITER")
 
-        self.mavproxy.send('mode CIRCLE\n')
-        self.wait_mode('CIRCLE')
+        self.change_mode('CIRCLE')
 
         self.delay_sim_time(20)
+
+        self.context_collect("STATUSTEXT")
 
         self.progress("Failing first compass")
         self.set_parameter("SIM_MAG1_FAIL", 1)
 
         # we want for the message twice, one for EK2 and again for EK3
-        self.wait_statustext("IMU0 switching to compass 1")
-        self.wait_statustext("IMU0 switching to compass 1")
+        self.wait_statustext("EKF2 IMU0 switching to compass 1", check_context=True)
+        self.wait_statustext("EKF3 IMU0 switching to compass 1", check_context=True)
         self.progress("compass switch 1 OK")
 
         self.delay_sim_time(2)
 
+        self.context_clear_collection("STATUSTEXT")
+
         self.progress("Failing 2nd compass")
         self.set_parameter("SIM_MAG2_FAIL", 1)
 
-        self.wait_statustext("IMU0 switching to compass 2")
-        self.wait_statustext("IMU0 switching to compass 2")
+        self.wait_statustext("EKF2 IMU0 switching to compass 2", check_context=True)
+        self.wait_statustext("EKF3 IMU0 switching to compass 2", check_context=True)
 
         self.progress("compass switch 2 OK")
 
         self.delay_sim_time(2)
+
+        self.context_clear_collection("STATUSTEXT")
 
         self.progress("Failing 3rd compass")
         self.set_parameter("SIM_MAG3_FAIL", 1)
         self.delay_sim_time(2)
         self.set_parameter("SIM_MAG1_FAIL", 0)
 
-        self.wait_statustext("IMU0 switching to compass 0")
-        self.wait_statustext("IMU0 switching to compass 0")
+        self.wait_statustext("EKF2 IMU0 switching to compass 0", check_context=True)
+        self.wait_statustext("EKF3 IMU0 switching to compass 0", check_context=True)
         self.progress("compass switch 0 OK")
 
         self.do_RTL()
@@ -2256,7 +2261,7 @@ class AutoTestCopter(AutoTest):
             self.set_parameter("EK3_SRC2_POSZ", 6)  # External Nav
             self.set_parameter("EK3_SRC2_VELXY", 6) # External Nav
             self.set_parameter("EK3_SRC2_VELZ", 6)  # External Nav
-            self.set_parameter("EK3_SRC2_YAW", 2)   # External Nav
+            self.set_parameter("EK3_SRC2_YAW", 6)   # External Nav
             self.set_parameter("RC7_OPTION", 80)    # RC aux switch 7 set to Viso Align
             self.set_parameter("RC8_OPTION", 90)    # RC aux switch 8 set to EKF source selector
             self.reboot_sitl()
@@ -5616,6 +5621,16 @@ class AutoTestCopter(AutoTest):
         print("log difference: %s" % str(log_difference))
         return log_difference[0]
 
+    def test_callisto(self):
+        self.customise_SITL_commandline([
+            "--defaults", self.model_defaults_filepath('ArduCopter', 'Callisto')
+        ],
+                                        model="octa-quad:@ROMFS/models/Callisto.json",
+                                        wipe=True,
+)
+        self.takeoff(10)
+        self.do_RTL()
+
     def test_replay(self):
         '''test replay correctness'''
         self.progress("Building Replay")
@@ -6014,6 +6029,10 @@ class AutoTestCopter(AutoTest):
             ("DataFlashErase",
              "Test DataFlash Block backend erase",
              self.test_dataflash_erase),
+
+            ("Callisto",
+             "Test Callisto",
+             self.test_callisto),
 
             ("Replay",
              "Test Replay",

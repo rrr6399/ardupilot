@@ -713,7 +713,11 @@ bool NavEKF3::InitialiseFilter(void)
     imuSampleTime_us = AP::dal().micros64();
 
     // remember expected frame time
-    _frameTimeUsec = 1e6 / ins.get_loop_rate_hz();
+    const float loop_rate = ins.get_loop_rate_hz();
+    if (!is_positive(loop_rate)) {
+        return false;
+    }
+    _frameTimeUsec = 1e6 / loop_rate;
 
     // expected number of IMU frames per prediction
     _framesPerPrediction = uint8_t((EKF_TARGET_DT / (_frameTimeUsec * 1.0e-6) + 0.5));
@@ -1066,7 +1070,7 @@ bool NavEKF3::pre_arm_check(char *failure_msg, uint8_t failure_msg_len) const
     // check if using compass (i.e. EK3_SRCn_YAW) with deprecated MAG_CAL values (5 was EXTERNAL_YAW, 6 was EXTERNAL_YAW_FALLBACK)
     const int8_t magCalParamVal = _magCal.get();
     const AP_NavEKF_Source::SourceYaw yaw_source = sources.getYawSource();
-    if (((magCalParamVal == 5) || (magCalParamVal == 6)) && (yaw_source != AP_NavEKF_Source::SourceYaw::EXTERNAL)) {
+    if (((magCalParamVal == 5) || (magCalParamVal == 6)) && (yaw_source != AP_NavEKF_Source::SourceYaw::GPS)) {
         // yaw source is configured to use compass but MAG_CAL valid is deprecated
         AP::dal().snprintf(failure_msg, failure_msg_len, "EK3_MAG_CAL and EK3_SRC1_YAW inconsistent");
         return false;
@@ -1668,11 +1672,11 @@ void NavEKF3::convert_parameters()
     switch (_magCal.get()) {
     case 5:
         // EK3_MAG_CAL = 5 (External Yaw sensor).  We rely on effective_magCal to interpret old "5" values as "Never"
-        AP_Param::set_and_save_by_name("EK3_SRC1_YAW", (int8_t)AP_NavEKF_Source::SourceYaw::EXTERNAL);
+        AP_Param::set_and_save_by_name("EK3_SRC1_YAW", (int8_t)AP_NavEKF_Source::SourceYaw::GPS);
         break;
     case 6:
         // EK3_MAG_CAL = 6 (ExtYaw with Compass fallback).  We rely on effective_magCal to interpret old "6" values as "When Flying"
-        AP_Param::set_and_save_by_name("EK3_SRC1_YAW", (int8_t)AP_NavEKF_Source::SourceYaw::EXTERNAL_COMPASS_FALLBACK);
+        AP_Param::set_and_save_by_name("EK3_SRC1_YAW", (int8_t)AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK);
         break;
     default:
         // do nothing
