@@ -344,8 +344,10 @@ def start_SITL(binary,
         cmd.extend(['--speedup', str(speedup)])
     if defaults_filepath is not None:
         if type(defaults_filepath) == list:
-            defaults_filepath = ",".join(defaults_filepath)
-        cmd.extend(['--defaults', defaults_filepath])
+            if len(defaults_filepath):
+                cmd.extend(['--defaults', ",".join(defaults_filepath)])
+        else:
+            cmd.extend(['--defaults', defaults_filepath])
     if unhide_parameters:
         cmd.extend(['--unhide-groups'])
     cmd.extend(customisations)
@@ -442,7 +444,6 @@ def start_MAVProxy_SITL(atype, aircraft=None, setup=False, master='tcp:127.0.0.1
     cmd = []
     cmd.append(mavproxy_cmd())
     cmd.extend(['--master', master])
-    cmd.extend(['--out', '127.0.0.1:14550'])
     if setup:
         cmd.append('--setup')
     if aircraft is None:

@@ -130,7 +130,7 @@ const AP_Param::GroupInfo NavEKF3::var_info[] = {
     // @Values: 0:Disabled, 1:Enabled
     // @User: Advanced
     // @RebootRequired: True
-    AP_GROUPINFO_FLAGS("ENABLE", 0, NavEKF3, _enable, 0, AP_PARAM_FLAG_ENABLE),
+    AP_GROUPINFO_FLAGS("ENABLE", 0, NavEKF3, _enable, 1, AP_PARAM_FLAG_ENABLE),
 
     // GPS measurement parameters
 
@@ -1170,14 +1170,6 @@ float NavEKF3::getPosDownDerivative(int8_t instance) const
     return 0.0f;
 }
 
-// This returns the specific forces in the NED frame
-void NavEKF3::getAccelNED(Vector3f &accelNED) const
-{
-    if (core) {
-        core[primary].getAccelNED(accelNED);
-    }
-}
-
 // return body axis gyro bias estimates in rad/sec
 void NavEKF3::getGyroBias(int8_t instance, Vector3f &gyroBias) const
 {
@@ -1193,15 +1185,6 @@ void NavEKF3::getAccelBias(int8_t instance, Vector3f &accelBias) const
     if (instance < 0 || instance >= num_cores) instance = primary;
     if (core) {
         core[instance].getAccelBias(accelBias);
-    }
-}
-
-// return estimated 1-sigma tilt error for the specified instance in radians
-void NavEKF3::getTiltError(int8_t instance, float &ang) const
-{
-    if (instance < 0 || instance >= num_cores) instance = primary;
-    if (core) {
-        core[instance].getTiltError(ang);
     }
 }
 

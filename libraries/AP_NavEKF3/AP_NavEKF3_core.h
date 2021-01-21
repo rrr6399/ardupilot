@@ -125,17 +125,11 @@ public:
     // but will always be kinematically consistent with the z component of the EKF position state
     float getPosDownDerivative(void) const;
 
-    // This returns the specific forces in the NED frame
-    void getAccelNED(Vector3f &accelNED) const;
-
     // return body axis gyro bias estimates in rad/sec
     void getGyroBias(Vector3f &gyroBias) const;
 
     // return accelerometer bias in m/s/s
     void getAccelBias(Vector3f &accelBias) const;
-
-    // return estimated 1-sigma tilt error in radians
-    void getTiltError(float &ang) const;
 
     // reset body axis gyro bias estimates
     void resetGyroBias(void);
@@ -1417,6 +1411,9 @@ private:
 
     // timing statistics
     struct ekf_timing timing;
+
+    // when was attitude filter status last non-zero?
+    uint32_t last_filter_ok_ms;
     
     // should we assume zero sideslip?
     bool assume_zero_sideslip(void) const;
