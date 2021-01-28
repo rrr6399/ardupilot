@@ -675,6 +675,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
             raise ex
 
     def test_rc_override_cancel(self):
+        self.set_parameter("SYSID_MYGCS", self.mav.source_system)
         self.change_mode('MANUAL')
         self.wait_ready_to_arm()
         self.zero_throttle()
@@ -745,6 +746,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
 
     def test_rc_overrides(self):
         self.context_push()
+        self.set_parameter("SYSID_MYGCS", self.mav.source_system)
         ex = None
         try:
             self.set_parameter("RC12_OPTION", 46)
@@ -996,6 +998,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
 
     def test_manual_control(self):
         self.context_push()
+        self.set_parameter("SYSID_MYGCS", self.mav.source_system)
         ex = None
         try:
             self.set_parameter("RC12_OPTION", 46) # enable/disable rc overrides
@@ -1140,13 +1143,16 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
 
     def test_sysid_enforce(self):
         '''Run the same arming code with correct then incorrect SYSID'''
+
+        if self.mav.source_system != self.mav.mav.srcSystem:
+            raise PreconditionFailedException("Expected mav.source_system and mav.srcSystem to match")
+
         self.context_push()
+        old_srcSystem = self.mav.mav.srcSystem
         ex = None
         try:
-            # if set_parameter is ever changed to not use MAVProxy
-            # this test is going to break horribly.  Sorry.
-            self.set_parameter("SYSID_MYGCS", 255) # assume MAVProxy does this!
-            self.set_parameter("SYSID_ENFORCE", 1) # assume MAVProxy does this!
+            self.set_parameter("SYSID_MYGCS", self.mav.source_system)
+            self.set_parameter("SYSID_ENFORCE", 1, add_to_context=False)
 
             self.change_mode('MANUAL')
 
@@ -1155,23 +1161,25 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
             self.arm_vehicle(timeout=5)
             self.disarm_vehicle()
 
-            # temporarily set a different system ID than MAVProxy:
-            self.progress("Attempting to arm vehicle myself")
-            old_srcSystem = self.mav.mav.srcSystem
+            self.do_timesync_roundtrip()
+
+            # should not be able to arm from a system id which is not MY_SYSID
+            self.progress("Attempting to arm vehicle from bad system-id")
+            success = None
             try:
-                self.mav.mav.srcSystem = 243
+                # temporarily set a different system ID than normal:
+                self.mav.mav.srcSystem = 72
                 self.arm_vehicle(timeout=5)
                 self.disarm_vehicle()
                 success = False
-            except AutoTestTimeoutException as e:
+            except AutoTestTimeoutException:
                 success = True
             self.mav.mav.srcSystem = old_srcSystem
             if not success:
-                raise NotAchievedException(
-                    "Managed to arm with SYSID_ENFORCE set")
+                raise NotAchievedException("Managed to arm with SYSID_ENFORCE set")
 
+            # should be able to arm from the vehicle's own components:
             self.progress("Attempting to arm vehicle from vehicle component")
-            old_srcSystem = self.mav.mav.srcSystem
             comp_arm_exception = None
             try:
                 self.mav.mav.srcSystem = 1
@@ -1187,6 +1195,8 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
             self.progress("Exception caught: %s" % (
                 self.get_exception_stacktrace(e)))
             ex = e
+        self.mav.mav.srcSystem = old_srcSystem
+        self.set_parameter("SYSID_ENFORCE", 0, add_to_context=False)
         self.context_pop()
         if ex is not None:
             raise ex
@@ -2944,9 +2954,9 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
                                                 target_component,
                                                 1)
             m = self.mav.recv_match(type="RALLY_POINT", blocking=True, timeout=1)
-            if m.target_system != 255:
+            if m.target_system != self.mav.source_system:
                 raise NotAchievedException("Bad target_system on received rally point (want=%u got=%u)" % (255, m.target_system))
-            if m.target_component != 250: # autotest's component ID
+            if m.target_component != self.mav.source_component: # autotest's component ID
                 raise NotAchievedException("Bad target_component on received rally point")
             if m.lat != item1_lat:
                 raise NotAchievedException("Bad latitude on received rally point")
@@ -5431,6 +5441,73 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
                 break
         self.disarm_vehicle()
 
+    def test_end_mission_behavior(self, timeout=60):
+        self.context_push()
+        ex = None
+        try:
+            self.load_mission("end-mission.txt")
+            self.wait_ready_to_arm()
+            self.arm_vehicle()
+
+            self.start_subtest("Test End Mission Behavior HOLD")
+            self.context_collect("STATUSTEXT")
+            self.change_mode("AUTO")
+            self.wait_text("Mission Complete", check_context=True, wallclock_timeout=2)
+            # On Hold we should just stop and don't update the navigation target anymore
+            tstart = self.get_sim_time()
+            while True:
+                if self.get_sim_time_cached() - tstart > 15:
+                    raise AutoTestTimeoutException("Still getting POSITION_TARGET_GLOBAL_INT")
+                m = self.mav.recv_match(type="POSITION_TARGET_GLOBAL_INT",
+                                        blocking=True,
+                                        timeout=10)
+                if m is None:
+                    self.progress("No POSITION_TARGET_GLOBAL_INT received, all good !")
+                    break
+            self.context_clear_collection("STATUSTEXT")
+            self.change_mode("GUIDED")
+            self.context_collect("STATUSTEXT")
+
+            self.start_subtest("Test End Mission Behavior LOITER")
+            self.set_parameter("MIS_DONE_BEHAVE", 1)
+            self.change_mode("AUTO")
+            self.wait_text("Mission Complete", check_context=True, wallclock_timeout=2)
+            # On LOITER we should update the navigation target
+            tstart = self.get_sim_time()
+            while True:
+                if self.get_sim_time_cached() - tstart > 15:
+                    raise AutoTestTimeoutException("Not getting POSITION_TARGET_GLOBAL_INT")
+                m = self.mav.recv_match(type="POSITION_TARGET_GLOBAL_INT",
+                                        blocking=True,
+                                        timeout=5)
+                if m is None:
+                    self.progress("No POSITION_TARGET_GLOBAL_INT received")
+                    continue
+                else:
+                    if self.get_sim_time_cached() - tstart > 15:
+                        self.progress("Got POSITION_TARGET_GLOBAL_INT, all good !")
+                        break
+            self.change_mode("GUIDED")
+
+            self.start_subtest("Test End Mission Behavior ACRO")
+            self.set_parameter("MIS_DONE_BEHAVE", 2)
+            self.change_mode("AUTO")
+            self.wait_mode("ACRO")
+
+            self.start_subtest("Test End Mission Behavior MANUAL")
+            self.set_parameter("MIS_DONE_BEHAVE", 3)
+            self.change_mode("AUTO")
+            self.wait_mode("MANUAL")
+            self.disarm_vehicle()
+        except Exception as e:
+            self.progress("Caught exception: %s" %
+                          self.get_exception_stacktrace(e))
+            ex = e
+        self.context_pop()
+        self.reboot_sitl()
+        if ex is not None:
+            raise ex
+
     def tests(self):
         '''return list of all tests'''
         ret = super(AutoTestRover, self).tests()
@@ -5629,9 +5706,17 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
              "Accelerometer Calibration testing",
              self.accelcal),
 
+            ("AHRSTrim",
+             "Accelerometer trim testing",
+             self.ahrstrim),
+             
             ("AP_Proximity_MAV",
              "Test MAV proximity backend",
              self.ap_proximity_mav),
+
+            ("EndMissionBehavior",
+             "Test end mission behavior",
+             self.test_end_mission_behavior),
 
             ("LogUpload",
              "Upload logs",

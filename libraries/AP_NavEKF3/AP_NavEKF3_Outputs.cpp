@@ -59,6 +59,7 @@ float NavEKF3_core::errorScore() const
     return score;
 }
 
+#if EK3_FEATURE_BODY_ODOM
 // return data for debugging body frame odometry fusion
 uint32_t NavEKF3_core::getBodyFrameOdomDebug(Vector3f &velInnov, Vector3f &velInnovVar)
 {
@@ -70,6 +71,7 @@ uint32_t NavEKF3_core::getBodyFrameOdomDebug(Vector3f &velInnov, Vector3f &velIn
     velInnovVar.z = varInnovBodyVel[2];
     return MAX(bodyOdmDataDelayed.time_ms,wheelOdmDataDelayed.time_ms);
 }
+#endif // EK3_FEATURE_BODY_ODOM
 
 // provides the height limit to be observed by the control loops
 // returns false if no height limiting is required
@@ -438,9 +440,11 @@ void  NavEKF3_core::getInnovations(Vector3f &velInnov, Vector3f &posInnov, Vecto
 // return the synthetic air data drag and sideslip innovations
 void NavEKF3_core::getSynthAirDataInnovations(Vector2f &dragInnov, float &betaInnov) const
 {
+#if EK3_FEATURE_DRAG_FUSION
     dragInnov.x = innovDrag[0];
     dragInnov.y = innovDrag[1];
     betaInnov   = innovBeta;
+#endif
 }
 
 // return the innovation consistency test ratios for the velocity, position, magnetometer and true airspeed measurements
@@ -472,6 +476,7 @@ bool NavEKF3_core::getVelInnovationsAndVariancesForSource(AP_NavEKF_Source::Sour
         innovations = gpsVelInnov;
         variances = gpsVelVarInnov;
         return true;
+#if EK3_FEATURE_EXTERNAL_NAV
     case AP_NavEKF_Source::SourceXY::EXTNAV:
         // check for timeouts
         if (AP_HAL::millis() - extNavVelInnovTime_ms > 500) {
@@ -480,6 +485,7 @@ bool NavEKF3_core::getVelInnovationsAndVariancesForSource(AP_NavEKF_Source::Sour
         innovations = extNavVelInnov;
         variances = extNavVelVarInnov;
         return true;
+#endif // EK3_FEATURE_EXTERNAL_NAV
     default:
         // variances are not available for this source
         return false;
@@ -510,26 +516,6 @@ void  NavEKF3_core::getFilterFaults(uint16_t &faults) const
               faultStatus.bad_airspeed<<5 |
               faultStatus.bad_sideslip<<6 |
               !statesInitialised<<7);
-}
-
-/*
-return filter timeout status as a bitmasked integer
- 0 = position measurement timeout
- 1 = velocity measurement timeout
- 2 = height measurement timeout
- 3 = magnetometer measurement timeout
- 4 = true airspeed measurement timeout
- 5 = unassigned
- 6 = unassigned
- 7 = unassigned
-*/
-void  NavEKF3_core::getFilterTimeouts(uint8_t &timeouts) const
-{
-    timeouts = (posTimeout<<0 |
-                velTimeout<<1 |
-                hgtTimeout<<2 |
-                magTimeout<<3 |
-                tasTimeout<<4);
 }
 
 // Return the navigation filter status message

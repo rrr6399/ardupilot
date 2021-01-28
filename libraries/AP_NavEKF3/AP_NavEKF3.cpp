@@ -1060,10 +1060,11 @@ bool NavEKF3::healthy(void) const
 }
 
 // returns false if we fail arming checks, in which case the buffer will be populated with a failure message
-bool NavEKF3::pre_arm_check(char *failure_msg, uint8_t failure_msg_len) const
+// requires_position should be true if horizontal position configuration should be checked
+bool NavEKF3::pre_arm_check(bool requires_position, char *failure_msg, uint8_t failure_msg_len) const
 {
     // check source configuration
-    if (!sources.pre_arm_check(failure_msg, failure_msg_len)) {
+    if (!sources.pre_arm_check(requires_position, failure_msg, failure_msg_len)) {
         return false;
     }
 
@@ -1746,27 +1747,6 @@ void NavEKF3::getFilterFaults(int8_t instance, uint16_t &faults) const
         core[instance].getFilterFaults(faults);
     } else {
         faults = 0;
-    }
-}
-
-/*
-  return filter timeout status as a bitmasked integer
-  0 = position measurement timeout
-  1 = velocity measurement timeout
-  2 = height measurement timeout
-  3 = magnetometer measurement timeout
-  4 = unassigned
-  5 = unassigned
-  6 = unassigned
-  7 = unassigned
-*/
-void NavEKF3::getFilterTimeouts(int8_t instance, uint8_t &timeouts) const
-{
-    if (instance < 0 || instance >= num_cores) instance = primary;
-    if (core) {
-        core[instance].getFilterTimeouts(timeouts);
-    } else {
-        timeouts = 0;
     }
 }
 

@@ -1112,12 +1112,12 @@ bool AP_InertialSensor::_calculate_trim(const Vector3f &accel_sample, float& tri
     trim_roll = atan2f(-accel_sample.y, -accel_sample.z);
     if (fabsf(trim_roll) > radians(10) ||
         fabsf(trim_pitch) > radians(10)) {
-        hal.console->printf("trim over maximum of 10 degrees\n");
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "trim over maximum of 10 degrees");
         return false;
     }
-    hal.console->printf("Trim OK: roll=%.2f pitch=%.2f\n",
-                          (double)degrees(trim_roll),
-                          (double)degrees(trim_pitch));
+    GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Trim OK: roll=%.2f pitch=%.2f",
+                  (double)degrees(trim_roll),
+                  (double)degrees(trim_pitch));
     return true;
 }
 
@@ -1214,8 +1214,6 @@ bool AP_InertialSensor::calibrate_trim(float &trim_roll, float &trim_pitch)
         return false;
     }
 
-    _calibrating_accel = true;
-
     const uint8_t update_dt_milliseconds = (uint8_t)(1000.0f/get_loop_rate_hz()+0.5f);
 
     // wait 100ms for ins filter to rise
@@ -1246,11 +1244,9 @@ bool AP_InertialSensor::calibrate_trim(float &trim_roll, float &trim_pitch)
         goto failed;
     }
 
-    _calibrating_accel = false;
     return true;
 
 failed:
-    _calibrating_accel = false;
     return false;
 }
 
@@ -2202,8 +2198,6 @@ MAV_RESULT AP_InertialSensor::simple_accel_cal()
 
     // flash leds to tell user to keep the IMU still
     AP_Notify::flags.initialising = true;
-
-    hal.console->printf("Simple accel cal");
 
     /*
       we do the accel calibration with no board rotation. This avoids
