@@ -15,8 +15,12 @@
 #pragma once
 
 #include "AP_Frsky_Backend.h"
+#include "AP_Frsky_SPort.h"
+
+class AP_Frsky_Parameters;
 
 class AP_Frsky_Telem {
+
 public:
     AP_Frsky_Telem();
 
@@ -34,7 +38,11 @@ public:
     }
 
     // get next telemetry data for external consumers of SPort data
-    static bool get_telem_data(uint8_t &frame, uint16_t &appid, uint32_t &data);
+    static bool get_telem_data(AP_Frsky_Backend::sport_packet_t* packet_array, uint8_t &packet_count, const uint8_t max_size);
+#if HAL_WITH_FRSKY_TELEM_BIDIRECTIONAL
+    // set telemetry data from external producer of SPort data
+    static bool set_telem_data(const uint8_t frame,const uint16_t appid, const uint32_t data);
+#endif
 
     void queue_message(MAV_SEVERITY severity, const char *text) {
         if (_backend == nullptr) {
@@ -46,10 +54,15 @@ public:
 private:
 
     AP_Frsky_Backend *_backend;
+    AP_Frsky_Parameters* _frsky_parameters;
 
     // get next telemetry data for external consumers of SPort data (internal function)
-    bool _get_telem_data(uint8_t &frame, uint16_t &appid, uint32_t &data);
-
+    bool _get_telem_data(AP_Frsky_Backend::sport_packet_t* packet_array, uint8_t &packet_count, const uint8_t max_size);
+#if HAL_WITH_FRSKY_TELEM_BIDIRECTIONAL
+    // set telemetry data from external producer of SPort data (internal function)
+    bool _set_telem_data(const uint8_t frame, const uint16_t appid, const uint32_t data);
+#endif
+    static void try_create_singleton_for_external_data(void);
     static AP_Frsky_Telem *singleton;
 
 };

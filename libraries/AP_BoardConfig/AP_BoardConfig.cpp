@@ -23,6 +23,7 @@
 #include <AP_RTC/AP_RTC.h>
 #include <AP_Vehicle/AP_Vehicle.h>
 #include <GCS_MAVLink/GCS.h>
+#include <AP_Filesystem/AP_Filesystem.h>
 
 #include <stdio.h>
 
@@ -63,7 +64,7 @@
 #endif
 
 #ifndef HAL_BRD_OPTIONS_DEFAULT
-#if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS && !APM_BUILD_TYPE(APM_BUILD_UNKNOWN)
+#if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS && !APM_BUILD_TYPE(APM_BUILD_UNKNOWN) && !APM_BUILD_TYPE(APM_BUILD_Replay)
 #define HAL_BRD_OPTIONS_DEFAULT BOARD_OPTION_WATCHDOG
 #else
 #define HAL_BRD_OPTIONS_DEFAULT 0
@@ -269,7 +270,7 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
     // @Param: OPTIONS
     // @DisplayName: Board options
     // @Description: Board specific option flags
-    // @Bitmask: 0:Enable hardware watchdog
+    // @Bitmask: 0:Enable hardware watchdog, 1:Disable MAVftp, 2:Enable set of internal parameters
     // @User: Advanced
     AP_GROUPINFO("OPTIONS", 19, AP_BoardConfig, _options, HAL_BRD_OPTIONS_DEFAULT),
 
@@ -337,7 +338,7 @@ void AP_BoardConfig::init()
     uint8_t slowdown = constrain_int16(_sdcard_slowdown.get(), 0, 32);
     const uint8_t max_slowdown = 8;
     do {
-        if (hal.util->fs_init()) {
+        if (AP::FS().retry_mount()) {
             break;
         }
         slowdown++;
@@ -381,7 +382,7 @@ void AP_BoardConfig::config_error(const char *fmt, ...)
     uint32_t last_print_ms = 0;
     while (true) {
         uint32_t now = AP_HAL::millis();
-        if (now - last_print_ms >= 3000) {
+        if (now - last_print_ms >= 5000) {
             last_print_ms = now;
             va_list arg_list;
             char printfmt[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN+2];
@@ -401,6 +402,7 @@ void AP_BoardConfig::config_error(const char *fmt, ...)
         gcs().update_receive();
         gcs().update_send();
 #endif
+        EXPECT_DELAY_MS(10);
         hal.scheduler->delay(5);
     }
 }

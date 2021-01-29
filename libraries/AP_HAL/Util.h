@@ -3,6 +3,8 @@
 #include <stdarg.h>
 #include "AP_HAL_Namespace.h"
 
+class ExpandingString;
+
 class AP_HAL::Util {
 public:
     int snprintf(char* str, size_t size,
@@ -179,16 +181,17 @@ public:
      */
     virtual uint32_t available_memory(void) { return 4096; }
 
-    /*
-      initialise (or re-initialise) filesystem storage
-     */
-    virtual bool fs_init(void) { return false; }
-
     // attempt to trap the processor, presumably to enter an attached debugger
     virtual bool trap() const { return false; }
 
     // request information on running threads
-    virtual size_t thread_info(char *buf, size_t bufsize) { return 0; }
+    virtual void thread_info(ExpandingString &str) {}
+
+    // request information on dma contention
+    virtual void dma_info(ExpandingString &str) {}
+
+    // load persistent parameters from bootloader sector
+    virtual bool load_persistent_params(ExpandingString &str) const { return false; }
 
 protected:
     // we start soft_armed false, so that actuators don't send any

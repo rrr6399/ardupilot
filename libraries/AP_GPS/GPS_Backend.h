@@ -54,7 +54,10 @@ public:
 #if HAL_MSP_GPS_ENABLED
     virtual void handle_msp(const MSP::msp_gps_data_message_t &pkt) { return; }
 #endif
-
+#if HAL_EXTERNAL_AHRS_ENABLED
+    virtual void handle_external(const AP_ExternalAHRS::gps_data_message_t &pkt) { return; }
+#endif
+    
     // driver specific lag, returns true if the driver is confident in the provided lag
     virtual bool get_lag(float &lag) const { lag = 0.2f; return true; }
 
@@ -111,11 +114,25 @@ protected:
 
     void check_new_itow(uint32_t itow, uint32_t msg_length);
 
+    enum DriverOptions : int16_t {
+        UBX_MBUseUart2    = (1 << 0U),
+        SBF_UseBaseForYaw = (1 << 1U),
+    };
+
     /*
       access to driver option bits
      */
-    uint16_t driver_options(void) const {
-        return uint16_t(gps._driver_options.get());
+    DriverOptions driver_options(void) const {
+        return DriverOptions(gps._driver_options.get());
+    }
+
+#if GPS_MOVING_BASELINE
+    bool calculate_moving_base_yaw(const float reported_heading_deg, const float reported_distance, const float reported_D);
+#endif //GPS_MOVING_BASELINE
+
+    // get GPS type, for subtype config
+    AP_GPS::GPS_Type get_type() const {
+        return gps.get_type(state.instance);
     }
 
 private:

@@ -25,8 +25,8 @@
 #define RX_BOUNCE_BUFSIZE 64U
 #define TX_BOUNCE_BUFSIZE 64U
 
-// enough for uartA to uartH, plus IOMCU
-#define UART_MAX_DRIVERS 9
+// enough for uartA to uartI, plus IOMCU
+#define UART_MAX_DRIVERS 10
 
 class ChibiOS::UARTDriver : public AP_HAL::UARTDriver {
 public:
@@ -68,6 +68,7 @@ public:
 
     struct SerialDef {
         BaseSequentialStream* serial;
+        uint8_t instance;
         bool is_usb;
 #ifndef HAL_UART_NODMA
         bool dma_rx;
@@ -127,6 +128,12 @@ private:
     bool rx_dma_enabled;
     bool tx_dma_enabled;
 
+    /*
+      copy of rx_line and tx_line with alternative configs resolved
+     */
+    ioline_t atx_line;
+    ioline_t arx_line;
+    
     // thread used for all UARTs
     static thread_t *uart_thread_ctx;
 

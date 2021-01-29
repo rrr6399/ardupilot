@@ -8,10 +8,14 @@
 
 #include <AP_Filesystem/AP_Filesystem.h>
 
-#if HAVE_FILESYSTEM_SUPPORT
-
 #include <AP_HAL/utility/RingBuffer.h>
 #include "AP_Logger_Backend.h"
+
+#if HAL_LOGGING_FILESYSTEM_ENABLED
+
+#ifndef HAL_LOGGER_WRITE_CHUNK_SIZE
+#define HAL_LOGGER_WRITE_CHUNK_SIZE 4096
+#endif
 
 class AP_Logger_File : public AP_Logger_Backend
 {
@@ -27,9 +31,6 @@ public:
 
     // erase handling
     void EraseAll() override;
-
-    // possibly time-consuming preparation handling:
-    void Prep() override;
 
     /* Write a block of data at current offset */
     bool _WritePrioritisedBlock(const void *pBuffer, uint16_t size, bool is_critical) override;
@@ -54,6 +55,7 @@ public:
     bool logging_failed() const override;
 
     bool logging_started(void) const override { return _write_fd != -1; }
+    void io_timer(void) override;
 
 protected:
 
@@ -61,18 +63,18 @@ protected:
     bool StartNewLogOK() const override;
 
 private:
-    int _write_fd;
+    int _write_fd = -1;
     char *_write_filename;
     uint32_t _last_write_ms;
 #if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
     bool _need_rtc_update;
 #endif
     
-    int _read_fd;
+    int _read_fd = -1;
     uint16_t _read_fd_log_num;
     uint32_t _read_offset;
     uint32_t _write_offset;
-    volatile bool _open_error;
+    volatile uint32_t _open_error_ms;
     const char *_log_directory;
     bool _last_write_failed;
 
@@ -80,20 +82,22 @@ private:
     bool io_thread_alive() const;
     uint8_t io_thread_warning_decimation_counter;
 
+    // do we have a recent open error?
+    bool recent_open_error(void) const;
+
     // possibly time-consuming preparations handling
     void Prep_MinSpace();
     int64_t disk_space_avail();
     int64_t disk_space();
 
     void ensure_log_directory_exists();
-    bool NeedPrep();
 
     bool file_exists(const char *filename) const;
     bool log_exists(const uint16_t lognum) const;
 
     // write buffer
-    ByteBuffer _writebuf;
-    const uint16_t _writebuf_chunk;
+    ByteBuffer _writebuf{0};
+    const uint16_t _writebuf_chunk = HAL_LOGGER_WRITE_CHUNK_SIZE;
     uint32_t _last_write_time;
 
     /* construct a file name given a log number. Caller must free. */
@@ -105,8 +109,6 @@ private:
     uint32_t _get_log_time(const uint16_t log_num);
 
     void stop_logging(void) override;
-
-    void _io_timer(void);
 
     uint32_t last_messagewrite_message_sent;
 
@@ -123,15 +125,8 @@ private:
     // can open/close files without causing the backend to write to a
     // bad fd
     HAL_Semaphore write_fd_semaphore;
-    
-    // performance counters
-    AP_HAL::Util::perf_counter_t  _perf_write;
-    AP_HAL::Util::perf_counter_t  _perf_fsync;
-    AP_HAL::Util::perf_counter_t  _perf_errors;
-    AP_HAL::Util::perf_counter_t  _perf_overruns;
 
     const char *last_io_operation = "";
 };
 
-#endif // HAVE_FILESYSTEM_SUPPORT
-
+#endif // HAL_LOGGING_FILESYSTEM_ENABLED

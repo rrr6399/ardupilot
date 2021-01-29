@@ -131,6 +131,7 @@ void *HALSITL::Util::heap_realloc(void *heap_ptr, void *ptr, size_t new_size)
 
 #endif // ENABLE_HEAP
 
+#if !defined(HAL_BUILD_AP_PERIPH)
 enum AP_HAL::Util::safety_state HALSITL::Util::safety_switch_state(void)
 {
     const SITL::SITL *sitl = AP::sitl();
@@ -146,3 +147,14 @@ void HALSITL::Util::set_cmdline_parameters()
         AP_Param::set_default_by_name(param.name, param.value);
     }
 }
+#endif
+
+/**
+   return commandline arguments, if available
+*/
+void HALSITL::Util::commandline_arguments(uint8_t &argc, char * const *&argv)
+{
+    argc = saved_argc;
+    argv = saved_argv;
+}
+
