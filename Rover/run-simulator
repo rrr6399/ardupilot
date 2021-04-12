@@ -1,0 +1,6 @@
+#!/bin/tcsh -f
+#python3 ../Tools/autotest/sim_vehicle.py --map --console -L Moab –instance 2
+/bin/rm -rf logs mav.tlog  mav.tlog.raw
+python3 ../Tools/autotest/sim_vehicle.py --map --console -L Moab
+#output add <ip-address>:14551
+
