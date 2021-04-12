@@ -105,6 +105,15 @@ public:
     // Sets and saves the yaw acceleration limit in centidegrees/s/s
     void save_accel_yaw_max(float accel_yaw_max) { _accel_yaw_max.set_and_save(accel_yaw_max); }
 
+    // get the roll angular velocity limit in radians/s
+    float get_ang_vel_roll_max_radss() const { return _ang_vel_roll_max; }
+
+    // get the pitch angular velocity limit in radians/s
+    float get_ang_vel_pitch_max_radss() const { return _ang_vel_pitch_max; }
+
+    // get the rate control input smoothing time constant
+    float get_input_tc() const { return _input_tc; }
+
     // set the rate control input smoothing time constant
     void set_input_tc(float input_tc) { _input_tc = constrain_float(input_tc, 0.0f, 1.0f); }
 
@@ -133,10 +142,13 @@ public:
     void inertial_frame_reset();
 
     // Command a Quaternion attitude with feedforward and smoothing
-    void input_quaternion(Quaternion attitude_desired_quat);
+    virtual void input_quaternion(Quaternion attitude_desired_quat);
 
     // Command an euler roll and pitch angle and an euler yaw rate with angular velocity feedforward and smoothing
     virtual void input_euler_angle_roll_pitch_euler_rate_yaw(float euler_roll_angle_cd, float euler_pitch_angle_cd, float euler_yaw_rate_cds);
+
+    // Command an euler roll and pitch angle and an euler yaw rate with angular velocity feedforward and smoothing
+    virtual void input_euler_angle_roll_pitch_yaw_euler_rate_yaw(float euler_roll_angle_cd, float euler_pitch_angle_cd, float euler_yaw_angle_cd, float euler_yaw_rate_cds);
 
     // Command an euler roll, pitch and yaw angle with angular velocity feedforward and smoothing
     virtual void input_euler_angle_roll_pitch_yaw(float euler_roll_angle_cd, float euler_pitch_angle_cd, float euler_yaw_angle_cd, bool slew_yaw);
@@ -147,16 +159,16 @@ public:
         float euler_pitch_angle_cd, float euler_yaw_rate_cds) {}
 
     // Command an euler roll, pitch, and yaw rate with angular velocity feedforward and smoothing
-    void input_euler_rate_roll_pitch_yaw(float euler_roll_rate_cds, float euler_pitch_rate_cds, float euler_yaw_rate_cds);
+    virtual void input_euler_rate_roll_pitch_yaw(float euler_roll_rate_cds, float euler_pitch_rate_cds, float euler_yaw_rate_cds);
 
     // Command an angular velocity with angular velocity feedforward and smoothing
     virtual void input_rate_bf_roll_pitch_yaw(float roll_rate_bf_cds, float pitch_rate_bf_cds, float yaw_rate_bf_cds);
 
     // Command an angular velocity with angular velocity feedforward and smoothing
-    void input_rate_bf_roll_pitch_yaw_2(float roll_rate_bf_cds, float pitch_rate_bf_cds, float yaw_rate_bf_cds);
+    virtual void input_rate_bf_roll_pitch_yaw_2(float roll_rate_bf_cds, float pitch_rate_bf_cds, float yaw_rate_bf_cds);
 
     // Command an angular velocity with angular velocity smoothing using rate loops only with integrated rate error stabilization
-    void input_rate_bf_roll_pitch_yaw_3(float roll_rate_bf_cds, float pitch_rate_bf_cds, float yaw_rate_bf_cds);
+    virtual void input_rate_bf_roll_pitch_yaw_3(float roll_rate_bf_cds, float pitch_rate_bf_cds, float yaw_rate_bf_cds);
 
     // Command an angular step (i.e change) in body frame angle
     virtual void input_angle_step_bf_roll_pitch_yaw(float roll_angle_step_bf_cd, float pitch_angle_step_bf_cd, float yaw_angle_step_bf_cd);
@@ -180,6 +192,7 @@ public:
     // **NOTE** Using vector3f*deg(100) is more efficient than deg(vector3f)*100 or deg(vector3d*100) because it gives the
     // same result with the fewest multiplications. Even though it may look like a bug, it is intentional. See issue 4895.
     Vector3f get_att_target_euler_cd() const { return _attitude_target_euler_angle * degrees(100.0f); }
+    const Vector3f & get_att_target_euler_rad() const { return _attitude_target_euler_angle; }
 
     // Return the body-to-NED target attitude used by the quadplane-specific attitude control input methods
     Quaternion get_attitude_target_quat() const { return _attitude_target_quat; }
@@ -260,7 +273,7 @@ public:
     float angle_boost() const { return _angle_boost; }
 
     // Return tilt angle limit for pilot input that prioritises altitude hold over lean angle
-    float get_althold_lean_angle_max() const;
+    virtual float get_althold_lean_angle_max() const;
 
     // Return configured tilt angle limit in centidegrees
     float lean_angle_max() const { return _aparm.angle_max; }
@@ -287,7 +300,7 @@ public:
 
     // thrust_heading_rotation_angles - calculates two ordered rotations to move the att_from_quat quaternion to the att_to_quat quaternion.
     // The first rotation corrects the thrust vector and the second rotation corrects the heading vector.
-    void thrust_heading_rotation_angles(Quaternion& att_to_quat, const Quaternion& att_from_quat, Vector3f& att_diff_angle, float& thrust_vec_dot);
+    void thrust_heading_rotation_angles(Quaternion& attitude_target_quat, const Quaternion& attitude_vehicle_quat, Vector3f& attitude_error_vector, float& thrust_error_angle);
 
     // Calculates the body frame angular velocities to follow the target attitude
     void attitude_controller_run_quat();
@@ -390,6 +403,9 @@ protected:
     // second.
     Vector3f            _attitude_target_euler_rate;
 
+    Vector3f            _attitude_desired_euler_rate;
+    Vector3f            _attitude_correction_euler_rate;
+
     // This represents a quaternion rotation in NED frame to the target (setpoint)
     // attitude used in the attitude controller.
     Quaternion          _attitude_target_quat;
@@ -470,7 +486,7 @@ protected:
 
 public:
     // log a CTRL message
-    void control_monitor_log(void);
+    void control_monitor_log(void) const;
 
     // return current RMS controller filter for each axis
     float control_monitor_rms_output_roll(void) const;

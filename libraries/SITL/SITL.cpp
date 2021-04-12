@@ -226,6 +226,18 @@ const AP_Param::GroupInfo SITL::var_info3[] = {
     AP_SUBGROUPINFO(baro[1], "BAR2_", 35, SITL, SITL::BaroParm),
     AP_SUBGROUPINFO(baro[2], "BAR3_", 36, SITL, SITL::BaroParm),
 
+    // user settable parameters for the 1st barometer
+    // @Param: BARO_RND, BAR2_RND, BAR3_RND
+    // @DisplayName: Baro Noise
+    // @Description: amount of (evenly-distributed) noise injected into the 1st baro
+    // @Units: m
+    // @User: Advanced
+
+    // @Param: BARO_GLITCH,BAR2_GLITCH, BAR3_GLITCH
+    // @DisplayName: Baro Glitch
+    // @Description: user-settable 1st-barometer glitch
+    // @Units: m
+    // @User: Advanced
 
     // user settable parameters for the 1st airspeed sensor
     AP_GROUPINFO("ARSPD_RND",     50, SITL,  arspd_noise[0], 2.0),
@@ -396,7 +408,7 @@ const AP_Param::GroupInfo SITL::var_ins[] = {
 };
     
 /* report SITL state via MAVLink SIMSTATE*/
-void SITL::simstate_send(mavlink_channel_t chan)
+void SITL::simstate_send(mavlink_channel_t chan) const
 {
     float yaw;
 
@@ -421,7 +433,7 @@ void SITL::simstate_send(mavlink_channel_t chan)
 }
 
 /* report SITL state via MAVLink SIM_STATE */
-void SITL::sim_state_send(mavlink_channel_t chan)
+void SITL::sim_state_send(mavlink_channel_t chan) const
 {
     // convert to same conventions as DCM
     float yaw = state.yawDeg;

@@ -75,6 +75,9 @@ public:
     // request information on dma contention
     void dma_info(ExpandingString &str) override;
 #endif
+#if CH_CFG_USE_HEAP == TRUE
+    void mem_info(ExpandingString &str) override;
+#endif
 
 #if HAL_ENABLE_SAVE_PERSISTENT_PARAMS
     // apply persistent parameters to current parameters
@@ -85,6 +88,8 @@ public:
     // save/load key persistent parameters in bootloader sector
     bool load_persistent_params(ExpandingString &str) const override;
 #endif
+    // request information on uart I/O
+    virtual void uart_info(ExpandingString &str) override;
     
 private:
 #ifdef HAL_PWM_ALARM

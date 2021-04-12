@@ -21,6 +21,7 @@
 #include "Display.h"
 #include "ExternalLED.h"
 #include "PCA9685LED_I2C.h"
+#include "NavigatorLED.h"
 #include "NeoPixel.h"
 #include "NCP5623.h"
 #include "OreoLED_I2C.h"
@@ -178,7 +179,7 @@ const AP_Param::GroupInfo AP_Notify::var_info[] = {
 
     // @Param: BUZZ_VOLUME
     // @DisplayName: Buzzer volume
-    // @Description: Enable or disable the buzzer.
+    // @Description: Control the volume of the buzzer
     // @Range: 0 100
     // @Units: %
     AP_GROUPINFO("BUZZ_VOLUME", 8, AP_Notify, _buzzer_volume, 100),
@@ -188,6 +189,7 @@ const AP_Param::GroupInfo AP_Notify::var_info[] = {
     // @Description: The number of Serial LED's to use for notifications (NeoPixel's and ProfiLED)
     // @Range: 1 32
     // @User: Advanced
+    // @RebootRequired: True
     AP_GROUPINFO("LED_LEN", 9, AP_Notify, _led_len, NOTIFY_LED_LEN_DEFAULT),
 
     AP_GROUPEND
@@ -247,7 +249,7 @@ void AP_Notify::add_backends(void)
   #elif CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_DISCO
                 ADD_BACKEND(new DiscoLED());
   #elif CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_NAVIGATOR
-                ADD_BACKEND(new DiscreteRGBLed(HAL_RGBLED_RED, HAL_RGBLED_GREEN, HAL_RGBLED_BLUE, HAL_RGBLED_NORMAL_POLARITY));
+                ADD_BACKEND(new NavigatorLED());
   #endif
 #endif // CONFIG_HAL_BOARD == HAL_BOARD_LINUX
 

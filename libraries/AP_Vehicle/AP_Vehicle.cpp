@@ -31,7 +31,7 @@ const AP_Param::GroupInfo AP_Vehicle::var_info[] = {
     AP_SUBGROUPINFO(visual_odom, "VISO",  3, AP_Vehicle, AP_VisualOdom),
 #endif
     // @Group: VTX_
-    // @Path: ../AP_RCTelemetry/AP_VideoTX.cpp
+    // @Path: ../AP_VideoTX/AP_VideoTX.cpp
     AP_SUBGROUPINFO(vtx, "VTX_",  4, AP_Vehicle, AP_VideoTX),
 
 #if HAL_MSP_ENABLED
@@ -57,7 +57,7 @@ const AP_Param::GroupInfo AP_Vehicle::var_info[] = {
     // @Path: ../AP_ExternalAHRS/AP_ExternalAHRS.cpp
     AP_SUBGROUPINFO(externalAHRS, "EAHRS", 8, AP_Vehicle, AP_ExternalAHRS),
 #endif
-    
+
     AP_GROUPEND
 };
 
@@ -125,11 +125,12 @@ void AP_Vehicle::setup()
     // call externalAHRS init before init_ardupilot to allow for external sensors
     externalAHRS.init();
 #endif
-    
+
     // init_ardupilot is where the vehicle does most of its initialisation.
     init_ardupilot();
     gcs().send_text(MAV_SEVERITY_INFO, "ArduPilot Ready");
 
+    SRV_Channels::init();
     // gyro FFT needs to be initialized really late
 #if HAL_GYROFFT_ENABLED
     gyro_fft.init(AP::scheduler().get_loop_period_us());
@@ -144,7 +145,12 @@ void AP_Vehicle::setup()
     // init library used for visual position estimation
     visual_odom.init();
 #endif
+
     vtx.init();
+
+#if HAL_SMARTAUDIO_ENABLED
+    smartaudio.init();
+#endif
 
 #if AP_PARAM_KEY_DUMP
     AP_Param::show_all(hal.console, true);
@@ -328,6 +334,11 @@ void AP_Vehicle::reboot(bool hold_in_bootloader)
 
     // do not process incoming mavlink messages while we delay:
     hal.scheduler->register_delay_callback(nullptr, 5);
+
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+    // need to ensure the ack goes out:
+    hal.serial(0)->flush();
+#endif
 
     // delay to give the ACK a chance to get out, the LEDs to flash,
     // the IO board safety to be forced on, the parameters to flush, ...

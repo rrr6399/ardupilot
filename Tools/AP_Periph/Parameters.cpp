@@ -68,9 +68,9 @@ const AP_Param::Info AP_Periph_FW::var_info[] = {
 
 #ifdef HAL_PERIPH_ENABLE_GPS
     // GPS driver
-    // @Group: GPS_
-    // @Path: ../../libraries/AP_GPS/AP_GPS.cpp
-    GOBJECT(gps, "GPS_", AP_GPS),
+    // @Group: GPS
+    // @Path: ../libraries/AP_GPS/AP_GPS.cpp
+    GOBJECT(gps, "GPS", AP_GPS),
 
     // @Param: GPS_PORT
     // @DisplayName: GPS Serial Port
@@ -90,14 +90,14 @@ const AP_Param::Info AP_Periph_FW::var_info[] = {
 
 #ifdef HAL_PERIPH_ENABLE_MAG
     // @Group: COMPASS_
-    // @Path: ../../libraries/AP_Compass/AP_Compass.cpp
+    // @Path: ../libraries/AP_Compass/AP_Compass.cpp
     GOBJECT(compass,         "COMPASS_",     Compass),
 #endif
 
 #ifdef HAL_PERIPH_ENABLE_BARO
     // Baro driver
     // @Group: BARO
-    // @Path: ../../libraries/AP_Baro/AP_Baro.cpp
+    // @Path: ../libraries/AP_Baro/AP_Baro.cpp
     GOBJECT(baro, "BARO", AP_Baro),
     GSCALAR(baro_enable, "BARO_ENABLE", 1),
 #endif
@@ -109,7 +109,7 @@ const AP_Param::Info AP_Periph_FW::var_info[] = {
 #ifdef HAL_PERIPH_ENABLE_AIRSPEED
     // Airspeed driver
     // @Group: ARSP
-    // @Path: ../../libraries/AP_Airspeed/AP_Airspeed.cpp
+    // @Path: ../libraries/AP_Airspeed/AP_Airspeed.cpp
     GOBJECT(airspeed, "ARSP", AP_Airspeed),
 #endif
 
@@ -119,7 +119,7 @@ const AP_Param::Info AP_Periph_FW::var_info[] = {
 
     // Rangefinder driver
     // @Group: RNGFND
-    // @Path: ../../libraries/AP_RangeFinder/Rangefinder.cpp
+    // @Path: ../libraries/AP_RangeFinder/AP_RangeFinder.cpp
     GOBJECT(rangefinder, "RNGFND", RangeFinder),
 #endif
 
@@ -142,6 +142,9 @@ const AP_Param::Info AP_Periph_FW::var_info[] = {
     // @Group: OUT
     // @Path: ../libraries/SRV_Channel/SRV_Channels.cpp
     GOBJECT(servo_channels, "OUT",     SRV_Channels),
+
+    // PWM type for ESCs (to allow for DShot and OneShot)
+    GSCALAR(esc_pwm_type, "ESC_PWM_TYPE",     0),
 #endif
 
 #ifdef HAL_PERIPH_ENABLE_MSP

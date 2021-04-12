@@ -708,6 +708,14 @@ bool AP_Logger::WriteReplayBlock(uint8_t msg_id, const void *pBuffer, uint16_t s
             }
         }
     }
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+    // things will almost certainly go sour.  However, if we are not
+    // logging while disarmed then the EKF can be started and trying
+    // to log things even 'though the backends might be saying "no".
+    if (!ret && log_while_disarmed()) {
+        AP_HAL::panic("Failed to log replay block");
+    }
+#endif
     return ret;
 }
 
@@ -1107,7 +1115,7 @@ AP_Logger::log_write_fmt *AP_Logger::msg_fmt_for_name(const char *name, const ch
     return f;
 }
 
-const struct LogStructure *AP_Logger::structure_for_msg_type(const uint8_t msg_type)
+const struct LogStructure *AP_Logger::structure_for_msg_type(const uint8_t msg_type) const
 {
     for (uint16_t i=0; i<_num_types;i++) {
         const struct LogStructure *s = structure(i);

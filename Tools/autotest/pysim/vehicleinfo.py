@@ -154,6 +154,17 @@ class VehicleInfo(object):
             },
         },
     },
+    "Blimp": {
+        "default_frame": "quad",
+        "frames": {
+            # BLIMP
+            "quad": {
+                "model": "+",
+                "waf_target": "bin/blimp",
+                "default_params_filename": "default_params/blimp.parm",
+            },
+        },
+    },
     "ArduPlane": {
         "default_frame": "plane",
         "frames": {
@@ -249,6 +260,11 @@ class VehicleInfo(object):
                 "waf_target": "bin/ardurover",
                 "default_params_filename": ["default_params/rover.parm",
                                             "default_params/rover-skid.parm"],
+            },
+            "rover-vectored": {
+                "waf_target": "bin/ardurover",
+                "default_params_filename": ["default_params/rover.parm",
+                                            "default_params/rover-vectored.parm"],
             },
             "balancebot": {
                 "waf_target": "bin/ardurover",
