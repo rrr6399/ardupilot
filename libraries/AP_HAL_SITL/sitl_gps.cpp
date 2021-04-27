@@ -209,9 +209,21 @@ void SITL_State::_calculate_ned(const struct gps_data *d, struct ned_offset &ned
 //        ::printf("checking pipe\n");
 //        int available = select(::fileno(fd), &rfds, NULL, NULL, &tv);
         double lat, lon, alt;
-//        ::printf("reading pipe\n");
-        int ret = ::fscanf(fd, "%lf %lf %lf%*[\n]", &lat, &lon, &alt);
-        ::printf("ret = %d, lat = %lf, lon = %lf, alt = %lf\n", ret, lat, lon, alt);
+        struct timeval tp;
+        gettimeofday(&tp, nullptr);
+        long int sec = tp.tv_sec;
+        long int now = tp.tv_usec/1000 + sec*1000;
+        long int timestamp;
+        while(true) {
+            int ret = ::fscanf(fd, "%ld %lf %lf %lf%*[\n]", &timestamp, &lat, &lon, &alt);
+            long int dt = now - timestamp;
+            if (dt < 1000) {
+//               ::printf("Good ret = %d, dt = %ld, lat = %lf, lon = %lf, alt = %lf\n", ret, dt, lat, lon, alt);
+                break;
+            } else {
+               ::printf("GPS is too old ret = %d, dt = %ld, lat = %lf, lon = %lf, alt = %lf\n", ret, dt, lat, lon, alt);
+            }
+        }
         double earth_radius = 6378137.0;
         double lat_rad = radians((d->latitude + lat) * .5);
         double dlat = radians(d->latitude - lat) * earth_radius;
@@ -236,9 +248,13 @@ void SITL_State::_save_gps_location(const struct gps_data *d)
         ::setlinebuf(fd);
     }
     if (fd != NULL) {
-        ::fprintf(fd, "%lf %lf %f\n", d->latitude, d->longitude, d->altitude);
-//        ::fflush(fd);
-        ::printf("storing GPS = %lf %lf %f\n", d->latitude, d->longitude, d->altitude);
+        struct timeval tp;
+        gettimeofday(&tp, nullptr);
+        long int sec = tp.tv_sec;
+        long int millis = tp.tv_usec/1000 + sec*1000;
+        ::fprintf(fd, "%ld %lf %lf %f\n",millis, d->latitude, d->longitude, d->altitude);
+//      ::fflush(fd);
+//      ::printf("storing GPS = %lf %lf %f\n", d->latitude, d->longitude, d->altitude);
     }
 
 }
