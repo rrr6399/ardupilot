@@ -164,16 +164,13 @@ void QuadPlane::tailsitter_output(void)
     plane.rollController.reset_I();
 
     // pull in copter control outputs
-    SRV_Channels::set_output_scaled(SRV_Channel::k_aileron, (motors->get_yaw())*-SERVO_MAX);
-    SRV_Channels::set_output_scaled(SRV_Channel::k_elevator, (motors->get_pitch())*SERVO_MAX);
-    SRV_Channels::set_output_scaled(SRV_Channel::k_rudder, (motors->get_roll())*SERVO_MAX);
+    SRV_Channels::set_output_scaled(SRV_Channel::k_aileron, (motors->get_yaw()+motors->get_yaw_ff())*-SERVO_MAX);
+    SRV_Channels::set_output_scaled(SRV_Channel::k_elevator, (motors->get_pitch()+motors->get_pitch_ff())*SERVO_MAX);
+    SRV_Channels::set_output_scaled(SRV_Channel::k_rudder, (motors->get_roll()+motors->get_roll_ff())*SERVO_MAX);
 
     if (hal.util->get_soft_armed()) {
-        SRV_Channels::set_output_scaled(SRV_Channel::k_throttle, motors->thrust_to_actuator(motors->get_throttle()) * 100);
         // scale surfaces for throttle
         tailsitter_speed_scaling();
-    } else {
-        SRV_Channels::set_output_scaled(SRV_Channel::k_throttle, motors->get_throttle() * 100);
     }
 
     tilt_left = 0.0f;
@@ -246,20 +243,11 @@ bool QuadPlane::tailsitter_transition_fw_complete(void)
         // instant trainsition when disarmed, no message
         return true;
     }
-    if (plane.fly_inverted()) {
-        // transition immediately
-        gcs().send_text(MAV_SEVERITY_INFO, "Transition FW done, inverted flight");
-        return true;
-    }
-    int32_t roll_cd = labs(ahrs_view->roll_sensor);
-    if (roll_cd > 9000) {
-        roll_cd = 18000 - roll_cd;
-    }
     if (labs(ahrs_view->pitch_sensor) > tailsitter.transition_angle_fw*100) {
         gcs().send_text(MAV_SEVERITY_INFO, "Transition FW done");
         return true;
     }
-    if (roll_cd > MAX(4500, plane.roll_limit_cd + 500)) {
+    if (labs(ahrs_view->roll_sensor) > MAX(4500, plane.roll_limit_cd + 500)) {
         gcs().send_text(MAV_SEVERITY_INFO, "Transition FW done, roll error");
         return true;
     }
@@ -281,11 +269,6 @@ bool QuadPlane::tailsitter_transition_vtol_complete(void) const
         // instant trainsition when disarmed, no message
         return true;
     }
-    if (plane.fly_inverted()) {
-        // transition immediately
-        gcs().send_text(MAV_SEVERITY_INFO, "Transition VTOL done, inverted flight");
-        return true;
-    }
     // for vectored tailsitters at zero pilot throttle
     if ((plane.quadplane.get_pilot_throttle() < .05f) && plane.quadplane._is_vectored) {
         // if we are not moving (hence on the ground?) or don't know
@@ -300,7 +283,11 @@ bool QuadPlane::tailsitter_transition_vtol_complete(void) const
         gcs().send_text(MAV_SEVERITY_INFO, "Transition VTOL done");
         return true;
     }
-    if (labs(plane.ahrs.roll_sensor) > MAX(4500, plane.roll_limit_cd + 500)) {
+    int32_t roll_cd = labs(plane.ahrs.roll_sensor);
+    if (plane.fly_inverted()) {
+        roll_cd = 18000 - roll_cd;
+    }
+    if (roll_cd > MAX(4500, plane.roll_limit_cd + 500)) {
         gcs().send_text(MAV_SEVERITY_INFO, "Transition VTOL done, roll error");
         return true;
     }

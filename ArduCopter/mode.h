@@ -52,6 +52,7 @@ public:
     virtual bool init(bool ignore_checks) {
         return true;
     }
+    virtual void exit() {};
     virtual void run() = 0;
     virtual bool requires_GPS() const = 0;
     virtual bool has_manual_throttle() const = 0;
@@ -275,7 +276,7 @@ public:
     bool allows_arming(AP_Arming::Method method) const override { return true; };
     bool is_autopilot() const override { return false; }
     bool init(bool ignore_checks) override;
-    void exit();
+    void exit() override;
     // whether an air-mode aux switch has been toggled
     void air_mode_aux_changed();
     bool allows_save_trim() const override { return true; }
@@ -350,6 +351,7 @@ public:
     Number mode_number() const override { return Number::AUTO; }
 
     bool init(bool ignore_checks) override;
+    void exit() override;
     void run() override;
 
     bool requires_GPS() const override { return true; }
@@ -567,6 +569,7 @@ public:
     Number mode_number() const override { return Number::AUTOTUNE; }
 
     bool init(bool ignore_checks) override;
+    void exit() override;
     void run() override;
 
     bool requires_GPS() const override { return false; }
@@ -575,7 +578,6 @@ public:
     bool is_autopilot() const override { return false; }
 
     void save_tuning_gains();
-    void stop();
     void reset();
 
 protected:
@@ -837,6 +839,9 @@ public:
     void set_velocity(const Vector3f& velocity, bool use_yaw = false, float yaw_cd = 0.0, bool use_yaw_rate = false, float yaw_rate_cds = 0.0, bool yaw_relative = false, bool log_request = true);
     bool set_destination_posvel(const Vector3f& destination, const Vector3f& velocity, bool use_yaw = false, float yaw_cd = 0.0, bool use_yaw_rate = false, float yaw_rate_cds = 0.0, bool yaw_relative = false);
 
+    // returns true if GUIDED_OPTIONS param suggests SET_ATTITUDE_TARGET's "thrust" field should be interpreted as thrust instead of climb rate
+    bool set_attitude_target_provides_thrust() const;
+
     void limit_clear();
     void limit_init_time_and_pos();
     void limit_set(uint32_t timeout_ms, float alt_min_cm, float alt_max_cm, float horiz_max_cm);
@@ -846,7 +851,15 @@ public:
 
     bool do_user_takeoff_start(float takeoff_alt_cm) override;
 
-    GuidedMode mode() const { return guided_mode; }
+    enum class SubMode {
+        TakeOff,
+        WP,
+        Velocity,
+        PosVel,
+        Angle,
+    };
+
+    SubMode submode() const { return guided_mode; }
 
     void angle_control_start();
     void angle_control_run();
@@ -867,6 +880,7 @@ private:
         AllowArmingFromTX = (1U << 0),
         // this bit is still available, pilot yaw was mapped to bit 2 for symmetry with auto
         IgnorePilotYaw    = (1U << 2),
+        SetAttitudeTarget_ThrustAsThrust = (1U << 3),
     };
 
     void pos_control_start();
@@ -881,7 +895,7 @@ private:
     bool use_pilot_yaw(void) const;
 
     // controls which controller is run (pos or vel):
-    GuidedMode guided_mode = Guided_TakeOff;
+    SubMode guided_mode = SubMode::TakeOff;
     bool send_notification;     // used to send one time notification to ground station
 
 };
@@ -1205,7 +1219,7 @@ public:
     bool is_autopilot() const override { return true; }
 
     void save_position();
-    void exit();
+    void exit() override;
 
     bool is_landing() const override;
 
@@ -1466,7 +1480,7 @@ public:
     Number mode_number() const override { return Number::FOLLOW; }
 
     bool init(bool ignore_checks) override;
-    void exit();
+    void exit() override;
     void run() override;
 
     bool requires_GPS() const override { return true; }
@@ -1509,7 +1523,7 @@ public:
     } zigzag_direction;
 
     bool init(bool ignore_checks) override;
-    void exit();
+    void exit() override;
     void run() override;
 
     // auto control methods.  copter flies grid pattern

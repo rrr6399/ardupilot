@@ -1055,6 +1055,9 @@ AP_OSD_Screen::AP_OSD_Screen()
 #define SYM_AH        0xF3
 #define SYM_MW        0xF4
 #define SYM_CLK       0xBC
+#define SYM_KILO      0x4B
+#define SYM_TERALT 0xEF
+
 
 void AP_OSD_AbstractScreen::set_backend(AP_OSD_Backend *_backend)
 {
@@ -1610,7 +1613,7 @@ void AP_OSD_Screen::draw_blh_rpm(uint8_t x, uint8_t y)
         if (!blheli->get_telem_data(0, td)) {
             return;
         }
-        backend->write(x, y, false, "%5d%c", td.rpm, SYM_RPM);
+        backend->write(x, y, false, "%3.1f%c%c", td.rpm * 0.001f, SYM_KILO, SYM_RPM);
     }
 }
 
@@ -1938,9 +1941,9 @@ void AP_OSD_Screen::draw_hgt_abvterr(uint8_t x, uint8_t y)
 
     float terrain_altitude;
     if (terrain != nullptr && terrain->height_above_terrain(terrain_altitude,true)) {
-        backend->write(x, y, terrain_altitude < osd->warn_terr, "%4d%c", (int)u_scale(ALTITUDE, terrain_altitude), u_icon(ALTITUDE));
+        backend->write(x, y, terrain_altitude < osd->warn_terr, "%4d%c%c", (int)u_scale(ALTITUDE, terrain_altitude), u_icon(ALTITUDE), SYM_TERALT);
      } else {
-        backend->write(x, y, false, " ---%c", u_icon(ALTITUDE));
+        backend->write(x, y, false, " ---%c%c", u_icon(ALTITUDE),SYM_TERALT);
      }
 }
 #endif

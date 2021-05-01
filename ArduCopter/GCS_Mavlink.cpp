@@ -126,22 +126,30 @@ void GCS_MAVLINK_Copter::send_position_target_local_ned()
     if (!copter.flightmode->in_guided_mode()) {
         return;
     }
-    
-    const GuidedMode guided_mode = copter.mode_guided.mode();
+
+    const ModeGuided::SubMode guided_mode = copter.mode_guided.submode();
     Vector3f target_pos;
     Vector3f target_vel;
-    uint16_t type_mask;
+    uint16_t type_mask = 0;
 
-    if (guided_mode == Guided_WP) {
+    switch (guided_mode) {
+    case ModeGuided::SubMode::Angle:
+        // we don't have a local target when in angle mode
+        return;
+    case ModeGuided::SubMode::WP:
         type_mask = 0x0FF8; // ignore everything except position
         target_pos = copter.wp_nav->get_wp_destination() * 0.01f; // convert to metres
-    } else if (guided_mode == Guided_Velocity) {
+        break;
+    case ModeGuided::SubMode::Velocity:
         type_mask = 0x0FC7; // ignore everything except velocity
         target_vel = copter.flightmode->get_desired_velocity() * 0.01f; // convert to m/s
-    } else {
+        break;
+    case ModeGuided::SubMode::TakeOff:
+    case ModeGuided::SubMode::PosVel:
         type_mask = 0x0FC0; // ignore everything except position & velocity
         target_pos = copter.wp_nav->get_wp_destination() * 0.01f;
         target_vel = copter.flightmode->get_desired_velocity() * 0.01f;
+        break;
     }
 
     mavlink_msg_position_target_local_ned_send(
@@ -566,6 +574,16 @@ void GCS_MAVLINK_Copter::handle_command_ack(const mavlink_message_t &msg)
 {
     copter.command_ack_counter++;
     GCS_MAVLINK::handle_command_ack(msg);
+}
+
+/*
+  handle a LANDING_TARGET command. The timestamp has been jitter corrected
+*/
+void GCS_MAVLINK_Copter::handle_landing_target(const mavlink_landing_target_t &packet, uint32_t timestamp_ms)
+{
+#if PRECISION_LANDING == ENABLED
+    copter.precland.handle_msg(packet, timestamp_ms);
+#endif
 }
 
 MAV_RESULT GCS_MAVLINK_Copter::_handle_command_preflight_calibration(const mavlink_command_long_t &packet)
@@ -1040,7 +1058,7 @@ void GCS_MAVLINK_Copter::handleMessage(const mavlink_message_t &msg)
         }
 
         // check if the message's thrust field should be interpreted as a climb rate or as thrust
-        const bool use_thrust = copter.g2.dev_options.get() & DevOptionSetAttitudeTarget_ThrustAsThrust;
+        const bool use_thrust = copter.mode_guided.set_attitude_target_provides_thrust();
 
         float climb_rate_or_thrust;
         if (use_thrust) {
@@ -1280,12 +1298,6 @@ void GCS_MAVLINK_Copter::handleMessage(const mavlink_message_t &msg)
         handle_radio_status(msg, copter.should_log(MASK_LOG_PM));
         break;
     }
-
-#if PRECISION_LANDING == ENABLED
-    case MAVLINK_MSG_ID_LANDING_TARGET:
-        copter.precland.handle_msg(msg);
-        break;
-#endif
 
     case MAVLINK_MSG_ID_TERRAIN_DATA:
     case MAVLINK_MSG_ID_TERRAIN_CHECK:
