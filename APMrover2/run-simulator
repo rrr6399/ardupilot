@@ -1,8 +1,8 @@
 #!/bin/bash
 /bin/rm -rf logs mav.tlog  mav.tlog.raw
 export MASTER_DRONE=1
-location=Moab
 location=keywest
+location=Moab
 python3 ../Tools/autotest/sim_vehicle.py --map --console -L $location --instance=2
 
 #python3 ../Tools/autotest/sim_vehicle.py --map --console -L $location --instance=1
