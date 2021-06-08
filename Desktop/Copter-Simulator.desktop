@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=Copter Simulator
+Comment=Copter Simulator
+Exec=/home/rrr6399/3dr/ardupilot/ArduCopter/run-simulator
+Path=/home/rrr6399/3dr/ardupilot/ArduCopter
+Icon=/home/rrr6399/3dr/ardupilot/Tools/autotest/web-firmware/images/copter.png
+Terminal=true
+Type=Application
+Categories=Application;

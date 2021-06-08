@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=Rover (GCS) Simulator
+Comment=Rover (GCS) Simulator
+Exec=/home/rrr6399/3dr/ardupilot/APMrover2/run-simulator
+Path=/home/rrr6399/3dr/ardupilot/APMrover2
+Icon=/home/rrr6399/3dr/ardupilot/Tools/autotest/web-firmware/images/rover.png
+Terminal=true
+Type=Application
+Categories=Application;
