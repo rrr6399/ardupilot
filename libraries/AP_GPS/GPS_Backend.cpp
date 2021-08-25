@@ -180,6 +180,15 @@ bool AP_GPS_Backend::should_log() const
     return gps.should_log();
 }
 
+void AP_GPS_Backend::log_rtk_solution()
+{
+    AP::logger().Write("RTK", "TimeUS,ID,Week,TOW,NSats,Coord,X_mm,Y_mm,Z_mm,Acc",
+            "s#-sS-mmmm", // units
+            "F--C--CCCC", // mutiplier
+            "QBHIBBiiiI", //format
+            AP_HAL::micros64(),state.instance,state.time_week,state.time_week_ms,state.rtk_num_sats,0,
+            state.rtk_baseline_x_mm,state.rtk_baseline_y_mm,-1*state.rtk_baseline_z_mm,state.rtk_accuracy);
+}
 
 void AP_GPS_Backend::send_mavlink_gps_rtk(mavlink_channel_t chan)
 {

@@ -226,9 +226,10 @@ void SITL_State::_calculate_ned(const struct gps_data *d, struct ned_offset &ned
         }
         double earth_radius = 6378137.0;
         double lat_rad = radians((d->latitude + lat) * .5);
-        double dlat = radians(d->latitude - lat) * earth_radius;
-        double dlon = radians(d->longitude - lon) * earth_radius * cos(lat_rad);
-        double dalt = d->altitude - alt;
+        double dlat = radians(d->latitude - lat) * earth_radius + rand_float()/50.0; // +/- 2 cm
+        double dlon = radians(d->longitude - lon) * earth_radius * cos(lat_rad) + rand_float()/50.0; // +/- 2 cm
+        double dalt = d->altitude - alt +  + rand_float()/50.0; // +/- 2 cm
+
         ned.n_m = dlat;
         ned.e_m = dlon;
         ned.d_m = -dalt;

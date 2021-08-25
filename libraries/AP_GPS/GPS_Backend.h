@@ -48,6 +48,8 @@ public:
     virtual bool supports_mavlink_gps_rtk_message() { return false; }
     virtual void send_mavlink_gps_rtk(mavlink_channel_t chan);
 
+    virtual void log_rtk_solution();
+
     virtual void broadcast_configuration_failure_reason(void) const { return ; }
 
     virtual void handle_msg(const mavlink_message_t &msg) { return ; }
