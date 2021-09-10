@@ -232,6 +232,7 @@ bool ModeGuided::set_destination(const Location& dest_loc, bool use_yaw, float y
     }
 #endif
 
+
     if (!wp_nav->set_wp_destination(dest_loc)) {
         // failure to set destination can only be because of missing terrain data
         AP::logger().Write_Error(LogErrorSubsystem::NAVIGATION, LogErrorCode::FAILED_TO_SET_DESTINATION);
@@ -292,6 +293,9 @@ bool ModeGuided::set_destination_posvel(const Vector3f& destination, const Vecto
     posvel_update_time_ms = millis();
     guided_pos_target_cm = destination;
     guided_vel_target_cms = velocity;
+
+    // set vertical speed and acceleration rrr
+    pos_control->set_max_speed_z(wp_nav->get_default_speed_down(), wp_nav->get_default_speed_up());
 
     copter.pos_control->set_pos_target(guided_pos_target_cm);
 
