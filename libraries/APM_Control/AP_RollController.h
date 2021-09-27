@@ -1,6 +1,5 @@
 #pragma once
 
-#include <AP_AHRS/AP_AHRS.h>
 #include <AP_Common/AP_Common.h>
 #include <AP_Vehicle/AP_Vehicle.h>
 #include "AP_AutoTune.h"
@@ -10,7 +9,7 @@
 
 class AP_RollController {
 public:
-    AP_RollController(AP_AHRS &ahrs, const AP_Vehicle::FixedWing &parms);
+    AP_RollController(const AP_Vehicle::FixedWing &parms);
 
     /* Do not allow copies */
     AP_RollController(const AP_RollController &other) = delete;
@@ -56,14 +55,11 @@ private:
     AP_AutoTune::ATGains gains;
     AP_AutoTune *autotune;
     bool failed_autotune_alloc;
-	uint32_t _last_t;
 	float _last_out;
-    AC_PID rate_pid{0.08, 0.15, 0, 0.345, 0.666, 3, 7, 4, 0.02, 150, 1};
+    AC_PID rate_pid{0.08, 0.15, 0, 0.345, 0.666, 3, 0, 12, 0.02, 150, 1};
     float angle_err_deg;
 
     AP_Logger::PID_Info _pid_info;
 
     int32_t _get_rate_out(float desired_rate, float scaler, bool disable_integrator);
-
-    AP_AHRS &_ahrs;
 };

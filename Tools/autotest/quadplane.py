@@ -46,6 +46,9 @@ class AutoTestQuadPlane(AutoTest):
     def get_normal_armable_modes_list():
         return []
 
+    def vehicleinfo_key(self):
+        return 'ArduPlane'
+
     def default_frame(self):
         return "quadplane"
 
@@ -71,7 +74,7 @@ class AutoTestQuadPlane(AutoTest):
         pass
 
     def defaults_filepath(self):
-        return self.model_defaults_filepath("ArduPlane", self.frame)
+        return self.model_defaults_filepath(self.frame)
 
     def is_plane(self):
         return True
@@ -114,11 +117,7 @@ class AutoTestQuadPlane(AutoTest):
         self.progress("Verify Motor1 is at min_pwm when disarmed")
         self.wait_servo_channel_value(5, min_pwm, comparator=operator.eq)
 
-        """set Q_OPTIONS bit AIRMODE"""
-        airmode_option_bit = (1 << 9)
-        self.set_parameter("Q_OPTIONS", airmode_option_bit)
-
-        armdisarm_option = 41
+        armdisarm_option = 154
         arm_ch = 8
         self.set_parameter("RC%d_OPTION" % arm_ch, armdisarm_option)
         self.progress("Configured RC%d as ARMDISARM switch" % arm_ch)
@@ -144,7 +143,7 @@ class AutoTestQuadPlane(AutoTest):
         if (spin_arm_pwm >= spin_min_pwm):
             raise PreconditionFailedException("SPIN_MIN pwm not greater than SPIN_ARM pwm")
 
-        self.start_subtest("Test auxswitch arming with Q_OPTIONS=AirMode")
+        self.start_subtest("Test auxswitch arming with AirMode Switch")
         for mode in ('QSTABILIZE', 'QACRO'):
             """verify that arming with switch results in higher PWM output"""
             self.progress("Testing %s mode" % mode)
@@ -156,7 +155,11 @@ class AutoTestQuadPlane(AutoTest):
             self.wait_servo_channel_value(5, spin_min_pwm, comparator=operator.ge)
 
             self.progress("Verify that rudder disarm is disabled")
-            if self.disarm_motors_with_rc_input():
+            try:
+                self.disarm_motors_with_rc_input()
+            except NotAchievedException:
+                pass
+            if not self.armed():
                 raise NotAchievedException("Rudder disarm not disabled")
 
             self.progress("Disarming with switch")
@@ -170,7 +173,8 @@ class AutoTestQuadPlane(AutoTest):
         ahrs_trim_x = self.get_parameter("AHRS_TRIM_X")
         self.set_parameter("AHRS_TRIM_X", math.radians(-60))
         self.wait_roll(60, 1)
-        # test all modes except QSTABILIZE, QACRO, AUTO and QAUTOTUNE
+        # test all modes except QSTABILIZE, QACRO, AUTO and QAUTOTUNE and QLAND and QRTL
+        # QRTL and QLAND aren't tested because we can't arm in that mode
         for mode in (
                 'ACRO',
                 'AUTOTUNE',
@@ -182,9 +186,7 @@ class AutoTestQuadPlane(AutoTest):
                 'GUIDED',
                 'LOITER',
                 'QHOVER',
-                'QLAND',
                 'QLOITER',
-                'QRTL',
                 'RTL',
                 'STABILIZE',
                 'TRAINING',
@@ -589,10 +591,10 @@ class AutoTestQuadPlane(AutoTest):
 
     def disabled_tests(self):
         return {
-            "QAutoTune": "See https://github.com/ArduPilot/ardupilot/issues/10411",
             "FRSkyPassThrough": "Currently failing",
             "CPUFailsafe": "servo channel values not scaled like ArduPlane",
             "GyroFFT": "flapping test",
+            "ConfigErrorLoop": "failing because RC values not settable",
         }
 
     def test_pilot_yaw(self):
@@ -668,6 +670,7 @@ class AutoTestQuadPlane(AutoTest):
         '''tailsitter test'''
         self.set_parameter('Q_FRAME_CLASS', 10)
         self.set_parameter('Q_ENABLE', 1)
+        self.set_parameter('Q_TAILSIT_ENABLE', 1)
 
         self.reboot_sitl()
         self.wait_ready_to_arm()

@@ -9,13 +9,13 @@ BASE_PKGS="base-devel ccache git gsfonts tk wget"
 SITL_PKGS="python2-pip python-pip wxpython opencv python2-numpy python2-scipy"
 PX4_PKGS="lib32-glibc zip zlib ncurses"
 
-PYTHON2_PKGS="future lxml pymavlink MAVProxy argparse matplotlib pyparsing"
-PYTHON3_PKGS="pyserial empy"
+PYTHON2_PKGS="future lxml pymavlink MAVProxy argparse matplotlib pyparsing geocoder"
+PYTHON3_PKGS="pyserial empy geocoder"
 
 # GNU Tools for ARM Embedded Processors
 # (see https://launchpad.net/gcc-arm-embedded/)
-ARM_ROOT="gcc-arm-none-eabi-6-2017-q2-update"
-ARM_TARBALL="$ARM_ROOT-linux.tar.bz2"
+ARM_ROOT="gcc-arm-none-eabi-10-2020-q4-major"
+ARM_TARBALL="$ARM_ROOT-x86_64-linux.tar.bz2"
 ARM_TARBALL_URL="https://firmware.ardupilot.org/Tools/STM32-tools/$ARM_TARBALL"
 
 # Ardupilot Tools

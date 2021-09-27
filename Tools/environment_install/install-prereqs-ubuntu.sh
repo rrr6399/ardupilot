@@ -121,7 +121,7 @@ fi
 
 # Lists of packages to install
 BASE_PKGS="build-essential ccache g++ gawk git make wget"
-PYTHON_PKGS="future lxml pymavlink MAVProxy pexpect flake8"
+PYTHON_PKGS="future lxml pymavlink MAVProxy pexpect flake8 geocoder"
 # add some Python packages required for commonly-used MAVProxy modules and hex file generation:
 if [[ $SKIP_AP_EXT_ENV -ne 1 ]]; then
   PYTHON_PKGS="$PYTHON_PKGS pygame intelhex"
@@ -142,8 +142,8 @@ fi
 function install_arm_none_eabi_toolchain() {
   # GNU Tools for ARM Embedded Processors
   # (see https://launchpad.net/gcc-arm-embedded/)
-  ARM_ROOT="gcc-arm-none-eabi-6-2017-q2-update"
-  ARM_TARBALL="$ARM_ROOT-linux.tar.bz2"
+  ARM_ROOT="gcc-arm-none-eabi-10-2020-q4-major"
+  ARM_TARBALL="$ARM_ROOT-x86_64-linux.tar.bz2"
   ARM_TARBALL_URL="https://firmware.ardupilot.org/Tools/STM32-tools/$ARM_TARBALL"
   if [ ! -d $OPT/$ARM_ROOT ]; then
     (
@@ -256,6 +256,8 @@ heading "Adding ArduPilot Tools to environment"
 
 SCRIPT_DIR=$(dirname $(realpath ${BASH_SOURCE[0]}))
 ARDUPILOT_ROOT=$(realpath "$SCRIPT_DIR/../../")
+
+if [[ $DO_AP_STM_ENV -eq 1 ]]; then
 exportline="export PATH=$OPT/$ARM_ROOT/bin:\$PATH";
 grep -Fxq "$exportline" ~/$SHELL_LOGIN 2>/dev/null || {
     if maybe_prompt_user "Add $OPT/$ARM_ROOT/bin to your PATH [N/y]?" ; then
@@ -265,6 +267,7 @@ grep -Fxq "$exportline" ~/$SHELL_LOGIN 2>/dev/null || {
         echo "Skipping adding $OPT/$ARM_ROOT/bin to PATH."
     fi
 }
+fi
 
 exportline2="export PATH=$ARDUPILOT_ROOT/$ARDUPILOT_TOOLS:\$PATH";
 grep -Fxq "$exportline2" ~/$SHELL_LOGIN 2>/dev/null || {

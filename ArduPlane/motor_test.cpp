@@ -12,6 +12,7 @@
 #define MOTOR_TEST_TIMEOUT_MS_MAX       30000   // max timeout is 30 seconds
 
 // motor_test_output - checks for timeout and sends updates to motors objects
+#if HAL_QUADPLANE_ENABLED
 void QuadPlane::motor_test_output()
 {
     // exit immediately if the motor test is not running
@@ -77,6 +78,10 @@ void QuadPlane::motor_test_output()
 MAV_RESULT QuadPlane::mavlink_motor_test_start(mavlink_channel_t chan, uint8_t motor_seq, uint8_t throttle_type,
                                             uint16_t throttle_value, float timeout_sec, uint8_t motor_count)
 {
+    if (!available() || motors == nullptr) {
+        return MAV_RESULT_FAILED;
+    }
+
     if (motors->armed()) {
         gcs().send_text(MAV_SEVERITY_INFO, "Must be disarmed for motor test");
         return MAV_RESULT_FAILED;
@@ -128,3 +133,5 @@ void QuadPlane::motor_test_stop()
     // turn off notify leds
     AP_Notify::flags.esc_calibration = false;
 }
+
+#endif  // HAL_QUADPLANE_ENABLED

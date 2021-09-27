@@ -27,7 +27,9 @@
 #ifndef HAL_NO_UARTDRIVER
 #include <GCS_MAVLink/GCS.h>
 #endif
+
 #if HAL_USE_PWM == TRUE
+#include <SRV_Channel/SRV_Channel.h>
 
 using namespace ChibiOS;
 
@@ -39,12 +41,6 @@ extern AP_IOMCU iomcu;
 #endif
 
 #define RCOU_SERIAL_TIMING_DEBUG 0
-
-#if RCOU_DSHOT_TIMING_DEBUG
-#define TOGGLE_PIN_DEBUG(pin) do { palToggleLine(HAL_GPIO_LINE_GPIO ## pin); } while (0)
-#else
-#define TOGGLE_PIN_DEBUG(pin) do {} while (0)
-#endif
 
 #define TELEM_IC_SAMPLE 16
 
@@ -58,9 +54,6 @@ static const eventmask_t EVT_PWM_START  = EVENT_MASK(12);
 static const eventmask_t EVT_PWM_SYNTHETIC_SEND  = EVENT_MASK(13);
 static const eventmask_t EVT_PWM_SEND_NEXT  = EVENT_MASK(14);
 
-// marker for a disabled channel
-#define CHAN_DISABLED 255
-
 // #pragma GCC optimize("Og")
 
 /*
@@ -68,7 +61,6 @@ static const eventmask_t EVT_PWM_SEND_NEXT  = EVENT_MASK(14);
  */
 void RCOutput::init()
 {
-    uint8_t pwm_count = AP_BoardConfig::get_pwm_count();
     for (auto &group : pwm_group_list) {
         const uint8_t i = &group - pwm_group_list;
         //Start Pwm groups
@@ -76,10 +68,12 @@ void RCOutput::init()
         group.dshot_event_mask = EVENT_MASK(i);
 
         for (uint8_t j = 0; j < 4; j++ ) {
+#if !APM_BUILD_TYPE(APM_BUILD_iofirmware)
             uint8_t chan = group.chan[j];
-            if (chan >= pwm_count) {
+            if (SRV_Channels::is_GPIO(chan+chan_offset)) {
                 group.chan[j] = CHAN_DISABLED;
             }
+#endif
             if (group.chan[j] != CHAN_DISABLED) {
                 num_fmu_channels = MAX(num_fmu_channels, group.chan[j]+1);
                 group.ch_mask |= (1U<<group.chan[j]);
@@ -104,7 +98,6 @@ void RCOutput::init()
 #endif
     chMtxObjectInit(&trigger_mutex);
     chVTObjectInit(&_dshot_rate_timer);
-
     // setup default output rate of 50Hz
     set_freq(0xFFFF ^ ((1U<<chan_offset)-1), 50);
 
@@ -138,32 +131,10 @@ void RCOutput::rcout_thread()
         hal.scheduler->delay_microseconds(1000);
     }
 
-    chEvtWaitOne(EVT_PWM_START);
-
-    // it takes BLHeli32 about 30ms to calibrate frames on startup, in which it must see 10 good frames
-    // experiments show that this is quite fragile at lower rates, so run a calibration phase at a
-    // higher rate (2Khz) for 5s to get the motors armed before dropping the rate to the configured value
-    uint32_t cal_cycles = 5000000UL / 300UL;
-    _dshot_calibrating = true;
-    const uint32_t cycle_time_us = _dshot_period_us;
-    // while calibrating run at 2.5Khz to allow arming, this is the fastest rate that dshot150 can manage
-    _dshot_period_us = 400;
-
-    // prime the pump for calibration
-    chEvtSignal(rcout_thread_ctx, EVT_PWM_SYNTHETIC_SEND);
-
-    // don't start calibrating until everything else is ready
-    chEvtWaitOne(EVT_PWM_SEND);
-
     // dshot is quite sensitive to timing, it's important to output pulses as
     // regularly as possible at the correct bitrate
     while (true) {
-        // while calibrating ignore all push-based requests and stick closely to the dshot period
-        if (_dshot_calibrating) {
-            chEvtWaitOne(EVT_PWM_SYNTHETIC_SEND);
-        } else {
-            chEvtWaitOne(EVT_PWM_SEND | EVT_PWM_SYNTHETIC_SEND);
-        }
+        chEvtWaitOne(EVT_PWM_SEND | EVT_PWM_SYNTHETIC_SEND);
 
         // start the clock
         last_thread_run_us = AP_HAL::micros();
@@ -172,7 +143,7 @@ void RCOutput::rcout_thread()
         if (_dshot_cycle == 0) {
             last_cycle_run_us = AP_HAL::micros();
             // register a timer for the next tick if push() will not be providing it
-            if (_dshot_rate != 1 || _dshot_calibrating) {
+            if (_dshot_rate != 1) {
                 chVTSet(&_dshot_rate_timer, chTimeUS2I(_dshot_period_us), dshot_update_tick, this);
             }
         }
@@ -199,15 +170,6 @@ void RCOutput::rcout_thread()
 
         // process any pending RC output requests
         timer_tick(time_out_us);
-
-        if (_dshot_calibrating) {
-                cal_cycles--;
-                if (cal_cycles == 0) {
-                    // calibration is done re-instate the desired rate
-                    _dshot_calibrating = false;
-                    _dshot_period_us = cycle_time_us;
-                }
-        }
     }
 }
 
@@ -216,7 +178,7 @@ void RCOutput::dshot_update_tick(void* p)
     chSysLockFromISR();
     RCOutput* rcout = (RCOutput*)p;
 
-    if (rcout->_dshot_cycle + 1 < rcout->_dshot_rate || rcout->_dshot_calibrating) {
+    if (rcout->_dshot_cycle + 1 < rcout->_dshot_rate) {
         chVTSetI(&rcout->_dshot_rate_timer, chTimeUS2I(rcout->_dshot_period_us), dshot_update_tick, p);
     }
     chEvtSignalI(rcout->rcout_thread_ctx, EVT_PWM_SYNTHETIC_SEND);
@@ -430,7 +392,6 @@ void RCOutput::set_dshot_rate(uint8_t dshot_rate, uint16_t loop_rate_hz)
     if (loop_rate_hz <= 100 || dshot_rate == 0) {
         _dshot_period_us = 1000UL;
         _dshot_rate = 0;
-        chEvtSignal(rcout_thread_ctx, EVT_PWM_START);
         return;
     }
     // if there are non-dshot channels then do likewise
@@ -440,7 +401,6 @@ void RCOutput::set_dshot_rate(uint8_t dshot_rate, uint16_t loop_rate_hz)
             group.current_mode == MODE_PWM_BRUSHED) {
             _dshot_period_us = 1000UL;
             _dshot_rate = 0;
-            chEvtSignal(rcout_thread_ctx, EVT_PWM_START);
             return;
         }
     }
@@ -460,8 +420,6 @@ void RCOutput::set_dshot_rate(uint8_t dshot_rate, uint16_t loop_rate_hz)
         drate = _dshot_rate * loop_rate_hz;
     }
     _dshot_period_us = 1000000UL / drate;
-
-    chEvtSignal(rcout_thread_ctx, EVT_PWM_START);
 }
 
 /*
@@ -510,6 +468,7 @@ void RCOutput::enable_ch(uint8_t chan)
     pwm_group *grp = find_chan(chan, i);
     if (grp) {
         en_mask |= 1U << (chan - chan_offset);
+        grp->en_mask |= 1U << (chan - chan_offset);
     }
 }
 
@@ -520,6 +479,7 @@ void RCOutput::disable_ch(uint8_t chan)
     if (grp) {
         pwmDisableChannel(grp->pwm_drv, i);
         en_mask &= ~(1U<<(chan - chan_offset));
+        grp->en_mask &= ~(1U << (chan - chan_offset));
     }
 }
 
@@ -548,7 +508,7 @@ void RCOutput::write(uint8_t chan, uint16_t period_us)
 
     if (safety_state == AP_HAL::Util::SAFETY_DISARMED && !(safety_mask & (1U<<chan))) {
         // implement safety pwm value
-        period_us = safe_pwm[chan];
+        period_us = 0;
     }
 
     chan -= chan_offset;
@@ -587,7 +547,7 @@ void RCOutput::push_local(void)
         }
         for (uint8_t j = 0; j < 4; j++) {
             uint8_t chan = group.chan[j];
-            if (chan == CHAN_DISABLED) {
+            if (!group.is_chan_enabled(j)) {
                 continue;
             }
             if (outmask & (1UL<<chan)) {
@@ -595,7 +555,7 @@ void RCOutput::push_local(void)
 
                 if (safety_on && !(safety_mask & (1U<<(chan+chan_offset)))) {
                     // safety is on, overwride pwm
-                    period_us = safe_pwm[chan+chan_offset];
+                    period_us = 0;
                 }
 
                 if (group.current_mode == MODE_PWM_BRUSHED) {
@@ -625,14 +585,15 @@ void RCOutput::push_local(void)
                     period_us = group.dshot_pulse_time_us;
                 }
 #endif //#ifndef DISABLE_DSHOT
-                if (period_us > widest_pulse) {
-                    widest_pulse = period_us;
-                }
                 if (group.current_mode == MODE_PWM_ONESHOT ||
                     group.current_mode == MODE_PWM_ONESHOT125 ||
                     group.current_mode == MODE_NEOPIXEL ||
                     group.current_mode == MODE_PROFILED ||
                     is_dshot_protocol(group.current_mode)) {
+                    // only control widest pulse for oneshot and dshot
+                    if (period_us > widest_pulse) {
+                        widest_pulse = period_us;
+                    }
                     const uint8_t i = &group - pwm_group_list;
                     need_trigger |= (1U<<i);
                 }
@@ -659,7 +620,12 @@ uint16_t RCOutput::read(uint8_t chan)
     }
 #if HAL_WITH_IO_MCU
     if (chan < chan_offset) {
-        return iomcu.read_channel(chan);
+        uint16_t period_us = iomcu.read_channel(chan);
+        if ((iomcu_mode == MODE_PWM_ONESHOT125) && ((1U<<chan) & io_fast_channel_mask)) {
+            // convert back to 1000 - 2000 range
+            period_us *= 8;
+        }
+        return period_us;
     }
 #endif
     chan -= chan_offset;
@@ -674,6 +640,10 @@ void RCOutput::read(uint16_t* period_us, uint8_t len)
 #if HAL_WITH_IO_MCU
     for (uint8_t i=0; i<MIN(len, chan_offset); i++) {
         period_us[i] = iomcu.read_channel(i);
+        if ((iomcu_mode == MODE_PWM_ONESHOT125) && ((1U<<i) & io_fast_channel_mask)) {
+            // convert back to 1000 - 2000 range
+            period_us[i] *= 8;
+        }
     }
 #endif
     if (len <= chan_offset) {
@@ -832,7 +802,7 @@ bool RCOutput::setup_group_DMA(pwm_group &group, uint32_t bitrate, uint32_t bit_
     group.pwm_started = true;
 
     for (uint8_t j=0; j<4; j++) {
-        if (group.chan[j] != CHAN_DISABLED) {
+        if (group.is_chan_enabled(j)) {
             pwmEnableChannel(group.pwm_drv, j, 0);
         }
     }
@@ -944,7 +914,7 @@ void RCOutput::set_group_mode(pwm_group &group)
         pwmStart(group.pwm_drv, &group.pwm_cfg);
         group.pwm_started = true;
         for (uint8_t j=0; j<4; j++) {
-            if (group.chan[j] != CHAN_DISABLED) {
+            if (group.is_chan_enabled(j)) {
                 pwmEnableChannel(group.pwm_drv, j, 0);
             }
         }
@@ -1003,6 +973,11 @@ void RCOutput::set_output_mode(uint16_t mask, const enum output_mode mode)
  */
 bool RCOutput::get_output_mode_banner(char banner_msg[], uint8_t banner_msg_len) const
 {
+    if (!hal.scheduler->is_system_initialized()) {
+        hal.util->snprintf(banner_msg, banner_msg_len, "RCOut: Initialising");
+        return true;
+    }
+
     // create array of each channel's mode
     output_mode ch_mode[chan_offset + NUM_GROUPS * ARRAY_SIZE(pwm_group::chan)] = {};
     bool have_nonzero_modes = false;
@@ -1181,15 +1156,33 @@ void RCOutput::timer_tick(uint32_t time_out_us)
 // send dshot for all groups that support it
 void RCOutput::dshot_send_groups(uint32_t time_out_us)
 {
+#ifndef DISABLE_DSHOT
     if (serial_group) {
         return;
     }
-    // actually do a dshot send
+
+    bool command_sent = false;
+    // queue up a command if there is one
+    if (_dshot_current_command.cycle == 0
+        && _dshot_command_queue.pop(_dshot_current_command)) {
+        // got a new command
+    }
+
     for (auto &group : pwm_group_list) {
-        if (group.can_send_dshot_pulse()) {
+        // send a dshot command
+        if (is_dshot_protocol(group.current_mode)
+            && dshot_command_is_active(group)) {
+            command_sent = dshot_send_command(group, _dshot_current_command.command, _dshot_current_command.chan);
+        // actually do a dshot send
+        } else if (group.can_send_dshot_pulse()) {
             dshot_send(group, time_out_us);
         }
     }
+
+    if (command_sent) {
+        _dshot_current_command.cycle--;
+    }
+#endif //#ifndef DISABLE_DSHOT
 }
 
 void RCOutput::dshot_send_next_group(void* p)
@@ -1333,6 +1326,7 @@ void RCOutput::dshot_send(pwm_group &group, uint32_t time_out_us)
         uint32_t now = AP_HAL::millis();
         if (bdshot_decode_dshot_telemetry(group, group.bdshot.prev_telem_chan)) {
             _bdshot.erpm_clean_frames[chan]++;
+            _active_escs_mask |= (1<<chan); // we know the ESC is functional at this point
         } else {
             _bdshot.erpm_errors[chan]++;
         }
@@ -1356,20 +1350,29 @@ void RCOutput::dshot_send(pwm_group &group, uint32_t time_out_us)
     }
 #endif
     bool safety_on = hal.util->safety_switch_state() == AP_HAL::Util::SAFETY_DISARMED;
+    bool armed = hal.util->get_soft_armed();
 
     memset((uint8_t *)group.dma_buffer, 0, DSHOT_BUFFER_LENGTH);
 
     for (uint8_t i=0; i<4; i++) {
         uint8_t chan = group.chan[i];
-        if (chan != CHAN_DISABLED) {
+        if (group.is_chan_enabled(i)) {
+#ifdef HAL_WITH_BIDIR_DSHOT
             // retrieve the last erpm values
-            _bdshot.erpm[chan] = group.bdshot.erpm[i];
-
+            const uint16_t erpm = group.bdshot.erpm[i];
+#if HAL_WITH_ESC_TELEM
+            // update the ESC telemetry data
+            if (erpm < 0xFFFF && group.bdshot.enabled) {
+                update_rpm(chan, erpm * 200 / _bdshot.motor_poles, get_erpm_error_rate(chan));
+            }
+#endif
+            _bdshot.erpm[chan] = erpm;
+#endif
             uint16_t pwm = period[chan];
 
             if (safety_on && !(safety_mask & (1U<<(chan+chan_offset)))) {
                 // safety is on, overwride pwm
-                pwm = safe_pwm[chan+chan_offset];
+                pwm = 0;
             }
 
             const uint16_t chan_mask = (1U<<chan);
@@ -1381,7 +1384,7 @@ void RCOutput::dshot_send(pwm_group &group, uint32_t time_out_us)
             pwm = constrain_int16(pwm, 1000, 2000);
             uint16_t value = 2 * (pwm - 1000);
 
-            if (chan_mask & (reversible_mask>>chan_offset)) {
+            if (chan_mask & (_reversible_mask>>chan_offset)) {
                 // this is a DShot-3D output, map so that 1500 PWM is zero throttle reversed
                 if (value < 1000) {
                     value = 2000 - value;
@@ -1392,13 +1395,19 @@ void RCOutput::dshot_send(pwm_group &group, uint32_t time_out_us)
                     value = 0;
                 }
             }
+
+            // dshot values are from 48 to 2047. 48 means off.
             if (value != 0) {
-                // dshot values are from 48 to 2047. Zero means off.
-                value += 47;
+                value += DSHOT_ZERO_THROTTLE;
+            }
+
+            if (!armed) {
+                // when disarmed we always send a zero value
+                value = 0;
             }
 
             // according to sskaug requesting telemetry while trying to arm may interfere with the good frame calc
-            bool request_telemetry = (telem_request_mask & chan_mask) ? !_dshot_calibrating : false;
+            bool request_telemetry = telem_request_mask & chan_mask;
             uint16_t packet = create_dshot_packet(value, request_telemetry, group.bdshot.enabled);
             if (request_telemetry) {
                 telem_request_mask &= ~chan_mask;
@@ -1945,24 +1954,6 @@ void RCOutput::force_safety_off(void)
 #else
     safety_state = AP_HAL::Util::SAFETY_ARMED;
 #endif
-}
-
-/*
-  set PWM to send to a set of channels when the safety switch is
-  in the safe state
-*/
-void RCOutput::set_safety_pwm(uint32_t chmask, uint16_t period_us)
-{
-#if HAL_WITH_IO_MCU
-    if (AP_BoardConfig::io_enabled()) {
-        iomcu.set_safety_pwm(chmask, period_us);
-    }
-#endif
-    for (uint8_t i=0; i<16; i++) {
-        if (chmask & (1U<<i)) {
-            safe_pwm[i] = period_us;
-        }
-    }
 }
 
 /*

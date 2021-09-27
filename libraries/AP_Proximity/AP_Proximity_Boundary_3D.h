@@ -29,7 +29,7 @@
 #define PROXIMITY_BOUNDARY_DIST_MIN   0.6f    // minimum distance for a boundary point.  This ensures the object avoidance code doesn't think we are outside the boundary.
 #define PROXIMITY_BOUNDARY_DIST_DEFAULT 100   // if we have no data for a sector, boundary is placed 100m out
 #define PROXIMITY_FILT_RESET_TIME     1000    // reset filter if last distance was pushed more than this many ms away
-#define PROXIMITY_FACE_RESET_MS       1250    // face will be reset if not updated within this many ms
+#define PROXIMITY_FACE_RESET_MS       1000    // face will be reset if not updated within this many ms
 
 class AP_Proximity_Boundary_3D
 {
@@ -97,8 +97,8 @@ public:
     bool get_obstacle(uint8_t obstacle_num, Vector3f& vec_to_boundary) const;
 
     // Returns a body frame vector (in cm) nearest to obstacle, in betwen seg_start and seg_end
-    // FLT_MAX is returned if the obstacle_num provided does not produce a valid obstacle
-    float distance_to_obstacle(uint8_t obstacle_num, const Vector3f& seg_start, const Vector3f& seg_end, Vector3f& closest_point) const;
+    // True is returned if the segment intersects a plane formed by considering the "closest point" as normal vector to the plane.
+    bool closest_point_from_segment_to_obstacle(uint8_t obstacle_num, const Vector3f& seg_start, const Vector3f& seg_end, Vector3f& closest_point) const;
 
     // get distance and angle to closest object (used for pre-arm check)
     //   returns true on success, false if no valid readings

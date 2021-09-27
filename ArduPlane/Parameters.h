@@ -79,22 +79,22 @@ public:
         k_param_takeoff_throttle_min_accel,
         k_param_takeoff_heading_hold, // unused
         k_param_level_roll_limit,
-        k_param_hil_servos,
+        k_param_hil_servos_unused,  // unused
         k_param_vtail_output, // unused
-        k_param_nav_controller,
+        k_param_nav_controller, // unused
         k_param_elevon_output, // unused
-        k_param_att_controller,
+        k_param_att_controller, // unused
         k_param_mixing_gain,
         k_param_scheduler,
         k_param_relay,
         k_param_takeoff_throttle_delay,
         k_param_mode_takeoff, // was skip_gyro_cal
-        k_param_auto_fbw_steer,
+        k_param_auto_fbw_steer, // unused
         k_param_waypoint_max_radius,
         k_param_ground_steer_alt,        
         k_param_ground_steer_dps,
         k_param_rally_limit_km_old, //unused anymore -- just holding this index
-        k_param_hil_err_limit,
+        k_param_hil_err_limit_unused,  // unused
         k_param_sonar_old, // unused
         k_param_log_bitmask,
         k_param_BoardConfig,
@@ -130,7 +130,7 @@ public:
         k_param_optflow,
         k_param_cli_enabled_old, // unused - CLI removed
         k_param_trim_rc_at_start, // unused
-        k_param_hil_mode,
+        k_param_hil_mode_unused,  // unused
         k_param_land_disarm_delay,  // unused - moved to AP_Landing
         k_param_glide_slope_threshold,
         k_param_rudder_only,
@@ -144,7 +144,7 @@ public:
         k_param_arming = 100,
         k_param_parachute_channel, // unused - moved to RC option
         k_param_crash_accel_threshold,
-        k_param_override_safety,
+        k_param_override_safety, // unused
         k_param_land_throttle_slewrate, // 104 unused - moved to AP_Landing
 
         // 105: Extra parameters
@@ -173,7 +173,7 @@ public:
         k_param_airspeed_max,
         k_param_FBWB_min_altitude_cm,  // 0=disabled, minimum value for altitude in cm (for first time try 30 meters = 3000 cm)
         k_param_flybywire_elev_reverse,
-        k_param_alt_control_algorithm,
+        k_param_alt_control_algorithm, // unused
         k_param_flybywire_climb_rate,
         k_param_acro_roll_rate,
         k_param_acro_pitch_rate,
@@ -305,7 +305,7 @@ public:
         //
         // 220: Waypoint data
         //
-        k_param_waypoint_mode = 220,
+        k_param_waypoint_mode = 220, // unused
         k_param_command_total,  // unused
         k_param_command_index,  // unused
         k_param_waypoint_radius,
@@ -361,8 +361,6 @@ public:
     AP_Int16 sysid_my_gcs;
     AP_Int8 telem_delay;
 
-    AP_Float hil_err_limit;
-
     AP_Int8  rtl_autoland;
 
     AP_Int8  crash_accel_threshold;
@@ -379,21 +377,8 @@ public:
     // speed used for speed scaling
     AP_Float scaling_speed;
 
-    // navigation controller type. See AP_Navigation::ControllerType
-    AP_Int8  nav_controller;
-
-    // attitude controller type.
-    AP_Int8  att_controller;
-
-    AP_Int8  auto_fbw_steer;
-
-    // Estimation
-    //
-    AP_Int8  alt_control_algorithm;
-
     // Waypoints
     //
-    AP_Int8 waypoint_mode;
     AP_Int16 waypoint_radius;
     AP_Int16 waypoint_max_radius;
     AP_Int16 rtl_radius;
@@ -410,7 +395,7 @@ public:
     AP_Int8 throttle_fs_enabled;
     AP_Int16 throttle_fs_value;
     AP_Int8 throttle_nudge;
-    AP_Int16 use_reverse_thrust;
+    AP_Int32 use_reverse_thrust;
 
     // Failsafe
     AP_Int8 fs_action_short;
@@ -449,10 +434,6 @@ public:
     AP_Int32 RTL_altitude_cm;
     AP_Int16 pitch_trim_cd;
     AP_Int16 FBWB_min_altitude_cm;
-    AP_Int8  hil_servos;
-#if HIL_SUPPORT
-    AP_Int8  hil_mode;
-#endif
 
     AP_Int8 flap_1_percent;
     AP_Int8 flap_1_speed;
@@ -479,7 +460,6 @@ public:
     AP_Int8 flap_slewrate;
 #if HAL_WITH_IO_MCU
     AP_Int8 override_channel;
-    AP_Int8 override_safety;
 #endif
     AP_Int16 gcs_pid_mask;
 };
@@ -495,7 +475,9 @@ public:
     static const struct AP_Param::GroupInfo var_info[];
 
     // button reporting library
+#if HAL_BUTTON_ENABLED
     AP_Button *button_ptr;
+#endif
 
 #if STATS_ENABLED == ENABLED
     // vehicle statistics
@@ -521,9 +503,6 @@ public:
 
     // dual motor tailsitter rudder to differential thrust scaling: 0-100%
     AP_Int8 rudd_dt_gain;
-
-    // QACRO mode max yaw rate in deg/sec
-    AP_Int16 acro_yaw_rate;
 
     // mask of channels to do manual pass-thru for
     AP_Int32 manual_rc_mask;
@@ -560,7 +539,7 @@ public:
     AP_Float fwd_thr_batt_voltage_min;
     AP_Int8  fwd_thr_batt_idx;
 
-#if EFI_ENABLED
+#if HAL_EFI_ENABLED
     // EFI Engine Monitor
     AP_EFI efi;
 #endif
@@ -575,6 +554,12 @@ public:
 
     // min initial climb in RTL
     AP_Int16        rtl_climb_min;
+
+    AP_Int8         man_expo_roll;
+    AP_Int8         man_expo_pitch;
+    AP_Int8         man_expo_rudder;
+
+    AP_Int32        oneshot_mask;
 };
 
 extern const AP_Param::Info var_info[];

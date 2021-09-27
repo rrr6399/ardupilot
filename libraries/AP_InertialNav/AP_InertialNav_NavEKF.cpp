@@ -1,8 +1,6 @@
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Baro/AP_Baro.h>
-#include "AP_InertialNav.h"
-
-#if AP_AHRS_NAVEKF_AVAILABLE
+#include "AP_InertialNav_NavEKF.h"
 
 /*
   A wrapper around the AP_InertialNav class which uses the NavEKF
@@ -83,7 +81,7 @@ const Vector3f &AP_InertialNav_NavEKF::get_velocity() const
  */
 float AP_InertialNav_NavEKF::get_speed_xy() const
 {
-    return norm(_velocity_cm.x, _velocity_cm.y);
+    return _velocity_cm.xy().length();
 }
 
 /**
@@ -106,5 +104,3 @@ float AP_InertialNav_NavEKF::get_velocity_z() const
 {
     return _velocity_cm.z;
 }
-
-#endif // AP_AHRS_NAVEKF_AVAILABLE

@@ -433,8 +433,16 @@ void Mode::navigate_to_waypoint()
         const float turn_rate = g2.sailboat.tacking() ? g2.wp_nav.get_pivot_rate() : 0.0f;
         calc_steering_to_heading(desired_heading_cd, turn_rate);
     } else {
+        // retrieve turn rate from waypoint controller
+        float desired_turn_rate_rads = g2.wp_nav.get_turn_rate_rads();
+
+        // if simple avoidance is active at very low speed do not attempt to turn
+        if (g2.avoid.limits_active() && (fabsf(attitude_control.get_desired_speed()) <= attitude_control.get_stop_speed())) {
+            desired_turn_rate_rads = 0.0f;
+        }
+
         // call turn rate steering controller
-        calc_steering_from_turn_rate(g2.wp_nav.get_turn_rate_rads());
+        calc_steering_from_turn_rate(desired_turn_rate_rads);
     }
 }
 
@@ -456,7 +464,7 @@ void Mode::calc_steering_from_turn_rate(float turn_rate)
 void Mode::calc_steering_from_lateral_acceleration(float lat_accel, bool reversed)
 {
     // constrain to max G force
-    lat_accel = constrain_float(lat_accel, -g.turn_max_g * GRAVITY_MSS, g.turn_max_g * GRAVITY_MSS);
+    lat_accel = constrain_float(lat_accel, -attitude_control.get_turn_lat_accel_max(), attitude_control.get_turn_lat_accel_max());
 
     // send final steering command to motor library
     const float steering_out = attitude_control.get_steering_out_lat_accel(lat_accel,

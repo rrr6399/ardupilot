@@ -50,11 +50,19 @@ class VehicleInfo(object):
             },
             "hexa-cwx": {
                 "waf_target": "bin/arducopter",
-                "default_params_filename": "default_params/copter.parm",
+                "default_params_filename": [
+                    "default_params/copter.parm",
+                    "default_params/copter-hexa.parm",
+                    "default_params/copter-hexa-cwx.parm"
+                ],
             },
             "hexa-dji": {
                 "waf_target": "bin/arducopter",
-                "default_params_filename": "default_params/copter.parm",
+                "default_params_filename": [
+                    "default_params/copter.parm",
+                    "default_params/copter-hexa.parm",
+                    "default_params/copter-hexa-dji.parm"
+                ],
             },
              "octa-cwx": {
                 "waf_target": "bin/arducopter",
@@ -66,7 +74,11 @@ class VehicleInfo(object):
             },
             "octa-quad-cwx": {
                 "waf_target": "bin/arducopter",
-                "default_params_filename": "default_params/copter.parm",
+                "default_params_filename": [
+                    "default_params/copter.parm",
+                    "default_params/copter-octaquad.parm",
+                    "default_params/copter-octaquad-cwx.parm"
+                ],
             },
             "octa-quad": {
                 "waf_target": "bin/arducopter",
@@ -138,8 +150,10 @@ class VehicleInfo(object):
                 "default_params_filename": ["default_params/copter-heli.parm",
                                             "default_params/copter-heli-dual.parm"],
             },
-            "heli-compound": {
+            "heli-blade360": {
                 "waf_target": "bin/arducopter-heli",
+                "default_params_filename": ["default_params/copter-heli.parm",
+                ],
             },
             "singlecopter": {
                 "waf_target": "bin/arducopter",
@@ -167,12 +181,34 @@ class VehicleInfo(object):
             },
         },
     },
-    "Blimp": {
-        "default_frame": "quad",
+    "Helicopter": {
+        "default_frame": "heli",
         "frames": {
-            # BLIMP
-            "quad": {
-                "model": "+",
+            "heli": {
+                "waf_target": "bin/arducopter-heli",
+                "default_params_filename": "default_params/copter-heli.parm",
+            },
+            "heli-dual": {
+                "waf_target": "bin/arducopter-heli",
+                "default_params_filename": ["default_params/copter-heli.parm",
+                                            "default_params/copter-heli-dual.parm"],
+            },
+            # "heli-compound": {
+            #     "waf_target": "bin/arducopter-heli",
+            #     "default_params_filename": ["default_params/copter-heli.parm",
+            #                                 "default_params/copter-heli-compound.parm"],
+            # },
+            "heli-blade360": {
+                "waf_target": "bin/arducopter-heli",
+                "default_params_filename": ["default_params/copter-heli.parm",
+                ],
+            },
+        },
+    },
+    "Blimp": {
+        "default_frame": "Blimp",
+        "frames": {
+            "Blimp": {
                 "waf_target": "bin/blimp",
                 "default_params_filename": "default_params/blimp.parm",
             },
@@ -241,23 +277,31 @@ class VehicleInfo(object):
             "gazebo-zephyr": {
                 "waf_target": "bin/arduplane",
                 "default_params_filename": "default_params/gazebo-zephyr.parm",
+                "external": True,
             },
             "last_letter": {
                 "waf_target": "bin/arduplane",
+                "default_params_filename": "default_params/plane.parm",
+                "external": True,
             },
             "CRRCSim": {
                 "waf_target": "bin/arduplane",
+                "default_params_filename": "default_params/plane.parm",
+                "external": True,
             },
             "jsbsim": {
                 "waf_target": "bin/arduplane",
                 "default_params_filename": "default_params/plane-jsbsim.parm",
+                "external": True,
             },
             "scrimmage-plane" : {
                 "waf_target": "bin/arduplane",
                 "default_params_filename": "default_params/plane.parm",
+                "external": True,
             },
             "calibration": {
                 "extra_mavlink_cmds": "module load sitl_calibration;",
+                "external": True,  # lies!  OTOH, hard to take off with this
             },
         },
     },

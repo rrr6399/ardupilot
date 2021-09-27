@@ -58,6 +58,7 @@ void GCS_Copter::update_vehicle_sensor_status_flags(void)
 
     switch (copter.flightmode->mode_number()) {
     case Mode::Number::AUTO:
+    case Mode::Number::AUTO_RTL:
     case Mode::Number::AVOID_ADSB:
     case Mode::Number::GUIDED:
     case Mode::Number::LOITER:
@@ -134,7 +135,7 @@ void GCS_Copter::update_vehicle_sensor_status_flags(void)
     }
 #endif
 
-#if AP_TERRAIN_AVAILABLE && AC_TERRAIN
+#if AP_TERRAIN_AVAILABLE
     switch (copter.terrain.status()) {
     case AP_Terrain::TerrainStatusDisabled:
         break;
@@ -150,4 +151,12 @@ void GCS_Copter::update_vehicle_sensor_status_flags(void)
         break;
     }
 #endif
+
+    control_sensors_present |= MAV_SYS_STATUS_SENSOR_PROPULSION;
+    control_sensors_enabled |= MAV_SYS_STATUS_SENSOR_PROPULSION;
+    // only mark propulsion healthy if all of the motors are producing
+    // nominal thrust
+    if (!copter.motors->get_thrust_boost()) {
+        control_sensors_health |= MAV_SYS_STATUS_SENSOR_PROPULSION;
+    }
 }

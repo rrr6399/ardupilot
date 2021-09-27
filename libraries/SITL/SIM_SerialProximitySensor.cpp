@@ -43,7 +43,7 @@ void SerialProximitySensor::update(const Location &location)
 
 float SerialProximitySensor::measure_distance_at_angle_bf(const Location &location, float angle) const
 {
-    const SITL *sitl = AP::sitl();
+    const SIM *sitl = AP::sitl();
 
     Vector2f vehicle_pos_cm;
     if (!location.get_vector_xy_from_origin_NE(vehicle_pos_cm)) {
@@ -111,8 +111,8 @@ float SerialProximitySensor::measure_distance_at_angle_bf(const Location &locati
                 float dist_cm = (intersection_point_cm-vehicle_pos_cm).length();
                 if (intersectionsfile != nullptr) {
                     Location intersection_point = location;
-                    intersection_point.offset(intersection_point_cm.x/100.0f,
-                                              intersection_point_cm.y/100.0f);
+                    intersection_point.offset(intersection_point_cm.x/100.0,
+                                              intersection_point_cm.y/100.0);
                     ::fprintf(intersectionsfile,
                               "map icon %f %f barrell\n",
                               intersection_point.lat*1e-7,

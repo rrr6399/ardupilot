@@ -177,7 +177,7 @@ void Copter::update_throttle_mix()
 
         // check for aggressive flight requests - requested roll or pitch angle below 15 degrees
         const Vector3f angle_target = attitude_control->get_att_target_euler_cd();
-        bool large_angle_request = (norm(angle_target.x, angle_target.y) > LAND_CHECK_LARGE_ANGLE_CD);
+        bool large_angle_request = angle_target.xy().length() > LAND_CHECK_LARGE_ANGLE_CD;
 
         // check for large external disturbance - angle error over 30 degrees
         const float angle_error = attitude_control->get_att_error_angle_deg();
@@ -186,8 +186,8 @@ void Copter::update_throttle_mix()
         // check for large acceleration - falling or high turbulence
         const bool accel_moving = (land_accel_ef_filter.get().length() > LAND_CHECK_ACCEL_MOVING);
 
-        // check for requested decent
-        bool descent_not_demanded = pos_control->get_desired_velocity().z >= 0.0f;
+        // check for requested descent
+        bool descent_not_demanded = pos_control->get_vel_desired_cms().z >= 0.0f;
 
         // check if landing
         const bool landing = flightmode->is_landing();

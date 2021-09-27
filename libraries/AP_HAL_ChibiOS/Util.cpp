@@ -29,7 +29,9 @@
 #include "sdcard.h"
 #include "shared_dma.h"
 #include <AP_Common/ExpandingString.h>
-
+#if defined(HAL_PWM_ALARM) || HAL_DSHOT_ALARM || HAL_CANMANAGER_ENABLED
+#include <AP_Notify/AP_Notify.h>
+#endif
 #if HAL_ENABLE_SAVE_PERSISTENT_PARAMS
 #include <AP_InertialSensor/AP_InertialSensor.h>
 #endif
@@ -153,17 +155,29 @@ Util::safety_state Util::safety_switch_state(void)
 
 #ifdef HAL_PWM_ALARM
 struct Util::ToneAlarmPwmGroup Util::_toneAlarm_pwm_group = HAL_PWM_ALARM;
+#endif
 
-bool Util::toneAlarm_init()
+uint8_t  Util::_toneAlarm_types = 0;
+
+bool Util::toneAlarm_init(uint8_t types)
 {
+#ifdef HAL_PWM_ALARM
     _toneAlarm_pwm_group.pwm_cfg.period = 1000;
     pwmStart(_toneAlarm_pwm_group.pwm_drv, &_toneAlarm_pwm_group.pwm_cfg);
+#endif
+    _toneAlarm_types = types;
 
+#if !defined(HAL_PWM_ALARM) && !HAL_DSHOT_ALARM && !HAL_CANMANAGER_ENABLED
+    // Nothing to do
+    return false;
+#else
     return true;
+#endif
 }
 
 void Util::toneAlarm_set_buzzer_tone(float frequency, float volume, uint32_t duration_ms)
 {
+#ifdef HAL_PWM_ALARM
     if (is_zero(frequency) || is_zero(volume)) {
         pwmDisableChannel(_toneAlarm_pwm_group.pwm_drv, _toneAlarm_pwm_group.chan);
     } else {
@@ -172,8 +186,28 @@ void Util::toneAlarm_set_buzzer_tone(float frequency, float volume, uint32_t dur
 
         pwmEnableChannel(_toneAlarm_pwm_group.pwm_drv, _toneAlarm_pwm_group.chan, roundf(volume*_toneAlarm_pwm_group.pwm_cfg.frequency/frequency)/2);
     }
-}
 #endif // HAL_PWM_ALARM
+#if HAL_DSHOT_ALARM
+    // don't play the motors while flying
+    if (!(_toneAlarm_types & AP_Notify::Notify_Buzz_DShot) || get_soft_armed() || hal.rcout->get_dshot_esc_type() != RCOutput::DSHOT_ESC_BLHELI) {
+        return;
+    }
+
+    if (is_zero(frequency)) {   // silence
+        hal.rcout->send_dshot_command(RCOutput::DSHOT_RESET, RCOutput::ALL_CHANNELS, duration_ms);
+    } else if (frequency < 1047) { // C
+        hal.rcout->send_dshot_command(RCOutput::DSHOT_BEEP1, RCOutput::ALL_CHANNELS, duration_ms);
+    } else if (frequency < 1175) {  // D
+        hal.rcout->send_dshot_command(RCOutput::DSHOT_BEEP2, RCOutput::ALL_CHANNELS, duration_ms);
+    } else if (frequency < 1319) {  // E
+        hal.rcout->send_dshot_command(RCOutput::DSHOT_BEEP3, RCOutput::ALL_CHANNELS, duration_ms);
+    } else if (frequency < 1397) {  // F
+        hal.rcout->send_dshot_command(RCOutput::DSHOT_BEEP4, RCOutput::ALL_CHANNELS, duration_ms);
+    } else {  // G+
+        hal.rcout->send_dshot_command(RCOutput::DSHOT_BEEP5, RCOutput::ALL_CHANNELS, duration_ms);
+    }
+#endif // HAL_DSHOT_ALARM
+}
 
 /*
   set HW RTC in UTC microseconds
@@ -193,11 +227,15 @@ uint64_t Util::get_hw_rtc() const
 
 #if !defined(HAL_NO_FLASH_SUPPORT) && !defined(HAL_NO_ROMFS_SUPPORT)
 
-#if defined(HAL_NO_GCS) || defined(HAL_BOOTLOADER_BUILD)
-#define Debug(fmt, args ...)  do { hal.console->printf(fmt, ## args); } while (0)
-#else
+#ifndef HAL_BOOTLOADER_BUILD
 #include <GCS_MAVLink/GCS.h>
+#if HAL_GCS_ENABLED
 #define Debug(fmt, args ...)  do { gcs().send_text(MAV_SEVERITY_INFO, fmt, ## args); } while (0)
+#endif // HAL_GCS_ENABLED
+#endif // ifndef HAL_BOOT_LOADER_BUILD
+
+#ifndef Debug
+#define Debug(fmt, args ...)  do { hal.console->printf(fmt, ## args); } while (0)
 #endif
 
 Util::FlashBootloader Util::flash_bootloader()
@@ -332,7 +370,7 @@ bool Util::was_watchdog_reset() const
     return stm32_was_watchdog_reset();
 }
 
-#if CH_DBG_ENABLE_STACK_CHECK == TRUE
+#if CH_DBG_ENABLE_STACK_CHECK == TRUE && !defined(HAL_BOOTLOADER_BUILD)
 /*
   display stack usage as text buffer for @SYS/threads.txt
  */
@@ -497,7 +535,7 @@ void Util::apply_persistent_params(void) const
         if (eq) {
             *eq = 0;
             const char *pname = p;
-            const float value = atof(eq+1);
+            const float value = strtof(eq+1, NULL);
             if (AP_Param::set_default_by_name(pname, value)) {
                 count++;
                 /*
@@ -542,10 +580,26 @@ void Util::apply_persistent_params(void) const
 }
 #endif // HAL_ENABLE_SAVE_PERSISTENT_PARAMS
 
+#if HAL_WITH_IO_MCU
+extern ChibiOS::UARTDriver uart_io;
+#endif
+
 // request information on uart I/O
 void Util::uart_info(ExpandingString &str)
 {
 #if !defined(HAL_NO_UARTDRIVER)    
-    ChibiOS::UARTDriver::uart_info(str);
+    // a header to allow for machine parsers to determine format
+    str.printf("UARTV1\n");
+    for (uint8_t i = 0; i < HAL_UART_NUM_SERIAL_PORTS; i++) {
+        auto *uart = hal.serial(i);
+        if (uart) {
+            str.printf("SERIAL%u ", i);
+            uart->uart_info(str);
+        }
+    }
+#if HAL_WITH_IO_MCU
+    str.printf("IOMCU   ");
+    uart_io.uart_info(str);
 #endif
+#endif // HAL_NO_UARTDRIVER
 }

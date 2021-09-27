@@ -243,14 +243,6 @@ void AP_IOMCU::thread_main(void)
             last_safety_option_check_ms = now;
         }
 
-        // update safety pwm
-        if (pwm_out.safety_pwm_set != pwm_out.safety_pwm_sent) {
-            uint8_t set = pwm_out.safety_pwm_set;
-            if (write_registers(PAGE_SAFETY_PWM, 0, IOMCU_MAX_CHANNELS, pwm_out.safety_pwm)) {
-                pwm_out.safety_pwm_sent = set;
-            }
-        }
-
         // update failsafe pwm
         if (pwm_out.failsafe_pwm_set != pwm_out.failsafe_pwm_sent) {
             uint8_t set = pwm_out.failsafe_pwm_set;
@@ -360,7 +352,7 @@ void AP_IOMCU::read_status()
 // @Field: Nerr: Protocol failures on MCU side
 // @Field: Nerr2: Reported number of failures on IOMCU side
 // @Field: NDel: Number of delayed packets received by MCU
-            AP::logger().Write("IOMC", "TimeUS,Mem,TS,NPkt,Nerr,Nerr2,NDel", "QHIIIII",
+            AP::logger().WriteStreaming("IOMC", "TimeUS,Mem,TS,NPkt,Nerr,Nerr2,NDel", "QHIIIII",
                                AP_HAL::micros64(),
                                reg_status.freemem,
                                reg_status.timestamp_ms,
@@ -853,25 +845,6 @@ bool AP_IOMCU::check_crc(void)
 }
 
 /*
-  set the pwm to use when safety is on
- */
-void AP_IOMCU::set_safety_pwm(uint16_t chmask, uint16_t period_us)
-{
-    bool changed = false;
-    for (uint8_t i=0; i<IOMCU_MAX_CHANNELS; i++) {
-        if (chmask & (1U<<i)) {
-            if (pwm_out.safety_pwm[i] != period_us) {
-                pwm_out.safety_pwm[i] = period_us;
-                changed = true;
-            }
-        }
-    }
-    if (changed) {
-        pwm_out.safety_pwm_set++;
-    }
-}
-
-/*
   set the pwm to use when in FMU failsafe
  */
 void AP_IOMCU::set_failsafe_pwm(uint16_t chmask, uint16_t period_us)
@@ -1038,6 +1011,7 @@ void AP_IOMCU::check_iomcu_reset(void)
 
     if (dt_ms < max_delay) {
         // all OK
+        last_safety_off = reg_status.flag_safety_off;
         return;
     }
     detected_io_reset = true;
@@ -1045,11 +1019,16 @@ void AP_IOMCU::check_iomcu_reset(void)
     hal.console->printf("IOMCU reset t=%u %u %u dt=%u\n",
                         unsigned(AP_HAL::millis()), unsigned(ts1), unsigned(reg_status.timestamp_ms), unsigned(dt_ms));
 
-    if (safety_forced_off && !reg_status.flag_safety_off && hal.util->get_soft_armed()) {
-        // IOMCU has reset while armed with safety off - force it off
-        // again so we can keep flying
-        force_safety_off();
+    if (last_safety_off && !reg_status.flag_safety_off && hal.util->get_soft_armed()) {
+        AP_BoardConfig *boardconfig = AP_BoardConfig::get_singleton();
+        uint16_t options = boardconfig?boardconfig->get_safety_button_options():0;
+        if (safety_forced_off || (options & AP_BoardConfig::BOARD_SAFETY_OPTION_BUTTON_ACTIVE_ARMED) == 0) {
+            // IOMCU has reset while armed with safety off - force it off
+            // again so we can keep flying
+            force_safety_off();
+        }
     }
+    last_safety_off = reg_status.flag_safety_off;
 
     // we need to ensure the mixer data and the rates are sent over to
     // the IOMCU

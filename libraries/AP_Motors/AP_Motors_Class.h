@@ -47,6 +47,7 @@ public:
         MOTOR_FRAME_DECA = 14,
         MOTOR_FRAME_SCRIPTING_MATRIX = 15,
         MOTOR_FRAME_6DOF_SCRIPTING = 16,
+        MOTOR_FRAME_DYNAMIC_SCRIPTING_MATRIX = 17,
     };
 
     // return string corresponding to frame_class
@@ -73,6 +74,9 @@ public:
 
     // return string corresponding to frame_type
     virtual const char* get_type_string() const { return ""; }
+
+    // returns a formatted string into buffer, e.g. "QUAD/X"
+    void get_frame_and_type_string(char *buffer, uint8_t buflen) const;
 
     // Constructor
     AP_Motors(uint16_t loop_rate, uint16_t speed_hz = AP_MOTORS_SPEED_DEFAULT);
@@ -205,6 +209,12 @@ public:
     // using copter motors for forward flight
     virtual float       get_roll_factor(uint8_t i) { return 0.0f; }
 
+    // return the pitch factor of any motor
+    virtual float       get_pitch_factor(uint8_t i) { return 0.0f; }
+
+    // return whether a motor is enabled or not
+    virtual bool        is_motor_enabled(uint8_t i) { return false; }
+
     // This function required for tradheli. Tradheli initializes targets when going from unarmed to armed state.
     // This function is overriden in motors_heli class.   Always true for multicopters.
     virtual bool init_targets_on_arming() const { return true; }
@@ -216,15 +226,18 @@ public:
                     PWM_TYPE_DSHOT150   = 4,
                     PWM_TYPE_DSHOT300   = 5,
                     PWM_TYPE_DSHOT600   = 6,
-                    PWM_TYPE_DSHOT1200  = 7};
+                    PWM_TYPE_DSHOT1200  = 7,
+                    PWM_TYPE_PWM_RANGE  = 8 };
     pwm_type            get_pwm_type(void) const { return (pwm_type)_pwm_type.get(); }
 
     MAV_TYPE get_frame_mav_type() const { return _mav_type; }
 
+    // direct motor write
+    virtual void        rc_write(uint8_t chan, uint16_t pwm);
+
 protected:
     // output functions that should be overloaded by child classes
     virtual void        output_armed_stabilizing() = 0;
-    virtual void        rc_write(uint8_t chan, uint16_t pwm);
     virtual void        rc_write_angle(uint8_t chan, int16_t angle_cd);
     virtual void        rc_set_freq(uint32_t mask, uint16_t freq_hz);
 
@@ -269,6 +282,9 @@ protected:
     // mask of what channels need fast output
     uint16_t            _motor_fast_mask;
 
+    // mask of what channels need to use SERVOn_MIN/MAX for output mapping
+    uint16_t            _motor_pwm_range_mask;
+    
     // pass through variables
     float _roll_radio_passthrough;     // roll input from pilot in -1 ~ +1 range.  used for setup and providing servo feedback while landed
     float _pitch_radio_passthrough;    // pitch input from pilot in -1 ~ +1 range.  used for setup and providing servo feedback while landed
@@ -291,7 +307,6 @@ private:
     bool _initialised_ok;    // 1 if initialisation was successful
 
     static AP_Motors *_singleton;
-
 };
 
 namespace AP {

@@ -1,3 +1,218 @@
+Release 4.1.0beta8 15th September 2021
+--------------------------------------
+
+This is a very small beta update, with a single patch to fix a serial
+flow control issue that came in beta7.
+
+Changes since beta7 are:
+
+ - fixed auto-detection of serial flow control
+
+Happy flying!
+
+Release 4.1.0beta7 11th September 2021
+--------------------------------------
+
+This is a small beta update, with a few important fixes. I expect this
+to be the final beta and will release 4.1.0 in one week if no
+significant issues are found.
+
+Changes since beta6 are:
+
+ - USB log download speeds improved on F765 and F777 based boards (USB buffers increased)
+ - Serial port DMA contention heuristics improved (reduces chance of delays writing to serial devices)
+ - Declination automatic lookup rounding fix (caused inaccurate declination in some parts of world)
+ - DShot (bi-directional) support on Pixhawk4, CUAVv5, CUAVv5-Nano
+ - IMU semaphore fix to avoid occasional corruption
+ - QioTek Zealot F427 GPIO pin fix
+ - Replay/DAL RMGH log message format fix
+ - Rangefinder initial buffer size and baudrate fix (affected Aintein US-D1 radar)
+ - increase CRSF frame timeout to cope with scheduling delays
+ - fixed quadplane Z controller init calculation
+
+Please test this final beta and report on the discuss.ardupilot.org
+4.1.0beta topic.
+
+Happy flying!
+
+
+Release 4.1.0beta6 29th August 2021
+-----------------------------------
+
+This is a small beta update, with a few important fixes.
+
+Changes are:
+
+ - Flywoo F745 Goku Nano support
+ - Scripting support for getting circle mode radius and setting rate
+ - Scripting support for new Guided mode controls including acceleration control
+ - ChibiOS scheduling slip workaround to avoid occasional 60ms delays found on MatekH743
+ - EKF2 divide-by-zero protection when using optical flow (issue only found in simulator)
+ - External AHRS (e.g. VectorNav driver) init fix
+ - KakuteF4Mini SBUS fix
+ - Pixhawk4 blue and red LEDs swapped
+ - Position control fixes to limit initial desired accel (horizontal and vertical) which could lead to an excessive climb or descent
+ - fixed airspeed constraint by AHRS_WIND_MAX
+ - fixed use of hw serial inversion pins on F4 boards
+ - updates for new revisions of QioTekF427Zealot
+
+Happy flying!
+
+Release 4.1.0beta5 16th August 2021
+-----------------------------------
+
+This is a small beta update, with a few important fixes.
+
+Changes are:
+
+ - Flywoo F745 supports external I2C compasses
+ - GPS-for-yaw arming check added
+ - GPS_DRV_OPTIONS allows forcing UBlox GPS to 115200 baud
+ - Lua scripts can be placed in ROMFS_custom directory
+ - Q_P_VELXY_FILT renamed to _FLTE, Q_P_VELXY_D_FILT renamed to _FLTD
+ - CAN threading fix to resolve potential lockup when lua scripts use CAN
+ - EKF3 GSF can be invoked multiple times with source switching (no longer limited by EK3_GSF_RST_MAX)
+ - EKF3 IMU offset fix (vehicle's reported position was slightly incorrect if INS_POS_XYZ params set)
+ - OSD overwrite and nullptr check fix
+ - RCOut banner displayed at very end of startup procedure to avoid invalid output
+ - allow for VTOL flightmodes after AHRS fallback to DCM
+ - fixed a bug in Z accel initialisation (particularly affects tailsitters)
+ - added LOG_BITMASK bit for logging attitude and PIDs at full loop rate
+
+Happy flying!
+
+Release 4.1.0beta4 25th July 2021
+---------------------------------
+
+This is a large beta update, with significant changes over beta3.
+
+Changes are:
+
+ - major fixed wing autotune update over previous 4.1 beta releases
+ - added MAN_EXPO_* parameters for input expos in MANUAL, TRAINING and ACRO modes
+ - added ONESHOT_MASK for oneshot output on control surfaces
+ - GPS-for-yaw enhancements including using position and yaw from different GPSs
+ - Long distance flight supported (thousands of km) including double precision EKF and moving origin
+ - major improvements to EKF3 stability
+ - BLHeli fix that could cause failure to boot
+ - CRSF message spamming and firmware string length fixed
+ - Display re-enabled on 1MB boards
+ - DShot always sends 0 when disarmed (protects against motors spin while disarmed due to misconfiguration)
+ - DShot fix that could cause main loop jitter
+ - DShot buzzer tone disabled during motor test to remove bad interation
+ - MatekF405-bdshot NeoPixel LEDs re-enabled on PWM5
+ - Serial port performance improvements using FIFO on H7 boards
+
+Please report all test results and happy flying!
+
+Release 4.1.0beta3 5th July 2021
+--------------------------------
+
+This is a minor update over the 4.0.1beta2 release. It has a few
+important fixes for beta testers:
+
+ - sync with copter 4.1.0beta5
+
+ - added QRTL always option in Q_RTL_MODE
+
+ - added more modes to USE_REV_THRUST parameter
+
+ - added QioTekZealonH743 board type
+
+ - added EKF3 protections for variance collapse
+
+ - added PiccoloCAN servo support
+
+ - improved VTOL position control a long distance from home
+
+ - fixed handling of 180 degree longitude date-line crossing
+
+ - fixed logged after forced arm
+
+ - fixed DShot with quadplane motor test
+
+ - adjusted autotune handling of target filter
+
+ - adjusted default roll/pitch PID filters
+
+Please report all test results, and happy flying!
+
+Release 4.1.0beta2 24th June 2021
+---------------------------------
+
+This is a minor update over the 4.0.1beta1 release. It has a few
+important fixes for beta testers:
+
+ - Fixed a bug in attitude control during the airbrake phase of
+   quadplane landing approach
+
+ - skip POSITION1 stage of landing approach for tailsitters
+
+ - fixed handling of corrupted filesystems on arming, where a long
+   delay during log file creation could cause a watchdog reset
+
+ - fixed build of VRUBrain-v51 board
+
+ - re-enable soaring on MatekF405-Wing
+
+ - fixed calculation of battery consumption on a commanded reset
+
+Please report all test results, and happy flying!
+
+Release 4.1.0beta1 14th June 2021
+---------------------------------
+
+This is a major release, with a lot of changes across almost all
+subsystems. Key changes include:
+
+ - major updates to quadplane control algorithms, including new
+   landing approach system, new input shaping system for all levels of
+   VTOL control and new filtering options.
+
+ - new PID system for fixed wing control, with much more flexible
+   filtering and true rate D term support.
+
+ - new fixed wing autotune system which on most aircraft produces a
+   much better tune than the previous autotune.
+
+There have also been a lot of changes at the low level system level as
+well.
+
+ - new DShot system, with much better timing and new features.
+
+ - improved support for GPS moving baseline yaw
+
+ - new unified ESC telemetry system for CAN, DShot and serial ESC
+   telemetry, allowing for ESC RPM driven notch filters on more ESC
+   types
+
+ - EKF3 is now the default estimator, with EKF2 also available on
+   systems with 2MByte of flash.
+
+ - external AHRS support, allowing for a serial connected AHRS system
+   (VectorNav-300 only at the moment)
+
+ - sensor affinity in EKF3, allowing for more robust handling of
+   sensor failure, especially for airspeed sensors
+
+ - rate PID slew limiting to to detect and suppress oscillations
+
+ - temperature calibration for IMUs, including factory calibration
+   support
+
+ - much improved notch filtering support, including double-notch and
+   realtime FFT based notch filtering
+
+ - lots of lua scripting improvements, with greatly expanded API
+
+ - much faster parameter download and mission upload/down using MAVFTP
+
+Many thanks to everyone who contributed to this release. It is our
+biggest release yet and has benefited from fantastic feedback from our
+user community and partners.
+
+We hope you enjoy this release! Happy flying!
+
 Release 4.0.9, 23rd February 2021
 ---------------------------------
 
@@ -2313,7 +2528,7 @@ for 3 new flight boards in this release. They are:
  - the Pixracer
 
 More information about the list of supported boards is available here:
-http://dev.ardupilot.org/wiki/supported-autopilot-controller-boards/
+https://ardupilot.org/copter/docs/common-autopilots.html
 
 Startup on a moving platform
 

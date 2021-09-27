@@ -1,5 +1,5 @@
 #include "Copter.h"
-#include <AP_BLHeli/AP_BLHeli.h>
+#include <AP_ESC_Telem/AP_ESC_Telem.h>
 
 /*****************************************************************************
 *   The init_ardupilot function processes everything we need for an in - air restart
@@ -80,6 +80,7 @@ void Copter::init_ardupilot()
     allocate_motors();
 
     // initialise rc channels including setting mode
+    rc().convert_options(RC_Channel::AUX_FUNC::ARMDISARM_UNUSED, RC_Channel::AUX_FUNC::ARMDISARM_AIRMODE);
     rc().init();
 
     // sets up motors and output to escs
@@ -106,27 +107,16 @@ void Copter::init_ardupilot()
     AP::compass().set_log_bit(MASK_LOG_COMPASS);
     AP::compass().init();
 
-#if OPTFLOW == ENABLED
-    // make optflow available to AHRS
-    ahrs.set_optflow(&optflow);
-#endif
-
-    // init Location class
-#if AP_TERRAIN_AVAILABLE && AC_TERRAIN
-    Location::set_terrain(&terrain);
-    wp_nav->set_terrain(&terrain);
-#endif
-
 #if AC_OAPATHPLANNER_ENABLED == ENABLED
     g2.oa.init();
 #endif
 
     attitude_control->parameter_sanity_check();
-    pos_control->set_dt(scheduler.get_loop_period_s());
 
-
-    // init the optical flow sensor
-    init_optflow();
+#if OPTFLOW == ENABLED
+    // initialise optical flow sensor
+    optflow.init(MASK_LOG_OPTFLOW);
+#endif      // OPTFLOW == ENABLED
 
 #if HAL_MOUNT_ENABLED
     // initialise camera mount
@@ -145,18 +135,6 @@ void Copter::init_ardupilot()
 
 #ifdef USERHOOK_INIT
     USERHOOK_INIT
-#endif
-
-#if HIL_MODE != HIL_MODE_DISABLED
-    while (barometer.get_last_update() == 0) {
-        // the barometer begins updating when we get the first
-        // HIL_STATE message
-        gcs().send_text(MAV_SEVERITY_WARNING, "Waiting for first HIL_STATE message");
-        delay(1000);
-    }
-
-    // set INS to HIL mode
-    ins.set_hil_mode();
 #endif
 
     // read Baro pressure at ground
@@ -222,7 +200,6 @@ void Copter::init_ardupilot()
     if (!set_mode((enum Mode::Number)g.initial_mode.get(), ModeReason::INITIALISED)) {
         // set mode to STABILIZE will trigger mode change notification to pilot
         set_mode(Mode::Number::STABILIZE, ModeReason::UNAVAILABLE);
-        AP_Notify::events.user_mode_change_failed = 1;
     }
 
     // flag that initialisation has completed
@@ -237,7 +214,7 @@ void Copter::startup_INS_ground()
 {
     // initialise ahrs (may push imu calibration into the mpu6000 if using that device).
     ahrs.init();
-    ahrs.set_vehicle_class(AHRS_VEHICLE_COPTER);
+    ahrs.set_vehicle_class(AP_AHRS::VehicleClass::COPTER);
 
     // Warm up and calibrate gyro offsets
     ins.init(scheduler.get_loop_rate_hz());
@@ -278,12 +255,12 @@ void Copter::update_dynamic_notch()
             }
             break;
 #endif
-#ifdef HAVE_AP_BLHELI_SUPPORT
+#if HAL_WITH_ESC_TELEM
         case HarmonicNotchDynamicMode::UpdateBLHeli: // BLHeli based tracking
             // set the harmonic notch filter frequency scaled on measured frequency
             if (ins.has_harmonic_option(HarmonicNotchFilterParams::Options::DynamicHarmonic)) {
                 float notches[INS_MAX_NOTCHES];
-                const uint8_t num_notches = AP_BLHeli::get_singleton()->get_motor_frequencies_hz(INS_MAX_NOTCHES, notches);
+                const uint8_t num_notches = AP::esc_telem().get_motor_frequencies_hz(INS_MAX_NOTCHES, notches);
 
                 for (uint8_t i = 0; i < num_notches; i++) {
                     notches[i] =  MAX(ref_freq, notches[i]);
@@ -294,7 +271,7 @@ void Copter::update_dynamic_notch()
                     ins.update_harmonic_notch_freq_hz(throttle_freq);
                 }
             } else {
-                ins.update_harmonic_notch_freq_hz(MAX(ref_freq, AP_BLHeli::get_singleton()->get_average_motor_frequency_hz() * ref));
+                ins.update_harmonic_notch_freq_hz(MAX(ref_freq, AP::esc_telem().get_average_motor_frequency_hz() * ref));
             }
             break;
 #endif
@@ -414,11 +391,7 @@ void Copter::update_auto_armed()
         if(flightmode->has_manual_throttle() && ap.throttle_zero && !failsafe.radio) {
             set_auto_armed(false);
         }
-        // if helicopters are on the ground, and the motor is switched off, auto-armed should be false
-        // so that rotor runup is checked again before attempting to take-off
-        if(ap.land_complete && motors->get_spool_state() != AP_Motors::SpoolState::THROTTLE_UNLIMITED && ap.using_interlock) {
-            set_auto_armed(false);
-        }
+
     }else{
         // arm checks
         
@@ -492,6 +465,12 @@ void Copter::allocate_motors(void)
             motors_var_info = AP_MotorsMatrix_6DoF_Scripting::var_info;
 #endif // ENABLE_SCRIPTING
             break;
+case AP_Motors::MOTOR_FRAME_DYNAMIC_SCRIPTING_MATRIX:
+#ifdef ENABLE_SCRIPTING
+            motors = new AP_MotorsMatrix_Scripting_Dynamic(copter.scheduler.get_loop_rate_hz());
+            motors_var_info = AP_MotorsMatrix_Scripting_Dynamic::var_info;
+#endif // ENABLE_SCRIPTING
+            break;
 #else // FRAME_CONFIG == HELI_FRAME
         case AP_Motors::MOTOR_FRAME_HELI_DUAL:
             motors = new AP_MotorsHeli_Dual(copter.scheduler.get_loop_rate_hz());
@@ -544,7 +523,7 @@ void Copter::allocate_motors(void)
     }
     AP_Param::load_object_from_eeprom(attitude_control, ac_var_info);
         
-    pos_control = new AC_PosControl(*ahrs_view, inertial_nav, *motors, *attitude_control);
+    pos_control = new AC_PosControl(*ahrs_view, inertial_nav, *motors, *attitude_control, scheduler.get_loop_period_s());
     if (pos_control == nullptr) {
         AP_BoardConfig::config_error("Unable to allocate PosControl");
     }

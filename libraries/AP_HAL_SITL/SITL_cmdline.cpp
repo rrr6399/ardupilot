@@ -53,6 +53,7 @@ static void _sig_fpe(int signum)
 {
     fprintf(stderr, "ERROR: Floating point exception - aborting\n");
     AP_HAL::dump_stack_trace();
+    AP_HAL::dump_core_file();
     abort();
 }
 
@@ -61,6 +62,7 @@ static void _sig_segv(int signum)
 {
     fprintf(stderr, "ERROR: segmentation fault - aborting\n");
     AP_HAL::dump_stack_trace();
+    AP_HAL::dump_core_file();
     abort();
 }
 
@@ -111,6 +113,7 @@ void SITL_State::_usage(void)
            "\t--irlock-port PORT       set port num for irlock\n"
            "\t--start-time TIMESTR     set simulation start time in UNIX timestamp\n"
            "\t--sysid ID               set SYSID_THISMAV\n"
+           "\t--slave number           set the number of JSON slaves\n"
         );
 }
 
@@ -144,6 +147,7 @@ static const struct {
     { "heli",               Helicopter::create },
     { "heli-dual",          Helicopter::create },
     { "heli-compound",      Helicopter::create },
+    { "heli-blade360",         Helicopter::create },
     { "singlecopter",       SingleCopter::create },
     { "coaxcopter",         SingleCopter::create },
     { "rover",              SimRover::create },
@@ -258,6 +262,7 @@ void SITL_State::_parse_command_line(int argc, char * const argv[])
         CMDLINE_IRLOCK_PORT,
         CMDLINE_START_TIME,
         CMDLINE_SYSID,
+        CMDLINE_SLAVE,
     };
 
     const struct GetOptLong::option options[] = {
@@ -305,6 +310,7 @@ void SITL_State::_parse_command_line(int argc, char * const argv[])
         {"irlock-port",     true,   0, CMDLINE_IRLOCK_PORT},
         {"start-time",      true,   0, CMDLINE_START_TIME},
         {"sysid",           true,   0, CMDLINE_SYSID},
+        {"slave",           true,   0, CMDLINE_SLAVE},
         {0, false, 0, 0}
     };
 
@@ -457,6 +463,16 @@ void SITL_State::_parse_command_line(int argc, char * const argv[])
             printf("Setting SYSID_THISMAV=%d\n", sysid);
             break;
         }
+        case 'h':
+            _usage();
+            exit(0);
+        case CMDLINE_SLAVE: {
+            const int32_t slaves = atoi(gopt.optarg);
+            if (slaves > 0) {
+                ride_along.init(slaves);
+            }
+            break;
+        }
         default:
             _usage();
             exit(1);
@@ -527,6 +543,11 @@ void SITL_State::_parse_command_line(int argc, char * const argv[])
         pwm_input[2] = 1500;
     } else if (strcmp(SKETCH, "ArduSub") == 0) {
         _vehicle = ArduSub;
+        for(uint8_t i = 0; i < 8; i++) {
+            pwm_input[i] = 1500;
+        }
+    } else if (strcmp(SKETCH, "Blimp") == 0) {
+        _vehicle = Blimp;
         for(uint8_t i = 0; i < 8; i++) {
             pwm_input[i] = 1500;
         }

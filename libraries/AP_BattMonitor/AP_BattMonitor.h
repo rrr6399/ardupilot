@@ -7,7 +7,9 @@
 #include "AP_BattMonitor_Params.h"
 
 // maximum number of battery monitors
+#ifndef AP_BATT_MONITOR_MAX_INSTANCES
 #define AP_BATT_MONITOR_MAX_INSTANCES       9
+#endif
 
 // first monitor is always the primary monitor
 #define AP_BATT_PRIMARY_INSTANCE            0
@@ -19,7 +21,11 @@
 #define AP_BATT_MONITOR_RES_EST_TC_1        0.5f
 #define AP_BATT_MONITOR_RES_EST_TC_2        0.1f
 
+#if !HAL_MINIMIZE_FEATURES && BOARD_FLASH_SIZE > 1024
+#define AP_BATT_MONITOR_CELLS_MAX           14
+#else
 #define AP_BATT_MONITOR_CELLS_MAX           12
+#endif
 
 #ifndef HAL_BATTMON_SMBUS_ENABLE
 #define HAL_BATTMON_SMBUS_ENABLE 1
@@ -124,7 +130,11 @@ public:
         bool        healthy;                   // battery monitor is communicating correctly
         bool        is_powering_off;           // true when power button commands power off
         bool        powerOffNotified;          // only send powering off notification once
+        const struct AP_Param::GroupInfo *var_info;
     };
+
+    static const struct AP_Param::GroupInfo *backend_analog_var_info[AP_BATT_MONITOR_MAX_INSTANCES];
+    static const struct AP_Param::GroupInfo *backend_smbus_var_info[AP_BATT_MONITOR_MAX_INSTANCES];
 
     // Return the number of battery monitor instances
     uint8_t num_instances(void) const { return _num_instances; }
@@ -157,9 +167,9 @@ public:
     /// consumed_wh - returns total energy drawn since start-up in watt.hours
     bool consumed_wh(float&wh, const uint8_t instance = AP_BATT_PRIMARY_INSTANCE) const WARN_IF_UNUSED;
 
-    /// capacity_remaining_pct - returns the % battery capacity remaining (0 ~ 100)
-    virtual uint8_t capacity_remaining_pct(uint8_t instance) const;
-    uint8_t capacity_remaining_pct() const { return capacity_remaining_pct(AP_BATT_PRIMARY_INSTANCE); }
+    /// capacity_remaining_pct - returns true if the percentage is valid and writes to percentage argument
+    virtual bool capacity_remaining_pct(uint8_t &percentage, uint8_t instance) const WARN_IF_UNUSED;
+    bool capacity_remaining_pct(uint8_t &percentage) const WARN_IF_UNUSED { return capacity_remaining_pct(percentage, AP_BATT_PRIMARY_INSTANCE); }
 
     /// pack_capacity_mah - returns the capacity of the battery pack in mAh when the pack is full
     int32_t pack_capacity_mah(uint8_t instance) const;
@@ -214,6 +224,9 @@ public:
     bool reset_remaining_mask(uint16_t battery_mask, float percentage);
     bool reset_remaining(uint8_t instance, float percentage) { return reset_remaining_mask(1U<<instance, percentage);}
 
+    // Returns mavlink charge state
+    MAV_BATTERY_CHARGE_STATE get_mavlink_charge_state(const uint8_t instance) const;
+
     static const struct AP_Param::GroupInfo var_info[];
 
 protected:
@@ -230,6 +243,7 @@ private:
     uint8_t     _num_instances;                                     /// number of monitors
 
     void convert_params(void);
+    void convert_dynamic_param_groups(uint8_t instance);
 
     /// returns the failsafe state of the battery
     Failsafe check_failsafe(const uint8_t instance);

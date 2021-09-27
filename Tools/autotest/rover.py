@@ -13,7 +13,6 @@ import copy
 import math
 import operator
 import os
-import shutil
 import sys
 import time
 
@@ -220,7 +219,7 @@ class AutoTestRover(AutoTest):
     #
     #     # reduce throttle
     #     self.mavproxy.send('rc 3 1500\n')
-    #     self.mavproxy.expect('APM: Failsafe ended')
+    #     self.mavproxy.expect('AP: Failsafe ended')
     #     self.mavproxy.send('switch 2\n')  # manual mode
     #     self.wait_heartbeat()
     #     self.wait_mode('MANUAL')
@@ -3879,7 +3878,11 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
         self.delay_sim_time(5) # ArduPilot only checks for breaches @1Hz
         self.drain_mav()
         self.assert_fence_breached()
-        if self.arm_motors_with_rc_input():
+        try:
+            self.arm_motors_with_rc_input()
+        except NotAchievedException:
+            pass
+        if self.armed():
             raise NotAchievedException(
                 "Armed when within exclusion zone")
 
@@ -3931,7 +3934,11 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
         self.delay_sim_time(5) # ArduPilot only checks for breaches @1Hz
         self.drain_mav()
         self.assert_fence_breached()
-        if self.arm_motors_with_rc_input():
+        try:
+            self.arm_motors_with_rc_input()
+        except NotAchievedException:
+            pass
+        if self.armed():
             raise NotAchievedException(
                 "Armed when outside an inclusion zone")
 
@@ -3963,7 +3970,11 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
         self.delay_sim_time(5) # ArduPilot only checks for breaches @1Hz
         self.drain_mav()
         self.assert_fence_breached()
-        if self.arm_motors_with_rc_input():
+        try:
+            self.arm_motors_with_rc_input()
+        except NotAchievedException:
+            pass
+        if self.armed():
             raise NotAchievedException(
                 "Armed when within polygon exclusion zone")
 
@@ -3995,7 +4006,11 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
         self.delay_sim_time(5) # ArduPilot only checks for breaches @1Hz
         self.drain_mav()
         self.assert_fence_breached()
-        if self.arm_motors_with_rc_input():
+        try:
+            self.arm_motors_with_rc_input()
+        except NotAchievedException:
+            pass
+        if self.armed():
             raise NotAchievedException(
                 "Armed when outside polygon inclusion zone")
 
@@ -4553,6 +4568,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
     def test_motor_test(self):
         '''AKA run-rover-run'''
         magic_throttle_value = 1812
+        self.wait_ready_to_arm()
         self.run_cmd(
             mavutil.mavlink.MAV_CMD_DO_MOTOR_TEST,
             1, # p1 - motor instance
@@ -4943,40 +4959,6 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
             target_component=target_component,
         )
 
-    def script_example_source_path(self, scriptname):
-        return os.path.join(self.rootdir(), "libraries", "AP_Scripting", "examples", scriptname)
-
-    def script_test_source_path(self, scriptname):
-        return os.path.join(self.rootdir(), "libraries", "AP_Scripting", "tests", scriptname)
-
-    def installed_script_path(self, scriptname):
-        return os.path.join("scripts", scriptname)
-
-    def install_script(self, source, scriptname):
-        dest = self.installed_script_path(scriptname)
-        destdir = os.path.dirname(dest)
-        if not os.path.exists(destdir):
-            os.mkdir(destdir)
-        self.progress("Copying (%s) to (%s)" % (source, dest))
-        shutil.copy(source, dest)
-
-    def install_example_script(self, scriptname):
-        source = self.script_example_source_path(scriptname)
-        self.install_script(source, scriptname)
-
-    def install_test_script(self, scriptname):
-        source = self.script_test_source_path(scriptname)
-        self.install_script(source, scriptname)
-
-    def remove_example_script(self, scriptname):
-        dest = self.installed_script_path(scriptname)
-        try:
-            os.unlink(dest)
-        except IOError:
-            pass
-        except OSError:
-            pass
-
     def test_scripting_simple_loop(self):
         self.start_subtest("Scripting simple loop")
         ex = None
@@ -5115,10 +5097,40 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
         if ex is not None:
             raise ex
 
+    def test_scripting_auxfunc(self):
+        self.start_subtest("Scripting aufunc triggering")
+
+        self.context_push()
+        self.set_parameter('RELAY_PIN', 1)
+        self.context_collect("STATUSTEXT")
+
+        ex = None
+        example_script = "RCIN_test.lua"
+        try:
+            self.set_parameter("SCR_ENABLE", 1)
+            self.install_example_script(example_script)
+            self.reboot_sitl()
+            self.wait_parameter_value("SIM_PIN_MASK", 121)
+            self.wait_parameter_value("SIM_PIN_MASK", 123)
+            self.wait_parameter_value("SIM_PIN_MASK", 121)
+        except Exception as e:
+            self.print_exception_caught(e)
+            ex = e
+
+        self.remove_example_script(example_script)
+
+        self.context_pop()
+
+        self.reboot_sitl()
+
+        if ex is not None:
+            raise ex
+
     def test_scripting(self):
         self.test_scripting_hello_world()
         self.test_scripting_simple_loop()
         self.test_scripting_internal_test()
+        self.test_scripting_auxfunc()
 
     def test_mission_frame(self, frame, target_system=1, target_component=1):
         self.clear_mission(mavutil.mavlink.MAV_MISSION_TYPE_MISSION,
@@ -5350,7 +5362,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
 
         self.customise_SITL_commandline([],
                                         model=model,
-                                        defaults_filepath=self.model_defaults_filepath("Rover", model))
+                                        defaults_filepath=self.model_defaults_filepath(model))
 
         self.change_mode("MANUAL")
         self.wait_ready_to_arm()
@@ -5883,10 +5895,6 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
             ("AccelCal",
              "Accelerometer Calibration testing",
              self.accelcal),
-
-            ("AHRSTrim",
-             "Accelerometer trim testing",
-             self.ahrstrim),
 
             ("AP_Proximity_MAV",
              "Test MAV proximity backend",

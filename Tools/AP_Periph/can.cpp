@@ -43,6 +43,9 @@
 #include <ardupilot/indication/Button.h>
 #include <ardupilot/equipment/trafficmonitor/TrafficReport.h>
 #include <ardupilot/gnss/Status.h>
+#include <ardupilot/gnss/MovingBaselineData.h>
+#include <ardupilot/gnss/RelPosHeading.h>
+#include <AP_GPS/RTCM3_Parser.h>
 #include <uavcan/equipment/gnss/RTCMStream.h>
 #include <uavcan/equipment/power/BatteryInfo.h>
 #include <uavcan/protocol/debug/LogMessage.h>
@@ -68,6 +71,10 @@
 #include "i2c.h"
 #include <utility>
 
+#if HAL_NUM_CAN_IFACES >= 2
+#include <AP_CANManager/AP_CANSensor.h>
+#endif
+
 extern const AP_HAL::HAL &hal;
 extern AP_Periph_FW periph;
 
@@ -75,17 +82,78 @@ extern AP_Periph_FW periph;
 #define HAL_CAN_POOL_SIZE 4000
 #endif
 
-static CanardInstance canard;
-static uint32_t canard_memory_pool[HAL_CAN_POOL_SIZE/sizeof(uint32_t)];
-#ifndef HAL_CAN_DEFAULT_NODE_ID
-#define HAL_CAN_DEFAULT_NODE_ID CANARD_BROADCAST_NODE_ID
+#ifndef HAL_PERIPH_LOOP_DELAY_US
+// delay between can loop updates. This needs to be longer on F4
+#if defined(STM32H7)
+#define HAL_PERIPH_LOOP_DELAY_US 64
+#else
+#define HAL_PERIPH_LOOP_DELAY_US 512
 #endif
-static uint8_t PreferredNodeID = HAL_CAN_DEFAULT_NODE_ID;
-static uint8_t transfer_id;
+#endif
+
+#define DEBUG_PRINTS 0
+#define DEBUG_PKTS 0
+#if DEBUG_PRINTS
+ # define Debug(fmt, args ...)  do {can_printf(fmt "\n", ## args);} while(0)
+#else
+ # define Debug(fmt, args ...)
+#endif
+
+static struct instance_t {
+    uint8_t index;
+    CanardInstance canard;
+    uint32_t canard_memory_pool[HAL_CAN_POOL_SIZE/sizeof(uint32_t)];
+    struct tid_map {
+        uint32_t transfer_desc;
+        uint8_t tid;
+        tid_map *next;
+    } *tid_map_head;
+    /*
+    * Variables used for dynamic node ID allocation.
+    * RTFM at http://uavcan.org/Specification/6._Application_level_functions/#dynamic-node-id-allocation
+    */
+    uint32_t send_next_node_id_allocation_request_at_ms; ///< When the next node ID allocation request should be sent
+    uint8_t node_id_allocation_unique_id_offset;         ///< Depends on the stage of the next request
+    uint8_t tx_fail_count;
+
+#if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
+    ChibiOS::CANIface* iface;
+#elif CONFIG_HAL_BOARD == HAL_BOARD_SITL
+    HALSITL::CANIface* iface;
+#endif
+} instances[HAL_NUM_CAN_IFACES];
+
+#if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS && defined(HAL_GPIO_PIN_TERMCAN1)
+static ioline_t can_term_lines[] = {
+HAL_GPIO_PIN_TERMCAN1
+
+#if HAL_NUM_CAN_IFACES > 2 
+#ifdef HAL_GPIO_PIN_TERMCAN2
+,HAL_GPIO_PIN_TERMCAN2
+#else
+#error "Only one Can Terminator defined with over two CAN Ifaces"
+#endif
+#endif
+
+#if HAL_NUM_CAN_IFACES > 2 
+#ifdef HAL_GPIO_PIN_TERMCAN3
+,HAL_GPIO_PIN_TERMCAN3
+#else
+#error "Only two Can Terminator defined with three CAN Ifaces"
+#endif
+#endif
+
+};
+#endif // CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS && defined(HAL_GPIO_PIN_TERMCAN1)
 
 #ifndef CAN_APP_NODE_NAME
 #define CAN_APP_NODE_NAME                                               "org.ardupilot.ap_periph"
 #endif
+
+#ifndef HAL_CAN_DEFAULT_NODE_ID
+#define HAL_CAN_DEFAULT_NODE_ID CANARD_BROADCAST_NODE_ID
+#endif
+uint8_t PreferredNodeID = HAL_CAN_DEFAULT_NODE_ID;
 
 #ifndef AP_PERIPH_BATTERY_MODEL_NAME
 #define AP_PERIPH_BATTERY_MODEL_NAME CAN_APP_NODE_NAME
@@ -95,23 +163,35 @@ static uint8_t transfer_id;
 #define CAN_PROBE_CONTINUOUS 0
 #endif
 
-#if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
-static ChibiOS::CANIface can_iface[HAL_NUM_CAN_IFACES];
-#elif CONFIG_HAL_BOARD == HAL_BOARD_SITL
-static HALSITL::CANIface can_iface[HAL_NUM_CAN_IFACES];
+#ifndef AP_PERIPH_ENFORCE_AT_LEAST_ONE_PORT_IS_UAVCAN_1MHz
+#define AP_PERIPH_ENFORCE_AT_LEAST_ONE_PORT_IS_UAVCAN_1MHz 1
 #endif
-/*
- * Variables used for dynamic node ID allocation.
- * RTFM at http://uavcan.org/Specification/6._Application_level_functions/#dynamic-node-id-allocation
- */
-static uint32_t send_next_node_id_allocation_request_at_ms; ///< When the next node ID allocation request should be sent
-static uint8_t node_id_allocation_unique_id_offset;         ///< Depends on the stage of the next request
+
+#if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
+ChibiOS::CANIface* AP_Periph_FW::can_iface_periph[HAL_NUM_CAN_IFACES];
+#elif CONFIG_HAL_BOARD == HAL_BOARD_SITL
+HALSITL::CANIface* AP_Periph_FW::can_iface_periph[HAL_NUM_CAN_IFACES];
+#endif
+
 
 /*
  * Node status variables
  */
 static uavcan_protocol_NodeStatus node_status;
 
+/**
+ * Get interface id given canard object pointer
+ */
+static instance_t* get_canard_iface_instance(CanardInstance* ins)
+{
+    for (auto &can_ins : instances) {
+        if (ins == &can_ins.canard) {
+            return &can_ins;
+        }   
+    }
+    // something is not right if we got here
+    return nullptr;
+}
 
 /**
  * Returns a pseudo random integer in a given range
@@ -341,6 +421,11 @@ static void handle_param_executeopcode(CanardInstance* ins, CanardRxTransfer* tr
                            total_size);
 }
 
+static void canard_broadcast(uint64_t data_type_signature,
+                                uint16_t data_type_id,
+                                uint8_t priority,
+                                const void* payload,
+                                uint16_t payload_len);
 static void processTx(void);
 static void processRx(void);
 
@@ -400,15 +485,19 @@ static void handle_begin_firmware_update(CanardInstance* ins, CanardRxTransfer* 
 
 static void handle_allocation_response(CanardInstance* ins, CanardRxTransfer* transfer)
 {
+    instance_t *can_ins = get_canard_iface_instance(ins);
+    if (can_ins == nullptr) {
+        return;
+    }
     // Rule C - updating the randomized time interval
-    send_next_node_id_allocation_request_at_ms =
+    can_ins->send_next_node_id_allocation_request_at_ms =
         AP_HAL::native_millis() + UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_MIN_REQUEST_PERIOD_MS +
         get_random_range(UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_MAX_FOLLOWUP_DELAY_MS);
 
     if (transfer->source_node_id == CANARD_BROADCAST_NODE_ID)
     {
         printf("Allocation request from another allocatee\n");
-        node_id_allocation_unique_id_offset = 0;
+        can_ins->node_id_allocation_unique_id_offset = 0;
         return;
     }
 
@@ -428,14 +517,14 @@ static void handle_allocation_response(CanardInstance* ins, CanardRxTransfer* tr
     // Matching the received UID against the local one
     if (memcmp(received_unique_id, my_unique_id, received_unique_id_len) != 0) {
         printf("Mismatching allocation response\n");
-        node_id_allocation_unique_id_offset = 0;
+        can_ins->node_id_allocation_unique_id_offset = 0;
         return;         // No match, return
     }
 
     if (received_unique_id_len < UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_UNIQUE_ID_MAX_LENGTH) {
         // The allocator has confirmed part of unique ID, switching to the next stage and updating the timeout.
-        node_id_allocation_unique_id_offset = received_unique_id_len;
-        send_next_node_id_allocation_request_at_ms -= UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_MIN_REQUEST_PERIOD_MS;
+        can_ins->node_id_allocation_unique_id_offset = received_unique_id_len;
+        can_ins->send_next_node_id_allocation_request_at_ms -= UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_MIN_REQUEST_PERIOD_MS;
 
         printf("Matching allocation response: %d\n", received_unique_id_len);
     } else {
@@ -444,19 +533,38 @@ static void handle_allocation_response(CanardInstance* ins, CanardRxTransfer* tr
         (void) canardDecodeScalar(transfer, 0, 7, false, &allocated_node_id);
 
         canardSetLocalNodeID(ins, allocated_node_id);
-        printf("Node ID allocated: %d\n", allocated_node_id);
+        printf("IF%d Node ID allocated: %d\n", can_ins->index, allocated_node_id);
+
+#if defined(HAL_PERIPH_ENABLE_GPS) && (HAL_NUM_CAN_IFACES >= 2) && GPS_MOVING_BASELINE
+        if (periph.g.gps_mb_only_can_port) {
+            // we need to assign the unallocated port to be used for Moving Baseline only
+            periph.gps_mb_can_port = (can_ins->index+1)%HAL_NUM_CAN_IFACES;
+            if (canardGetLocalNodeID(&instances[periph.gps_mb_can_port].canard) == CANARD_BROADCAST_NODE_ID) {
+                // copy node id from the primary iface
+                canardSetLocalNodeID(&instances[periph.gps_mb_can_port].canard, allocated_node_id);
+#ifdef HAL_GPIO_PIN_TERMCAN1
+                // also terminate the line as we don't have any other device on this port
+                palWriteLine(can_term_lines[periph.gps_mb_can_port], 1);
+#endif
+            }
+        }
+#endif
     }
 }
 
 
 /*
-  fix value of a float for canard float16 format
+  fix value of a float for canard float16 format. This is only needed
+  for array attributes. Scalars are handled by the compiler
  */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-function"
-static void fix_float16(float &f)
+static void fix_float16_array(float *f, uint8_t len)
 {
-    *(uint16_t *)&f = canardConvertNativeFloatToFloat16(f);
+    while (len--) {
+        *(uint16_t *)f = canardConvertNativeFloatToFloat16(*f);
+        f++;
+    }
 }
 #pragma GCC diagnostic pop
 
@@ -477,10 +585,8 @@ static void handle_beep_command(CanardInstance* ins, CanardRxTransfer* transfer)
     if (!initialised) {
         initialised = true;
         hal.rcout->init();
-        hal.util->toneAlarm_init();
+        hal.util->toneAlarm_init(AP_Notify::Notify_Buzz_Builtin);
     }
-    fix_float16(req.frequency);
-    fix_float16(req.duration);
     buzzer_start_ms = AP_HAL::native_millis();
     buzzer_len_ms = req.duration*1000;
 #ifdef HAL_PERIPH_ENABLE_BUZZER_WITHOUT_NOTIFY
@@ -551,6 +657,24 @@ static void handle_RTCMStream(CanardInstance* ins, CanardRxTransfer* transfer)
     }
     periph.gps.handle_gps_rtcm_fragment(0, req.data.data, req.data.len);
 }
+
+/*
+    handle gnss::MovingBaselineData
+*/
+#if GPS_MOVING_BASELINE
+static void handle_MovingBaselineData(CanardInstance* ins, CanardRxTransfer* transfer)
+{
+    ardupilot_gnss_MovingBaselineData msg;
+    uint8_t arraybuf[ARDUPILOT_GNSS_MOVINGBASELINEDATA_MAX_SIZE];
+    uint8_t *arraybuf_ptr = arraybuf;
+    if (ardupilot_gnss_MovingBaselineData_decode(transfer, transfer->payload_len, &msg, &arraybuf_ptr) < 0) {
+        return;
+    }
+    periph.gps.inject_MBL_data(msg.data.data, msg.data.len);
+    Debug("MovingBaselineData: len=%u\n", msg.data.len);
+}
+#endif // GPS_MOVING_BASELINE
+
 #endif // HAL_PERIPH_ENABLE_GPS
 
 
@@ -783,10 +907,8 @@ static void can_safety_button_update(void)
     uint8_t buffer[ARDUPILOT_INDICATION_BUTTON_MAX_SIZE] {};
     uint16_t total_size = ardupilot_indication_Button_encode(&pkt, buffer);
 
-    canardBroadcast(&canard,
-                    ARDUPILOT_INDICATION_BUTTON_SIGNATURE,
+    canard_broadcast(ARDUPILOT_INDICATION_BUTTON_SIGNATURE,
                     ARDUPILOT_INDICATION_BUTTON_ID,
-                    &transfer_id,
                     CANARD_TRANSFER_PRIORITY_LOW,
                     &buffer[0],
                     total_size);
@@ -863,6 +985,12 @@ static void onTransferReceived(CanardInstance* ins,
     case UAVCAN_EQUIPMENT_GNSS_RTCMSTREAM_ID:
         handle_RTCMStream(ins, transfer);
         break;
+
+#if GPS_MOVING_BASELINE
+    case ARDUPILOT_GNSS_MOVINGBASELINEDATA_ID:
+        handle_MovingBaselineData(ins, transfer);
+        break;
+#endif
 #endif
         
 #if defined(AP_PERIPH_HAVE_LED_WITHOUT_NOTIFY) || defined(HAL_PERIPH_ENABLE_NOTIFY)
@@ -951,6 +1079,12 @@ static bool shouldAcceptTransfer(const CanardInstance* ins,
     case UAVCAN_EQUIPMENT_GNSS_RTCMSTREAM_ID:
         *out_data_type_signature = UAVCAN_EQUIPMENT_GNSS_RTCMSTREAM_SIGNATURE;
         return true;
+
+#if GPS_MOVING_BASELINE
+    case ARDUPILOT_GNSS_MOVINGBASELINEDATA_ID:
+        *out_data_type_signature = ARDUPILOT_GNSS_MOVINGBASELINEDATA_SIGNATURE;
+        return true;
+#endif
 #endif
 #ifdef HAL_PERIPH_ENABLE_RC_OUT
     case UAVCAN_EQUIPMENT_ESC_RAWCOMMAND_ID:
@@ -968,32 +1102,119 @@ static bool shouldAcceptTransfer(const CanardInstance* ins,
     return false;
 }
 
+static void cleanup_stale_transactions(uint64_t &timestamp_usec)
+{
+    for (auto &ins : instances) {
+        canardCleanupStaleTransfers(&ins.canard, timestamp_usec);
+    }
+}
+
+#define MAKE_TRANSFER_DESCRIPTOR(data_type_id, transfer_type, src_node_id, dst_node_id)             \
+    (((uint32_t)(data_type_id)) | (((uint32_t)(transfer_type)) << 16U) |                            \
+    (((uint32_t)(src_node_id)) << 18U) | (((uint32_t)(dst_node_id)) << 25U))
+
+static uint8_t* get_tid_ptr(instance_t *ins, uint32_t transfer_desc)
+{
+    // check head
+    if (!ins->tid_map_head) {
+        ins->tid_map_head = (instance_t::tid_map*)calloc(1, sizeof(instance_t::tid_map));
+        if (ins->tid_map_head == nullptr) {
+            return nullptr;
+        }
+        ins->tid_map_head->transfer_desc = transfer_desc;
+        ins->tid_map_head->next = nullptr;
+        return &ins->tid_map_head->tid;
+    } else if (ins->tid_map_head->transfer_desc == transfer_desc) {
+        return &ins->tid_map_head->tid;
+    }
+
+    // search through the list for an existing entry
+    instance_t::tid_map *tid_map_ptr = ins->tid_map_head;
+    while(tid_map_ptr->next) {
+        tid_map_ptr = tid_map_ptr->next;
+        if (tid_map_ptr->transfer_desc == transfer_desc) {
+            return &tid_map_ptr->tid;
+        }
+    }
+
+    // create a new entry, if not found
+    tid_map_ptr->next = (instance_t::tid_map*)calloc(1, sizeof(instance_t::tid_map));
+    if (tid_map_ptr->next == nullptr) {
+        return nullptr;
+    }
+    tid_map_ptr->next->transfer_desc = transfer_desc;
+    tid_map_ptr->next->next = nullptr;
+    return &tid_map_ptr->next->tid;
+}
+
+static void canard_broadcast(uint64_t data_type_signature,
+                                uint16_t data_type_id,
+                                uint8_t priority,
+                                const void* payload,
+                                uint16_t payload_len)
+{
+    for (auto &ins : instances) {
+        if (canardGetLocalNodeID(&ins.canard) == CANARD_BROADCAST_NODE_ID) {
+            continue;
+        }
+#if defined(HAL_PERIPH_ENABLE_GPS) && HAL_NUM_CAN_IFACES >= 2
+        if (ins.index != periph.gps_mb_can_port) 
+#endif
+        {
+            uint8_t *tid_ptr = get_tid_ptr(&ins, MAKE_TRANSFER_DESCRIPTOR(data_type_signature, data_type_id, 0, CANARD_BROADCAST_NODE_ID));
+            if (tid_ptr == nullptr) {
+                return;
+            }
+#if DEBUG_PKTS
+            const int16_t res = 
+#endif
+            canardBroadcast(&ins.canard,
+                            data_type_signature,
+                            data_type_id,
+                            tid_ptr,
+                            priority,
+                            payload,
+                            payload_len);
+#if DEBUG_PKTS
+            if (res < 0) {
+                printf("Tx error %d, IF%d %lx\n", res, ins.index);
+            }
+#endif
+        }
+    }
+}
+
 static void processTx(void)
 {
-    static uint8_t fail_count;
-    for (const CanardCANFrame* txf = NULL; (txf = canardPeekTxQueue(&canard)) != NULL;) {
-        AP_HAL::CANFrame txmsg {};
-        txmsg.dlc = txf->data_len;
-        memcpy(txmsg.data, txf->data, 8);
-        txmsg.id = (txf->id | AP_HAL::CANFrame::FlagEFF);
-        // push message with 1s timeout
-        bool sent_ok = false;
-        const uint64_t deadline = AP_HAL::native_micros64() + 1000000;
-        for (uint8_t i=0; i<HAL_NUM_CAN_IFACES; i++) {
-            sent_ok |= (can_iface[i].send(txmsg, deadline, 0) > 0);
+    for (auto &ins : instances) {
+        if (ins.iface == NULL) {
+            continue;
         }
-        if (sent_ok) {
-            canardPopTxQueue(&canard);
-            fail_count = 0;
-        } else {
-            // just exit and try again later. If we fail 8 times in a row
-            // then start discarding to prevent the pool filling up
-            if (fail_count < 8) {
-                fail_count++;
+#if HAL_NUM_CAN_IFACES >= 2
+        if (periph.can_protocol_cached[ins.index] != AP_CANManager::Driver_Type_UAVCAN) {
+            continue;
+        }
+#endif
+        for (const CanardCANFrame* txf = NULL; (txf = canardPeekTxQueue(&ins.canard)) != NULL;) {
+            AP_HAL::CANFrame txmsg {};
+            txmsg.dlc = txf->data_len;
+            memcpy(txmsg.data, txf->data, 8);
+            txmsg.id = (txf->id | AP_HAL::CANFrame::FlagEFF);
+            // push message with 1s timeout
+            const uint64_t deadline = AP_HAL::native_micros64() + 1000000;
+            if (ins.iface->send(txmsg, deadline, 0) > 0) {
+                canardPopTxQueue(&ins.canard);
+                ins.tx_fail_count = 0;
             } else {
-                canardPopTxQueue(&canard);
+                // just exit and try again later. If we fail 8 times in a row
+                // then start discarding to prevent the pool filling up
+                if (ins.tx_fail_count < 8) {
+                    ins.tx_fail_count++;
+                } else {
+                    canardPopTxQueue(&ins.canard);
+                }
+                break;
             }
-            return;
         }
     }
 }
@@ -1001,36 +1222,54 @@ static void processTx(void)
 static void processRx(void)
 {
     AP_HAL::CANFrame rxmsg;
-    while (true) {
-        bool got_pkt = false;
-        for (uint8_t i=0; i<HAL_NUM_CAN_IFACES; i++) {
+    for (auto &ins : instances) {
+        if (ins.iface == NULL) {
+            continue;
+        }
+#if HAL_NUM_CAN_IFACES >= 2
+        if (periph.can_protocol_cached[ins.index] != AP_CANManager::Driver_Type_UAVCAN) {
+            continue;
+        }
+#endif
+        while (true) {
             bool read_select = true;
             bool write_select = false;
-            can_iface[i].select(read_select, write_select, nullptr, 0);
-            if (!read_select) {
-                continue;
+            ins.iface->select(read_select, write_select, nullptr, 0);
+            if (!read_select) { // No data pending
+                break;
             }
             CanardCANFrame rx_frame {};
 
             //palToggleLine(HAL_GPIO_PIN_LED);
             uint64_t timestamp;
             AP_HAL::CANIface::CanIOFlags flags;
-            can_iface[i].receive(rxmsg, timestamp, flags);
+            ins.iface->receive(rxmsg, timestamp, flags);
             memcpy(rx_frame.data, rxmsg.data, 8);
             rx_frame.data_len = rxmsg.dlc;
             rx_frame.id = rxmsg.id;
-            canardHandleRxFrame(&canard, &rx_frame, timestamp);
-            got_pkt = true;
-        }
-        if (!got_pkt) {
-            break;
+#if DEBUG_PKTS
+            const int16_t res = 
+#endif
+            canardHandleRxFrame(&ins.canard, &rx_frame, timestamp);
+#if DEBUG_PKTS
+            if (res < 0 &&
+                res != -CANARD_ERROR_RX_NOT_WANTED &&
+                res != -CANARD_ERROR_RX_WRONG_ADDRESS &&
+                res != -CANARD_ERROR_RX_MISSED_START) {
+                printf("Rx error %d, IF%d %lx: ", res, ins.index, rx_frame.id);
+                for (uint8_t i = 0; i < rx_frame.data_len; i++) {
+                    printf("%02x", rx_frame.data[i]);
+                }
+                printf("\n");
+            }
+#endif
         }
     }
 }
 
-static uint16_t pool_peak_percent(void)
+static uint16_t pool_peak_percent(instance_t &ins)
 {
-    const CanardPoolAllocatorStatistics stats = canardGetPoolAllocatorStatistics(&canard);
+    const CanardPoolAllocatorStatistics stats = canardGetPoolAllocatorStatistics(&ins.canard);
     const uint16_t peak_percent = (uint16_t)(100U * stats.peak_usage_blocks / stats.capacity_blocks);
     return peak_percent;
 }
@@ -1044,18 +1283,11 @@ static void node_status_send(void)
 
     uint32_t len = uavcan_protocol_NodeStatus_encode(&node_status, buffer);
 
-    const int16_t bc_res = canardBroadcast(&canard,
-                                           UAVCAN_PROTOCOL_NODESTATUS_SIGNATURE,
-                                           UAVCAN_PROTOCOL_NODESTATUS_ID,
-                                           &transfer_id,
-                                           CANARD_TRANSFER_PRIORITY_LOW,
-                                           buffer,
-                                           len);
-    if (bc_res <= 0) {
-        printf("broadcast fail %d\n", bc_res);
-    } else {
-        //printf("broadcast node status OK\n");
-    }
+    canard_broadcast(UAVCAN_PROTOCOL_NODESTATUS_SIGNATURE,
+                    UAVCAN_PROTOCOL_NODESTATUS_ID,
+                    CANARD_TRANSFER_PRIORITY_LOW,
+                    buffer,
+                    len);
 }
 
 
@@ -1067,7 +1299,7 @@ static void process1HzTasks(uint64_t timestamp_usec)
     /*
      * Purging transfers that are no longer transmitted. This will occasionally free up some memory.
      */
-    canardCleanupStaleTransfers(&canard, timestamp_usec);
+    cleanup_stale_transactions(timestamp_usec);
 
     /*
      * Printing the memory usage statistics.
@@ -1077,8 +1309,10 @@ static void process1HzTasks(uint64_t timestamp_usec)
          * The recommended way to establish the minimal size of the memory pool is to stress-test the application and
          * record the worst case memory usage.
          */
-        if (pool_peak_percent() > 70) {
-            printf("WARNING: ENLARGE MEMORY POOL\n");
+        for (auto &ins : instances) {
+            if (pool_peak_percent(ins) > 70) {
+                printf("WARNING: ENLARGE MEMORY POOL on Iface %d\n", ins.index);
+            }
         }
     }
 
@@ -1144,92 +1378,62 @@ static void process1HzTasks(uint64_t timestamp_usec)
 /*
   wait for dynamic allocation of node ID
  */
-static void can_wait_node_id(void)
+bool AP_Periph_FW::no_iface_finished_dna = true;
+static bool can_do_dna(instance_t &ins)
 {
-    uint8_t node_id_allocation_transfer_id = 0;
-    const uint32_t led_pattern = 0xAAAA;
-    uint8_t led_idx = 0;
-    uint32_t last_led_change = AP_HAL::native_millis();
-    const uint32_t led_change_period = 50;
-
-    while (canardGetLocalNodeID(&canard) == CANARD_BROADCAST_NODE_ID)
-    {
-        printf("Waiting for dynamic node ID allocation... (pool %u)\n", pool_peak_percent());
-
-        stm32_watchdog_pat();
-        uint32_t now = AP_HAL::native_millis();
-
-        send_next_node_id_allocation_request_at_ms =
-            now + UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_MIN_REQUEST_PERIOD_MS +
-            get_random_range(UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_MAX_FOLLOWUP_DELAY_MS);
-
-        while (((now=AP_HAL::native_millis()) < send_next_node_id_allocation_request_at_ms) &&
-               (canardGetLocalNodeID(&canard) == CANARD_BROADCAST_NODE_ID))
-        {
-            processTx();
-            processRx();
-            canardCleanupStaleTransfers(&canard, AP_HAL::native_micros64());
-            stm32_watchdog_pat();
-
-            if (now - last_led_change > led_change_period) {
-                // blink LED in recognisable pattern while waiting for DNA
-#ifdef HAL_GPIO_PIN_LED
-                palWriteLine(HAL_GPIO_PIN_LED, (led_pattern & (1U<<led_idx))?1:0);
-#else
-                (void)led_pattern;
-                (void)led_idx;
-#endif
-                led_idx = (led_idx+1) % 32;
-                last_led_change = now;
-            }
-        }
-
-
-        if (canardGetLocalNodeID(&canard) != CANARD_BROADCAST_NODE_ID)
-        {
-            break;
-        }
-
-        // Structure of the request is documented in the DSDL definition
-        // See http://uavcan.org/Specification/6._Application_level_functions/#dynamic-node-id-allocation
-        uint8_t allocation_request[CANARD_CAN_FRAME_MAX_DATA_LEN - 1];
-        allocation_request[0] = (uint8_t)(PreferredNodeID << 1U);
-
-        if (node_id_allocation_unique_id_offset == 0)
-        {
-            allocation_request[0] |= 1;     // First part of unique ID
-        }
-
-        uint8_t my_unique_id[UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_UNIQUE_ID_MAX_LENGTH];
-        readUniqueID(my_unique_id);
-
-        static const uint8_t MaxLenOfUniqueIDInRequest = 6;
-        uint8_t uid_size = (uint8_t)(UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_UNIQUE_ID_MAX_LENGTH - node_id_allocation_unique_id_offset);
-        if (uid_size > MaxLenOfUniqueIDInRequest)
-        {
-            uid_size = MaxLenOfUniqueIDInRequest;
-        }
-
-        memmove(&allocation_request[1], &my_unique_id[node_id_allocation_unique_id_offset], uid_size);
-
-        // Broadcasting the request
-        const int16_t bcast_res = canardBroadcast(&canard,
-                                                  UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_SIGNATURE,
-                                                  UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_ID,
-                                                  &node_id_allocation_transfer_id,
-                                                  CANARD_TRANSFER_PRIORITY_LOW,
-                                                  &allocation_request[0],
-                                                  (uint16_t) (uid_size + 1));
-        if (bcast_res < 0)
-        {
-            printf("Could not broadcast ID allocation req; error %d\n", bcast_res);
-        }
-
-        // Preparing for timeout; if response is received, this value will be updated from the callback.
-        node_id_allocation_unique_id_offset = 0;
+    if (canardGetLocalNodeID(&ins.canard) != CANARD_BROADCAST_NODE_ID) {
+        AP_Periph_FW::no_iface_finished_dna = false;
+        return true;
     }
 
-    printf("Dynamic node ID allocation complete [%d]\n", canardGetLocalNodeID(&canard));
+    const uint32_t now = AP_HAL::native_millis();
+
+    uint8_t node_id_allocation_transfer_id = 0;
+
+    if (AP_Periph_FW::no_iface_finished_dna) {
+        printf("Waiting for dynamic node ID allocation on IF%d... (pool %u)\n", ins.index, pool_peak_percent(ins));
+    }
+
+    ins.send_next_node_id_allocation_request_at_ms =
+        now + UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_MIN_REQUEST_PERIOD_MS +
+        get_random_range(UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_MAX_FOLLOWUP_DELAY_MS);
+
+    // Structure of the request is documented in the DSDL definition
+    // See http://uavcan.org/Specification/6._Application_level_functions/#dynamic-node-id-allocation
+    uint8_t allocation_request[CANARD_CAN_FRAME_MAX_DATA_LEN - 1];
+    allocation_request[0] = (uint8_t)(PreferredNodeID << 1U);
+
+    if (ins.node_id_allocation_unique_id_offset == 0) {
+        allocation_request[0] |= 1;     // First part of unique ID
+    }
+
+    uint8_t my_unique_id[UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_UNIQUE_ID_MAX_LENGTH];
+    readUniqueID(my_unique_id);
+
+    static const uint8_t MaxLenOfUniqueIDInRequest = 6;
+    uint8_t uid_size = (uint8_t)(UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_UNIQUE_ID_MAX_LENGTH - ins.node_id_allocation_unique_id_offset);
+    
+    if (uid_size > MaxLenOfUniqueIDInRequest) {
+        uid_size = MaxLenOfUniqueIDInRequest;
+    }
+
+    memmove(&allocation_request[1], &my_unique_id[ins.node_id_allocation_unique_id_offset], uid_size);
+
+    // Broadcasting the request
+    const int16_t bcast_res = canardBroadcast(&ins.canard,
+                                                UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_SIGNATURE,
+                                                UAVCAN_PROTOCOL_DYNAMIC_NODE_ID_ALLOCATION_ID,
+                                                &node_id_allocation_transfer_id,
+                                                CANARD_TRANSFER_PRIORITY_LOW,
+                                                &allocation_request[0],
+                                                (uint16_t) (uid_size + 1));
+    if (bcast_res < 0) {
+        printf("Could not broadcast ID allocation req; error %d, IF%d\n", bcast_res, ins.index);
+    }
+
+    // Preparing for timeout; if response is received, this value will be updated from the callback.
+    ins.node_id_allocation_unique_id_offset = 0;
+    return false;
 }
 
 void AP_Periph_FW::can_start()
@@ -1246,19 +1450,41 @@ void AP_Periph_FW::can_start()
     periph.g.flash_bootloader.set_and_save_ifchanged(0);
 #endif
 
-    for (int8_t i=0; i<HAL_NUM_CAN_IFACES; i++) {
-        can_iface[i].init(1000000, AP_HAL::CANIface::NormalMode);
+#if AP_PERIPH_ENFORCE_AT_LEAST_ONE_PORT_IS_UAVCAN_1MHz && HAL_NUM_CAN_IFACES >= 2
+    bool has_uavcan_at_1MHz = false;
+    for (uint8_t i=0; i<HAL_NUM_CAN_IFACES; i++) {
+        if (g.can_protocol[i] == AP_CANManager::Driver_Type_UAVCAN && g.can_baudrate[i] == 1000000) {
+            has_uavcan_at_1MHz = true;
+        }
     }
-
-    canardInit(&canard, (uint8_t *)canard_memory_pool, sizeof(canard_memory_pool),
-               onTransferReceived, shouldAcceptTransfer, NULL);
-
-    if (PreferredNodeID != CANARD_BROADCAST_NODE_ID) {
-        canardSetLocalNodeID(&canard, PreferredNodeID);
+    if (!has_uavcan_at_1MHz) {
+        g.can_protocol[0].set_and_save(AP_CANManager::Driver_Type_UAVCAN);
+        g.can_baudrate[0].set_and_save(1000000);
     }
+#endif // HAL_PERIPH_ENFORCE_AT_LEAST_ONE_PORT_IS_UAVCAN_1MHz
 
-    // wait for dynamic node ID allocation
-    can_wait_node_id();
+    for (uint8_t i=0; i<HAL_NUM_CAN_IFACES; i++) {
+#if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
+        can_iface_periph[i] = new ChibiOS::CANIface();
+#elif CONFIG_HAL_BOARD == HAL_BOARD_SITL
+        can_iface_periph[i] = new HALSITL::CANIface();
+#endif
+        instances[i].iface = can_iface_periph[i];
+        instances[i].index = i;
+#if HAL_NUM_CAN_IFACES >= 2
+        can_protocol_cached[i] = g.can_protocol[i];
+        CANSensor::set_periph(i, can_protocol_cached[i], can_iface_periph[i]);
+#endif
+        if (can_iface_periph[i] != nullptr) {
+            can_iface_periph[i]->init(g.can_baudrate[i], AP_HAL::CANIface::NormalMode);
+        }
+        canardInit(&instances[i].canard, (uint8_t *)instances[i].canard_memory_pool, sizeof(instances[i].canard_memory_pool),
+                onTransferReceived, shouldAcceptTransfer, NULL);
+
+        if (PreferredNodeID != CANARD_BROADCAST_NODE_ID) {
+            canardSetLocalNodeID(&instances[i].canard, PreferredNodeID);
+        }
+    }
 }
 
 #ifdef HAL_PERIPH_ENABLE_PWM_HARDPOINT
@@ -1306,10 +1532,8 @@ void AP_Periph_FW::pwm_hardpoint_update()
 
         uint8_t buffer[UAVCAN_EQUIPMENT_HARDPOINT_COMMAND_MAX_SIZE] {};
         uint16_t total_size = uavcan_equipment_hardpoint_Command_encode(&cmd, buffer);
-        canardBroadcast(&canard,
-                        UAVCAN_EQUIPMENT_HARDPOINT_COMMAND_SIGNATURE,
+        canard_broadcast(UAVCAN_EQUIPMENT_HARDPOINT_COMMAND_SIGNATURE,
                         UAVCAN_EQUIPMENT_HARDPOINT_COMMAND_ID,
-                        &transfer_id,
                         CANARD_TRANSFER_PRIORITY_LOW,
                         &buffer[0],
                         total_size);
@@ -1334,16 +1558,10 @@ void AP_Periph_FW::hwesc_telem_update()
     pkt.power_rating_pct = t.phase_current;
     pkt.error_count = t.error_count;
 
-    fix_float16(pkt.voltage);
-    fix_float16(pkt.current);
-    fix_float16(pkt.temperature);
-
     uint8_t buffer[UAVCAN_EQUIPMENT_ESC_STATUS_MAX_SIZE] {};
     uint16_t total_size = uavcan_equipment_esc_Status_encode(&pkt, buffer);
-    canardBroadcast(&canard,
-                    UAVCAN_EQUIPMENT_ESC_STATUS_SIGNATURE,
+    canard_broadcast(UAVCAN_EQUIPMENT_ESC_STATUS_SIGNATURE,
                     UAVCAN_EQUIPMENT_ESC_STATUS_ID,
-                    &transfer_id,
                     CANARD_TRANSFER_PRIORITY_LOW,
                     &buffer[0],
                     total_size);
@@ -1353,8 +1571,34 @@ void AP_Periph_FW::hwesc_telem_update()
 
 void AP_Periph_FW::can_update()
 {
+    const uint32_t now = AP_HAL::native_millis();
+    const uint32_t led_pattern = 0xAAAA;
+    const uint32_t led_change_period = 50;
+    static uint8_t led_idx = 0;
+    static uint32_t last_led_change;
+
+    if ((now - last_led_change > led_change_period) && no_iface_finished_dna) {
+        // blink LED in recognisable pattern while waiting for DNA
+#ifdef HAL_GPIO_PIN_LED
+        palWriteLine(HAL_GPIO_PIN_LED, (led_pattern & (1U<<led_idx))?1:0);
+#elif defined(HAL_GPIO_PIN_SAFE_LED)
+        // or use safety LED if defined
+        palWriteLine(HAL_GPIO_PIN_SAFE_LED, (led_pattern & (1U<<led_idx))?1:0);
+#else
+        (void)led_pattern;
+        (void)led_idx;
+#endif
+        led_idx = (led_idx+1) % 32;
+        last_led_change = now;
+    }
+
+    for (auto &ins : instances) {
+        if (AP_HAL::millis() > ins.send_next_node_id_allocation_request_at_ms) {
+            can_do_dna(ins);
+        }
+    }
+    
     static uint32_t last_1Hz_ms;
-    uint32_t now = AP_HAL::native_millis();
     if (now - last_1Hz_ms >= 1000) {
         last_1Hz_ms = now;
         process1HzTasks(AP_HAL::native_micros64());
@@ -1386,8 +1630,12 @@ void AP_Periph_FW::can_update()
 #ifdef HAL_PERIPH_ENABLE_RC_OUT
     rcout_update();
 #endif
-    processTx();
-    processRx();
+    const uint32_t now_us = AP_HAL::micros();
+    while ((AP_HAL::micros() - now_us) < 1000) {
+        hal.scheduler->delay_microseconds(HAL_PERIPH_LOOP_DELAY_US);
+        processTx();
+        processRx();
+    }
 }
 
 /*
@@ -1396,7 +1644,7 @@ void AP_Periph_FW::can_update()
 void AP_Periph_FW::can_mag_update(void)
 {
 #ifdef HAL_PERIPH_ENABLE_MAG
-    if (!compass.enabled()) {
+    if (!compass.available()) {
         return;
     }
     compass.read();
@@ -1425,16 +1673,14 @@ void AP_Periph_FW::can_mag_update(void)
     // the canard dsdl compiler doesn't understand float16
     for (uint8_t i=0; i<3; i++) {
         pkt.magnetic_field_ga[i] = field[i] * 0.001;
-        fix_float16(pkt.magnetic_field_ga[i]);
     }
+    fix_float16_array(pkt.magnetic_field_ga, 3);
 
     uint8_t buffer[UAVCAN_EQUIPMENT_AHRS_MAGNETICFIELDSTRENGTH_MAX_SIZE] {};
     uint16_t total_size = uavcan_equipment_ahrs_MagneticFieldStrength_encode(&pkt, buffer);
 
-    canardBroadcast(&canard,
-                    UAVCAN_EQUIPMENT_AHRS_MAGNETICFIELDSTRENGTH_SIGNATURE,
+    canard_broadcast(UAVCAN_EQUIPMENT_AHRS_MAGNETICFIELDSTRENGTH_SIGNATURE,
                     UAVCAN_EQUIPMENT_AHRS_MAGNETICFIELDSTRENGTH_ID,
-                    &transfer_id,
                     CANARD_TRANSFER_PRIORITY_LOW,
                     &buffer[0],
                     total_size);
@@ -1473,21 +1719,22 @@ void AP_Periph_FW::can_battery_update(void)
         }
         float temperature;
         if (battery.lib.get_temperature(temperature, i)) {
-            pkt.temperature = temperature;
+            // Battery lib reports temperature in Celsius.
+            // Convert Celsius to Kelvin for tranmission on CAN.
+            pkt.temperature = temperature + C_TO_KELVIN;
         }
 
-        fix_float16(pkt.voltage);
-        fix_float16(pkt.current);
-        fix_float16(pkt.temperature);
-
         pkt.state_of_health_pct = UAVCAN_EQUIPMENT_POWER_BATTERYINFO_STATE_OF_HEALTH_UNKNOWN;
-        pkt.state_of_charge_pct = battery.lib.capacity_remaining_pct(i);
+        uint8_t percentage = 0;
+        if (battery.lib.capacity_remaining_pct(percentage, i)) {
+            pkt.state_of_charge_pct = percentage;
+        }
         pkt.model_instance_id = i+1;
 
 #if !defined(HAL_PERIPH_BATTERY_SKIP_NAME)
         // example model_name: "org.ardupilot.ap_periph SN 123"
         char text[UAVCAN_EQUIPMENT_POWER_BATTERYINFO_MODEL_NAME_MAX_LENGTH+1] {};
-        hal.util->snprintf(text, sizeof(text), "%s %d", AP_PERIPH_BATTERY_MODEL_NAME, serial_number);
+        hal.util->snprintf(text, sizeof(text), "%s %ld", AP_PERIPH_BATTERY_MODEL_NAME, (long int)serial_number);
         pkt.model_name.len = strlen(text);
         pkt.model_name.data = (uint8_t *)text;
 #endif //defined(HAL_PERIPH_BATTERY_SKIP_NAME)
@@ -1495,10 +1742,8 @@ void AP_Periph_FW::can_battery_update(void)
         uint8_t buffer[UAVCAN_EQUIPMENT_POWER_BATTERYINFO_MAX_SIZE] {};
         const uint16_t total_size = uavcan_equipment_power_BatteryInfo_encode(&pkt, buffer);
 
-        canardBroadcast(&canard,
-                        UAVCAN_EQUIPMENT_POWER_BATTERYINFO_SIGNATURE,
+        canard_broadcast(UAVCAN_EQUIPMENT_POWER_BATTERYINFO_SIGNATURE,
                         UAVCAN_EQUIPMENT_POWER_BATTERYINFO_ID,
-                        &transfer_id,
                         CANARD_TRANSFER_PRIORITY_LOW,
                         &buffer[0],
                         total_size);
@@ -1516,6 +1761,8 @@ void AP_Periph_FW::can_gps_update(void)
         return;
     }
     gps.update();
+    send_moving_baseline_msg();
+    send_relposheading_msg();
     if (last_gps_update_ms == gps.last_message_time_ms()) {
         return;
     }
@@ -1543,8 +1790,8 @@ void AP_Periph_FW::can_gps_update(void)
         for (uint8_t i=0; i<3; i++) {
             // the canard dsdl compiler doesn't understand float16
             pkt.ned_velocity[i] = vel[i];
-            fix_float16(pkt.ned_velocity[i]);
         }
+        fix_float16_array(pkt.ned_velocity, 3);
         pkt.sats_used = gps.num_sats();
         switch (gps.status()) {
         case AP_GPS::GPS_Status::NO_GPS:
@@ -1569,16 +1816,14 @@ void AP_Periph_FW::can_gps_update(void)
         float vacc;
         if (gps.vertical_accuracy(vacc)) {
             pos_cov[8] = sq(vacc);
-            fix_float16(pos_cov[8]);
         }
 
         float hacc;
         if (gps.horizontal_accuracy(hacc)) {
             pos_cov[0] = pos_cov[4] = sq(hacc);
-            fix_float16(pos_cov[0]);
-            fix_float16(pos_cov[4]);
         }
-    
+        fix_float16_array(pos_cov, 9);
+
         float vel_cov[9] {};
         pkt.velocity_covariance.data = &pos_cov[0];
         pkt.velocity_covariance.len = 9;
@@ -1587,18 +1832,14 @@ void AP_Periph_FW::can_gps_update(void)
         if (gps.speed_accuracy(sacc)) {
             float vc3 = sq(sacc);
             vel_cov[0] = vel_cov[4] = vel_cov[8] = vc3;
-            fix_float16(vel_cov[0]);
-            fix_float16(vel_cov[4]);
-            fix_float16(vel_cov[8]);
         }
+        fix_float16_array(vel_cov, 9);
 
         uint8_t buffer[UAVCAN_EQUIPMENT_GNSS_FIX_MAX_SIZE] {};
         uint16_t total_size = uavcan_equipment_gnss_Fix_encode(&pkt, buffer);
 
-        canardBroadcast(&canard,
-                        UAVCAN_EQUIPMENT_GNSS_FIX_SIGNATURE,
+        canard_broadcast(UAVCAN_EQUIPMENT_GNSS_FIX_SIGNATURE,
                         UAVCAN_EQUIPMENT_GNSS_FIX_ID,
-                        &transfer_id,
                         CANARD_TRANSFER_PRIORITY_LOW,
                         &buffer[0],
                         total_size);
@@ -1680,18 +1921,13 @@ void AP_Periph_FW::can_gps_update(void)
             float vc3 = sq(sacc);
             cov[3] = cov[4] = cov[5] = vc3;
         }
-
-        for (uint8_t i=0; i<6; i++) {
-            fix_float16(cov[i]);
-        }
+        fix_float16_array(cov, 6);
 
         uint8_t buffer[UAVCAN_EQUIPMENT_GNSS_FIX2_MAX_SIZE] {};
         uint16_t total_size = uavcan_equipment_gnss_Fix2_encode(&pkt, buffer);
 
-        canardBroadcast(&canard,
-                        UAVCAN_EQUIPMENT_GNSS_FIX2_SIGNATURE,
+        canard_broadcast(UAVCAN_EQUIPMENT_GNSS_FIX2_SIGNATURE,
                         UAVCAN_EQUIPMENT_GNSS_FIX2_ID,
-                        &transfer_id,
                         CANARD_TRANSFER_PRIORITY_LOW,
                         &buffer[0],
                         total_size);
@@ -1704,15 +1940,11 @@ void AP_Periph_FW::can_gps_update(void)
         uavcan_equipment_gnss_Auxiliary aux {};
         aux.hdop = gps.get_hdop() * 0.01;
         aux.vdop = gps.get_vdop() * 0.01;
-        fix_float16(aux.hdop);
-        fix_float16(aux.vdop);
 
         uint8_t buffer[UAVCAN_EQUIPMENT_GNSS_AUXILIARY_MAX_SIZE] {};
         uint16_t total_size = uavcan_equipment_gnss_Auxiliary_encode(&aux, buffer);
-        canardBroadcast(&canard,
-                        UAVCAN_EQUIPMENT_GNSS_AUXILIARY_SIGNATURE,
+        canard_broadcast(UAVCAN_EQUIPMENT_GNSS_AUXILIARY_SIGNATURE,
                         UAVCAN_EQUIPMENT_GNSS_AUXILIARY_ID,
-                        &transfer_id,
                         CANARD_TRANSFER_PRIORITY_LOW,
                         &buffer[0],
                         total_size);
@@ -1738,16 +1970,88 @@ void AP_Periph_FW::can_gps_update(void)
 
         uint8_t buffer[ARDUPILOT_GNSS_STATUS_MAX_SIZE] {};
         const uint16_t total_size = ardupilot_gnss_Status_encode(&status, buffer);
-        canardBroadcast(&canard,
-                        ARDUPILOT_GNSS_STATUS_SIGNATURE,
+        canard_broadcast(ARDUPILOT_GNSS_STATUS_SIGNATURE,
                         ARDUPILOT_GNSS_STATUS_ID,
-                        &transfer_id,
                         CANARD_TRANSFER_PRIORITY_LOW,
                         &buffer[0],
                         total_size);
 
     }
 #endif // HAL_PERIPH_ENABLE_GPS
+}
+
+
+void AP_Periph_FW::send_moving_baseline_msg()
+{
+#if defined(HAL_PERIPH_ENABLE_GPS) && GPS_MOVING_BASELINE
+    const uint8_t *data = nullptr;
+    uint16_t len = 0;
+    if (!gps.get_RTCMV3(data, len)) {
+        return;
+    }
+    if (len == 0 || data == nullptr) {
+        return;
+    }
+    // send the packet from Moving Base to be used RelPosHeading calc by GPS module
+    ardupilot_gnss_MovingBaselineData mbldata {};
+    // get the data from the moving base
+    static_assert(ARDUPILOT_GNSS_MOVINGBASELINEDATA_DATA_MAX_LENGTH == RTCM3_MAX_PACKET_LEN, "Size of Moving Base data is wrong");
+    mbldata.data.len = len;
+    mbldata.data.data = (uint8_t*)data;
+    uint8_t buffer[ARDUPILOT_GNSS_MOVINGBASELINEDATA_MAX_SIZE] {};
+    const uint16_t total_size = ardupilot_gnss_MovingBaselineData_encode(&mbldata, buffer);
+
+#if HAL_NUM_CAN_IFACES >= 2
+    if (gps_mb_can_port != -1 && (gps_mb_can_port < HAL_NUM_CAN_IFACES)) {
+        uint8_t *tid_ptr = get_tid_ptr(&instances[gps_mb_can_port], MAKE_TRANSFER_DESCRIPTOR(ARDUPILOT_GNSS_MOVINGBASELINEDATA_SIGNATURE, ARDUPILOT_GNSS_MOVINGBASELINEDATA_ID, 0, CANARD_BROADCAST_NODE_ID));
+        canardBroadcast(&instances[gps_mb_can_port].canard,
+                        ARDUPILOT_GNSS_MOVINGBASELINEDATA_SIGNATURE,
+                        ARDUPILOT_GNSS_MOVINGBASELINEDATA_ID,
+                        tid_ptr,
+                        CANARD_TRANSFER_PRIORITY_LOW,
+                        &buffer[0],
+                        total_size);
+    } else 
+#endif
+    {
+        canard_broadcast(ARDUPILOT_GNSS_MOVINGBASELINEDATA_SIGNATURE,
+                        ARDUPILOT_GNSS_MOVINGBASELINEDATA_ID,
+                        CANARD_TRANSFER_PRIORITY_LOW,
+                        &buffer[0],
+                        total_size);
+    }
+    gps.clear_RTCMV3();
+#endif // HAL_PERIPH_ENABLE_GPS && GPS_MOVING_BASELINE
+}
+
+void AP_Periph_FW::send_relposheading_msg() {
+#if defined(HAL_PERIPH_ENABLE_GPS) && GPS_MOVING_BASELINE
+    float reported_heading;
+    float relative_distance;
+    float relative_down_pos;
+    float reported_heading_acc;
+    static uint32_t last_timestamp = 0;
+    uint32_t curr_timestamp = 0;
+    gps.get_RelPosHeading(curr_timestamp, reported_heading, relative_distance, relative_down_pos, reported_heading_acc);
+    if (last_timestamp == curr_timestamp) {
+        return;
+    }
+    last_timestamp = curr_timestamp;
+    ardupilot_gnss_RelPosHeading relpos {};
+    relpos.timestamp.usec = uint64_t(curr_timestamp)*1000LLU;
+    relpos.reported_heading_deg = reported_heading;
+    relpos.relative_distance_m = relative_distance;
+    relpos.relative_down_pos_m = relative_down_pos;
+    relpos.reported_heading_acc_deg = reported_heading_acc;
+    relpos.reported_heading_acc_available = true;
+    uint8_t buffer[ARDUPILOT_GNSS_RELPOSHEADING_MAX_SIZE] {};
+    const uint16_t total_size = ardupilot_gnss_RelPosHeading_encode(&relpos, buffer);
+    canard_broadcast(ARDUPILOT_GNSS_RELPOSHEADING_SIGNATURE,
+                    ARDUPILOT_GNSS_RELPOSHEADING_ID,
+                    CANARD_TRANSFER_PRIORITY_LOW,
+                    &buffer[0],
+                    total_size);
+#endif // HAL_PERIPH_ENABLE_GPS && GPS_MOVING_BASELINE
 }
 
 /*
@@ -1776,15 +2080,12 @@ void AP_Periph_FW::can_baro_update(void)
         uavcan_equipment_air_data_StaticPressure pkt {};
         pkt.static_pressure = press;
         pkt.static_pressure_variance = 0; // should we make this a parameter?
-        fix_float16(pkt.static_pressure_variance);
 
         uint8_t buffer[UAVCAN_EQUIPMENT_AIR_DATA_STATICPRESSURE_MAX_SIZE] {};
         uint16_t total_size = uavcan_equipment_air_data_StaticPressure_encode(&pkt, buffer);
 
-        canardBroadcast(&canard,
-                        UAVCAN_EQUIPMENT_AIR_DATA_STATICPRESSURE_SIGNATURE,
+        canard_broadcast(UAVCAN_EQUIPMENT_AIR_DATA_STATICPRESSURE_SIGNATURE,
                         UAVCAN_EQUIPMENT_AIR_DATA_STATICPRESSURE_ID,
-                        &transfer_id,
                         CANARD_TRANSFER_PRIORITY_LOW,
                         &buffer[0],
                         total_size);
@@ -1795,16 +2096,11 @@ void AP_Periph_FW::can_baro_update(void)
         pkt.static_temperature = temp + C_TO_KELVIN;
         pkt.static_temperature_variance = 0; // should we make this a parameter?
 
-        fix_float16(pkt.static_temperature);
-        fix_float16(pkt.static_temperature_variance);
-
         uint8_t buffer[UAVCAN_EQUIPMENT_AIR_DATA_STATICTEMPERATURE_MAX_SIZE] {};
         uint16_t total_size = uavcan_equipment_air_data_StaticTemperature_encode(&pkt, buffer);
 
-        canardBroadcast(&canard,
-                        UAVCAN_EQUIPMENT_AIR_DATA_STATICTEMPERATURE_SIGNATURE,
+        canard_broadcast(UAVCAN_EQUIPMENT_AIR_DATA_STATICTEMPERATURE_SIGNATURE,
                         UAVCAN_EQUIPMENT_AIR_DATA_STATICTEMPERATURE_ID,
-                        &transfer_id,
                         CANARD_TRANSFER_PRIORITY_LOW,
                         &buffer[0],
                         total_size);
@@ -1854,8 +2150,6 @@ void AP_Periph_FW::can_airspeed_update(void)
     uavcan_equipment_air_data_RawAirData pkt {};
     pkt.differential_pressure = press;
     pkt.static_air_temperature = temp;
-    fix_float16(pkt.differential_pressure);
-    fix_float16(pkt.static_air_temperature);
 
     // unfilled elements are NaN
     pkt.static_pressure = nanf("");
@@ -1866,10 +2160,8 @@ void AP_Periph_FW::can_airspeed_update(void)
     uint8_t buffer[UAVCAN_EQUIPMENT_AIR_DATA_RAWAIRDATA_MAX_SIZE] {};
     uint16_t total_size = uavcan_equipment_air_data_RawAirData_encode(&pkt, buffer);
 
-    canardBroadcast(&canard,
-                    UAVCAN_EQUIPMENT_AIR_DATA_RAWAIRDATA_SIGNATURE,
+    canard_broadcast(UAVCAN_EQUIPMENT_AIR_DATA_RAWAIRDATA_SIGNATURE,
                     UAVCAN_EQUIPMENT_AIR_DATA_RAWAIRDATA_ID,
-                    &transfer_id,
                     CANARD_TRANSFER_PRIORITY_LOW,
                     &buffer[0],
                     total_size);
@@ -1942,15 +2234,12 @@ void AP_Periph_FW::can_rangefinder_update(void)
     }
 
     pkt.range = dist_cm * 0.01;
-    fix_float16(pkt.range);
 
     uint8_t buffer[UAVCAN_EQUIPMENT_RANGE_SENSOR_MEASUREMENT_MAX_SIZE] {};
     uint16_t total_size = uavcan_equipment_range_sensor_Measurement_encode(&pkt, buffer);
 
-    canardBroadcast(&canard,
-                    UAVCAN_EQUIPMENT_RANGE_SENSOR_MEASUREMENT_SIGNATURE,
+    canard_broadcast(UAVCAN_EQUIPMENT_RANGE_SENSOR_MEASUREMENT_SIGNATURE,
                     UAVCAN_EQUIPMENT_RANGE_SENSOR_MEASUREMENT_ID,
-                    &transfer_id,
                     CANARD_TRANSFER_PRIORITY_LOW,
                     &buffer[0],
                     total_size);
@@ -1973,14 +2262,11 @@ void AP_Periph_FW::can_send_ADSB(struct __mavlink_adsb_vehicle_t &msg)
     pkt.alt_m = msg.altitude * 1e-3;
 
     pkt.heading = radians(msg.heading * 1e-2);
-    fix_float16(pkt.heading);
 
     pkt.velocity[0] = cosf(pkt.heading) * msg.hor_velocity * 1e-2;
     pkt.velocity[1] = sinf(pkt.heading) * msg.hor_velocity * 1e-2;
     pkt.velocity[2] = -msg.ver_velocity * 1e-2;
-    fix_float16(pkt.velocity[0]);
-    fix_float16(pkt.velocity[1]);
-    fix_float16(pkt.velocity[2]);
+    fix_float16_array(pkt.velocity, 3);
 
     pkt.squawk = msg.squawk;
     memcpy(pkt.callsign, msg.callsign, MIN(sizeof(msg.callsign),sizeof(pkt.callsign)));
@@ -2014,10 +2300,8 @@ void AP_Periph_FW::can_send_ADSB(struct __mavlink_adsb_vehicle_t &msg)
     uint8_t buffer[ARDUPILOT_EQUIPMENT_TRAFFICMONITOR_TRAFFICREPORT_MAX_SIZE] {};
     uint16_t total_size = ardupilot_equipment_trafficmonitor_TrafficReport_encode(&pkt, buffer);
 
-    canardBroadcast(&canard,
-                    ARDUPILOT_EQUIPMENT_TRAFFICMONITOR_TRAFFICREPORT_SIGNATURE,
+    canard_broadcast(ARDUPILOT_EQUIPMENT_TRAFFICMONITOR_TRAFFICREPORT_SIGNATURE,
                     ARDUPILOT_EQUIPMENT_TRAFFICMONITOR_TRAFFICREPORT_ID,
-                    &transfer_id,
                     CANARD_TRANSFER_PRIORITY_LOW,
                     &buffer[0],
                     total_size);
@@ -2039,10 +2323,8 @@ void can_printf(const char *fmt, ...)
 
     uint32_t len = uavcan_protocol_debug_LogMessage_encode(&pkt, buffer);
 
-    canardBroadcast(&canard,
-                    UAVCAN_PROTOCOL_DEBUG_LOGMESSAGE_SIGNATURE,
+    canard_broadcast(UAVCAN_PROTOCOL_DEBUG_LOGMESSAGE_SIGNATURE,
                     UAVCAN_PROTOCOL_DEBUG_LOGMESSAGE_ID,
-                    &transfer_id,
                     CANARD_TRANSFER_PRIORITY_LOW,
                     buffer,
                     len);

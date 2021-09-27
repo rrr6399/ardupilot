@@ -12,10 +12,9 @@ void Rover::Log_Write_Attitude()
 
     ahrs.Write_Attitude(targets);
 
-#if AP_AHRS_NAVEKF_AVAILABLE
-    AP::ahrs_navekf().Log_Write();
+    AP::ahrs().Log_Write();
     ahrs.Write_AHRS2();
-#endif
+
     ahrs.Write_POS();
 
     // log steering rate controller
@@ -76,6 +75,9 @@ void Rover::Log_Write_Depth()
                         loc.lng,
                         (double)(rangefinder.distance_cm_orient(ROTATION_PITCH_270) * 0.01f),
                         temp_C);
+
+    // send water depth and temp to ground station
+    gcs().send_message(MSG_WATER_DEPTH);
 }
 
 // guided mode logging
@@ -154,15 +156,17 @@ void Rover::Log_Write_Sail()
 // @Field: TackThr: Apparent wind angle used for tack threshold
 // @Field: MainOut: Normalized mainsail output
 // @Field: WingOut: Normalized wingsail output
+// @Field: MastRotOut: Normalized direct-rotation mast output
 // @Field: VMG: Velocity made good (speed at which vehicle is making progress directly towards destination)
 
-    logger.Write("SAIL", "TimeUS,Tack,TackThr,MainOut,WingOut,VMG",
-                        "s-d%%n", "F00000", "QBffff",
+    logger.Write("SAIL", "TimeUS,Tack,TackThr,MainOut,WingOut,MastRotOut,VMG",
+                        "s-d%%%n", "F000000", "QBfffff",
                         AP_HAL::micros64(),
                         current_tack,
                         (double)wind_dir_tack,
                         (double)g2.motors.get_mainsail(),
                         (double)g2.motors.get_wingsail(),
+                        (double)g2.motors.get_mast_rotation(),
                         (double)g2.sailboat.get_VMG());
 }
 
@@ -220,7 +224,7 @@ struct PACKED log_Throttle {
     float throttle_out;
     float desired_speed;
     float speed;
-    float accel_y;
+    float accel_x;
 };
 
 // Write a throttle control packet
@@ -236,7 +240,7 @@ void Rover::Log_Write_Throttle()
         throttle_out    : g2.motors.get_throttle(),
         desired_speed   : g2.attitude_control.get_desired_speed(),
         speed           : speed,
-        accel_y         : accel.y
+        accel_x         : accel.x
     };
     logger.WriteBlock(&pkt, sizeof(pkt));
 }
@@ -282,10 +286,10 @@ const LogStructure Rover::log_structure[] = {
 // @Field: ThrOut: Throttle Output 
 // @Field: DesSpeed: Desired speed 
 // @Field: Speed: Actual speed
-// @Field: AccY: Vehicle's acceleration in Y-Axis
+// @Field: AccX: Acceleration
 
     { LOG_THR_MSG, sizeof(log_Throttle),
-      "THR", "Qhffff", "TimeUS,ThrIn,ThrOut,DesSpeed,Speed,AccY", "s--nno", "F--000" },
+      "THR", "Qhffff", "TimeUS,ThrIn,ThrOut,DesSpeed,Speed,AccX", "s--nno", "F--000" },
 
 // @LoggerMessage: NTUN
 // @Description: Navigation Tuning information - e.g. vehicle destination

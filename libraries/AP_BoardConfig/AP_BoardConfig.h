@@ -30,6 +30,16 @@
 #define HAL_WATCHDOG_ENABLED_DEFAULT false
 #endif
 
+#if HAL_HAVE_IMU_HEATER
+#ifndef HAL_IMUHEAT_P_DEFAULT
+#define HAL_IMUHEAT_P_DEFAULT 200
+#endif
+#ifndef HAL_IMUHEAT_I_DEFAULT
+#define HAL_IMUHEAT_I_DEFAULT 0.3
+#endif
+#endif
+
+
 extern "C" typedef int (*main_fn_t)(int argc, char **);
 
 class AP_BoardConfig {
@@ -54,11 +64,14 @@ public:
     static const struct AP_Param::GroupInfo var_info[];
 
     // notify user of a fatal startup error related to available sensors. 
-    static void config_error(const char *reason, ...);
+    static void config_error(const char *reason, ...) FMT_PRINTF(1, 2) NORETURN;
+
+    // notify user of a non-fatal startup error related to allocation failures.
+    static void allocation_error(const char *reason, ...) FMT_PRINTF(1, 2) NORETURN;
 
     // permit other libraries (in particular, GCS_MAVLink) to detect
     // that we're never going to boot properly:
-    static bool in_config_error(void) { return _in_sensor_config_error; }
+    static bool in_config_error(void) { return _in_error_loop; }
 
     // valid types for BRD_TYPE: these values need to be in sync with the
     // values from the param description
@@ -109,11 +122,6 @@ public:
 #else
         return 0;
 #endif
-    }
-
-    // get number of PWM outputs enabled on FMU
-    static uint8_t get_pwm_count(void) {
-        return _singleton?_singleton->pwm_count.get():8;
     }
 
     // get alternative config selection
@@ -200,7 +208,6 @@ private:
     static AP_BoardConfig *_singleton;
     
     AP_Int16 vehicleSerialNumber;
-    AP_Int8 pwm_count;
 
     struct {
         AP_Int8 safety_enable;
@@ -232,13 +239,16 @@ private:
     void board_setup_sbus(void);
     void board_setup(void);
 
-    static bool _in_sensor_config_error;
+    // common method to throw errors
+    static void throw_error(const char *err_str, const char *fmt, va_list arg) NORETURN;
+
+    static bool _in_error_loop;
 
 #if HAL_HAVE_IMU_HEATER
     struct {
         AP_Int8 imu_target_temperature;
         uint32_t last_update_ms;
-        AC_PI pi_controller{200, 0.3, 70};
+        AC_PI pi_controller{HAL_IMUHEAT_P_DEFAULT, HAL_IMUHEAT_I_DEFAULT, 70};
         uint16_t count;
         float sum;
         float output;

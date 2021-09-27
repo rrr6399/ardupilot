@@ -305,6 +305,9 @@ void peripheral_power_enable(void)
 #ifdef HAL_GPIO_PIN_nVDD_5V_HIPOWER_EN
     palWriteLine(HAL_GPIO_PIN_nVDD_5V_HIPOWER_EN, 0);
 #endif
+#ifdef HAL_GPIO_PIN_VDD_5V_HIPOWER_EN
+    palWriteLine(HAL_GPIO_PIN_VDD_5V_HIPOWER_EN, 1);
+#endif
 #ifdef HAL_GPIO_PIN_VDD_3V3_SENSORS_EN
     // the TBS-Colibri-F7 needs PE3 low at power on
     palWriteLine(HAL_GPIO_PIN_VDD_3V3_SENSORS_EN, 1);
@@ -324,7 +327,7 @@ void peripheral_power_enable(void)
 #endif
 }
 
-#if defined(STM32F7) || defined(STM32H7) || defined(STM32F4) || defined(STM32F3) || defined(STM32G4)
+#if defined(STM32F7) || defined(STM32H7) || defined(STM32F4) || defined(STM32F3) || defined(STM32G4) || defined(STM32L4)
 /*
   read mode of a pin. This allows a pin config to be read, changed and
   then written back
