@@ -270,9 +270,7 @@ class Board:
             '-Werror=parentheses',
             '-DARDUPILOT_BUILD',
             '-Wuninitialized',
-            '-Wmaybe-uninitialized',
             '-Warray-bounds',
-            '-Wduplicated-cond',
         ]
 
         if 'clang++' in cfg.env.COMPILER_CXX:
@@ -315,6 +313,8 @@ class Board:
             if self.cc_version_gte(cfg, 7, 4):
                 env.CXXFLAGS += [
                     '-Werror=implicit-fallthrough',
+                    '-Wmaybe-uninitialized',
+                    '-Wduplicated-cond',
                 ]
 
         if cfg.options.Werror:
@@ -609,8 +609,21 @@ class sitl(Board):
                 '-fno-slp-vectorize' # compiler bug when trying to use SLP
             ]
 
+        if cfg.options.sitl_32bit:
+            # 32bit platform flags
+            env.CXXFLAGS += [
+                '-m32',
+            ]
+            env.CFLAGS += [
+                '-m32',
+            ]
+            env.LDFLAGS += [
+                '-m32',
+            ]
+
     def get_name(self):
         return self.__class__.__name__
+
 
 class sitl_periph_gps(sitl):
     def configure_env(self, cfg, env):

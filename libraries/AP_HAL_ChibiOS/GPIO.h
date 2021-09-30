@@ -35,6 +35,7 @@ enum class PERIPH_TYPE : uint8_t {
     I2C_SDA,
     I2C_SCL,
     OTHER,
+    GPIO,
 };
 
 class ChibiOS::GPIO : public AP_HAL::GPIO {
@@ -108,3 +109,17 @@ public:
 private:
     ioline_t line;
 };
+
+#if HAL_WITH_IO_MCU
+class ChibiOS::IOMCU_DigitalSource : public AP_HAL::DigitalSource {
+public:
+    IOMCU_DigitalSource(uint8_t _pin);
+    void    write(uint8_t value) override;
+    void    toggle() override;
+    // IOMCU GPIO is write only
+    void    mode(uint8_t output) override {};
+    uint8_t    read() override { return 0; }
+private:
+    uint8_t pin;
+};
+#endif

@@ -49,6 +49,7 @@
 #include <AP_OSD/AP_OSD.h>
 #include <AP_RCTelemetry/AP_CRSF_Telem.h>
 #include <AP_AIS/AP_AIS.h>
+#include <AP_Filesystem/AP_Filesystem.h>
 
 #include <stdio.h>
 
@@ -67,7 +68,7 @@
   #include <AP_Common/AP_Common.h>
 
   // To be replaced with macro saying if KDECAN library is included
-  #if APM_BUILD_TYPE(APM_BUILD_ArduCopter) || APM_BUILD_TYPE(APM_BUILD_ArduPlane) || APM_BUILD_TYPE(APM_BUILD_ArduSub)
+  #if APM_BUILD_COPTER_OR_HELI() || APM_BUILD_TYPE(APM_BUILD_ArduPlane) || APM_BUILD_TYPE(APM_BUILD_ArduSub)
     #include <AP_KDECAN/AP_KDECAN.h>
   #endif
   #include <AP_ToshibaCAN/AP_ToshibaCAN.h>
@@ -77,6 +78,8 @@
 
 #include <AP_BattMonitor/AP_BattMonitor.h>
 #include <AP_GPS/AP_GPS.h>
+
+#include <ctype.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -211,6 +214,12 @@ void GCS_MAVLINK::send_mcu_status(void)
 }
 #endif
 
+// returns the battery remaining percentage if valid, -1 otherwise
+int8_t GCS_MAVLINK::battery_remaining_pct(const uint8_t instance) const {
+    uint8_t percentage;
+    return AP::battery().capacity_remaining_pct(percentage, instance) ? MIN(percentage, INT8_MAX) : -1;
+}
+
 void GCS_MAVLINK::send_battery_status(const uint8_t instance) const
 {
     // catch the battery backend not supporting the required number of cells
@@ -256,6 +265,8 @@ void GCS_MAVLINK::send_battery_status(const uint8_t instance) const
     }
 
     float current, consumed_mah, consumed_wh;
+    const int8_t percentage = battery_remaining_pct(instance);
+    
     if (battery.current_amps(current, instance)) {
          current = constrain_float(current * 100,-INT16_MAX,INT16_MAX);
     } else {
@@ -269,8 +280,6 @@ void GCS_MAVLINK::send_battery_status(const uint8_t instance) const
     } else {
         consumed_wh = -1;
     }
-    uint8_t _percentage = -1;
-    const int8_t percentage = battery.capacity_remaining_pct(_percentage, instance) ? _percentage : -1;
 
     mavlink_msg_battery_status_send(chan,
                                     instance, // id
@@ -873,6 +882,7 @@ ap_message GCS_MAVLINK::mavlink_id_to_ap_message_id(const uint32_t mavlink_id) c
         { MAVLINK_MSG_ID_EFI_STATUS,            MSG_EFI_STATUS},
         { MAVLINK_MSG_ID_GENERATOR_STATUS,      MSG_GENERATOR_STATUS},
         { MAVLINK_MSG_ID_WINCH_STATUS,          MSG_WINCH_STATUS},
+        { MAVLINK_MSG_ID_ESC_TELEMETRY_1_TO_4,  MSG_ESC_TELEMETRY},
         { MAVLINK_MSG_ID_WATER_DEPTH,           MSG_WATER_DEPTH},
         { MAVLINK_MSG_ID_HIGH_LATENCY2,         MSG_HIGH_LATENCY2},
         { MAVLINK_MSG_ID_AIS_VESSEL,            MSG_AIS_VESSEL},
@@ -1110,6 +1120,9 @@ void GCS_MAVLINK::update_send()
 
     if (!deferred_messages_initialised) {
         initialise_message_intervals_from_streamrates();
+#if HAL_MAVLINK_INTERVALS_FROM_FILES_ENABLED
+        initialise_message_intervals_from_config_files();
+#endif
         deferred_messages_initialised = true;
     }
 
@@ -3869,7 +3882,7 @@ MAV_RESULT GCS_MAVLINK::handle_command_preflight_can(const mavlink_command_long_
         switch (AP::can().get_driver_type(i)) {
             case AP_CANManager::Driver_Type_KDECAN: {
 // To be replaced with macro saying if KDECAN library is included
-#if APM_BUILD_TYPE(APM_BUILD_ArduCopter) || APM_BUILD_TYPE(APM_BUILD_ArduPlane) || APM_BUILD_TYPE(APM_BUILD_ArduSub)
+#if APM_BUILD_COPTER_OR_HELI() || APM_BUILD_TYPE(APM_BUILD_ArduPlane) || APM_BUILD_TYPE(APM_BUILD_ArduSub)
                 AP_KDECAN *ap_kdecan = AP_KDECAN::get_kdecan(i);
 
                 if (ap_kdecan != nullptr) {
@@ -3883,7 +3896,7 @@ MAV_RESULT GCS_MAVLINK::handle_command_preflight_can(const mavlink_command_long_
             }
             case AP_CANManager::Driver_Type_CANTester: {
 // To be replaced with macro saying if KDECAN library is included
-#if (APM_BUILD_TYPE(APM_BUILD_ArduCopter) || APM_BUILD_TYPE(APM_BUILD_ArduPlane) || APM_BUILD_TYPE(APM_BUILD_ArduSub)) && (HAL_MAX_CAN_PROTOCOL_DRIVERS > 1 && !HAL_MINIMIZE_FEATURES)
+#if (APM_BUILD_COPTER_OR_HELI() || APM_BUILD_TYPE(APM_BUILD_ArduPlane) || APM_BUILD_TYPE(APM_BUILD_ArduSub)) && (HAL_MAX_CAN_PROTOCOL_DRIVERS > 1 && !HAL_MINIMIZE_FEATURES)
                 CANTester *cantester = CANTester::get_cantester(i);
 
                 if (cantester != nullptr) {
@@ -4671,10 +4684,10 @@ void GCS_MAVLINK::send_sys_status()
 
     const AP_BattMonitor &battery = AP::battery();
     float battery_current;
-    uint8_t battery_remaining = -1;
+    int8_t battery_remaining = -1;
 
     if (battery.healthy() && battery.current_amps(battery_current)) {
-        IGNORE_RETURN(battery.capacity_remaining_pct(battery_remaining));
+        battery_remaining = battery_remaining_pct(AP_BATT_PRIMARY_INSTANCE);
         battery_current = constrain_float(battery_current * 100,-INT16_MAX,INT16_MAX);
     } else {
         battery_current = -1;
@@ -5252,6 +5265,182 @@ void GCS_MAVLINK::initialise_message_intervals_for_stream(GCS_MAVLINK::streams i
     }
 }
 
+#if HAL_MAVLINK_INTERVALS_FROM_FILES_ENABLED
+// open and read contents of path, setting message intervals from each
+// line
+DefaultIntervalsFromFiles::DefaultIntervalsFromFiles(uint16_t max_num)
+{
+    if (max_num == 0) {
+        return;
+    }
+    _intervals = new from_file_default_interval[max_num];
+    _max_intervals = max_num;
+}
+
+DefaultIntervalsFromFiles::~DefaultIntervalsFromFiles()
+{
+    delete[] (_intervals);
+}
+
+void DefaultIntervalsFromFiles::set(ap_message id, uint16_t interval)
+{
+    if (_intervals == nullptr) {
+        return;
+    }
+
+    // update any existing interval (last-one-in wins)
+    for (uint8_t i=0; i<_num_intervals; i++) {
+        if (_intervals[i].id == id) {
+            _intervals[i].interval = interval;
+            return;
+        }
+    }
+
+    // store an interval we've not seen before:
+    if (_num_intervals == _max_intervals) {
+        return;
+    }
+
+    _intervals[_num_intervals].id = id;
+    _intervals[_num_intervals].interval = interval;
+    _num_intervals++;
+}
+
+bool DefaultIntervalsFromFiles::get_interval_for_ap_message_id(ap_message id, uint16_t &interval) const
+{
+    for (uint16_t i=0; i<_num_intervals; i++) {
+        if (_intervals[i].id == id) {
+            interval = _intervals[i].interval;
+            return true;
+        }
+    }
+    return false;
+}
+
+ap_message DefaultIntervalsFromFiles::id_at(uint8_t ofs) const
+{
+    if (_intervals == nullptr || ofs >= _num_intervals) {
+        return MSG_LAST;
+    }
+    return _intervals[ofs].id;
+}
+
+uint16_t DefaultIntervalsFromFiles::interval_at(uint8_t ofs) const
+{
+    if (_intervals == nullptr || ofs >= _num_intervals) {
+        return -1;  // unsigned-integer wrap
+    }
+    return _intervals[ofs].interval;
+}
+
+void GCS_MAVLINK::get_intervals_from_filepath(const char *path, DefaultIntervalsFromFiles &intervals)
+{
+    const int f = AP::FS().open(path, O_RDONLY);
+    if (f == -1) {
+        return;
+    }
+
+    char line[20];
+    while (AP::FS().fgets(line, sizeof(line)-1, f)) {
+        char *saveptr = nullptr;
+        const char *mavlink_id_str = strtok_r(line, " ", &saveptr);
+        if (mavlink_id_str == nullptr || strlen(mavlink_id_str) == 0) {
+            continue;
+        }
+        const uint32_t mavlink_id = atoi(mavlink_id_str);
+
+        const ap_message msg_id = mavlink_id_to_ap_message_id(mavlink_id);
+        if (msg_id == MSG_LAST) {
+            continue;
+        }
+
+        const char *interval_str = strtok_r(nullptr, "\r\n", &saveptr);
+        if (interval_str == nullptr || strlen(interval_str) == 0) {
+            continue;
+        }
+        const uint16_t interval = atoi(interval_str);
+
+        intervals.set(msg_id, interval);
+    }
+
+    AP::FS().close(f);
+}
+
+void GCS_MAVLINK::initialise_message_intervals_from_config_files()
+{
+    static const char *path_templates[] {
+        "@ROMFS/message-intervals-chan%u.txt",
+        "message-intervals-chan%u.txt"
+    };
+
+    // don't do anything at all if no files exist:
+    bool exists = false;
+    for (const char * path_template : path_templates) {
+        struct stat stats;
+        char *path;
+        if (asprintf(&path, path_template, chan) == -1) {
+            continue;
+        }
+        if (AP::FS().stat(path, &stats) < 0) {
+            free(path);
+            continue;
+        }
+        free(path);
+        if (stats.st_size == 0) {
+            continue;
+        }
+        exists = true;
+        break;
+    }
+    if (!exists) {
+        return;
+    }
+
+    // first over-allocate:
+    DefaultIntervalsFromFiles *overallocated = new DefaultIntervalsFromFiles(128);
+    if (overallocated == nullptr) {
+        return;
+    }
+    for (const char * path_template : path_templates) {
+        char *path;
+        if (asprintf(&path, path_template, chan) == -1) {
+            continue;
+        }
+        get_intervals_from_filepath(path, *overallocated);
+        free(path);
+    }
+
+    // then allocate just the right number and redo all of the work:
+    const uint16_t num_required = overallocated->num_intervals();
+    delete overallocated;
+    overallocated = nullptr;
+
+    default_intervals_from_files = new DefaultIntervalsFromFiles(num_required);
+    if (default_intervals_from_files == nullptr) {
+        return;
+    }
+    for (const char * path_template : path_templates) {
+        char *path;
+        if (asprintf(&path, path_template, chan) == -1) {
+            continue;
+        }
+        get_intervals_from_filepath(path, *default_intervals_from_files);
+        free(path);
+    }
+
+    // now actually initialise the intervals:
+    for (uint8_t i=0; i<default_intervals_from_files->num_intervals(); i++) {
+        const ap_message id = default_intervals_from_files->id_at(i);
+        if (id == MSG_LAST) {
+            // internal error
+            break;
+        }
+        const uint16_t interval = default_intervals_from_files->interval_at(i);
+        set_ap_message_interval(id, interval);
+    }
+}
+#endif
+
 void GCS_MAVLINK::initialise_message_intervals_from_streamrates()
 {
     // this is O(n^2), but it's once at boot and across a 10-entry list...
@@ -5268,6 +5457,15 @@ bool GCS_MAVLINK::get_default_interval_for_ap_message(const ap_message id, uint1
         interval = 1000;
         return true;
     }
+
+#if HAL_MAVLINK_INTERVALS_FROM_FILES_ENABLED
+    // a user can specify default rates in files, which are read close
+    // to vehicle startup
+    if (default_intervals_from_files != nullptr &&
+        default_intervals_from_files->get_interval_for_ap_message_id(id, interval)) {
+        return true;
+    }
+#endif
 
     // find which stream this ap_message is in
     for (uint8_t i=0; all_stream_entries[i].ap_message_ids != nullptr; i++) {
@@ -5574,10 +5772,10 @@ void GCS_MAVLINK::send_high_latency() const
 
     const AP_BattMonitor &battery = AP::battery();
     float battery_current;
-    uint8_t battery_remaining = -1;
+    int8_t battery_remaining = -1;
 
     if (battery.healthy() && battery.current_amps(battery_current)) {
-        IGNORE_RETURN(battery.capacity_remaining_pct(battery_remaining));
+        battery_remaining = battery_remaining_pct(AP_BATT_PRIMARY_INSTANCE);
         battery_current = constrain_float(battery_current * 100,-INT16_MAX,INT16_MAX);
     } else {
         battery_current = -1;

@@ -29,6 +29,12 @@
 
 using namespace ChibiOS;
 
+#if HAL_WITH_IO_MCU
+#include <AP_IOMCU/AP_IOMCU.h>
+extern AP_IOMCU iomcu;
+#endif
+
+
 // GPIO pin table from hwdef.dat
 static struct gpio_entry {
     uint8_t pin_num;
@@ -73,6 +79,13 @@ void GPIO::init()
     uint8_t chan_offset = 0;
 #if HAL_WITH_IO_MCU
     if (AP_BoardConfig::io_enabled()) {
+        uint8_t GPIO_mask = 0;
+        for (uint8_t i=0; i<8; i++) {
+            if (SRV_Channels::is_GPIO(i)) {
+                GPIO_mask |= 1U << i;
+            }
+        }
+        iomcu.set_GPIO_mask(GPIO_mask);
         chan_offset = 8;
     }
 #endif
@@ -121,6 +134,17 @@ void GPIO::setup_alt_config(void)
     for (uint8_t i=0; i<ARRAY_SIZE(alternate_config); i++) {
         const struct alt_config &alt = alternate_config[i];
         if (alt_config == alt.alternate) {
+            if (alt.periph_type == PERIPH_TYPE::GPIO) {
+                // enable pin in GPIO table
+                for (uint8_t j=0; j<ARRAY_SIZE(_gpio_tab); j++) {
+                    struct gpio_entry *g = &_gpio_tab[j];
+                    if (g->pal_line == alt.line) {
+                        g->enabled = true;
+                        break;
+                    }
+                }
+                continue;
+            }
             const iomode_t mode = alt.mode & ~PAL_STM32_HIGH;
             const uint8_t odr = (alt.mode & PAL_STM32_HIGH)?1:0;
             palSetLineMode(alt.line, mode);
@@ -204,6 +228,12 @@ uint8_t GPIO::read(uint8_t pin)
 
 void GPIO::write(uint8_t pin, uint8_t value)
 {
+#if HAL_WITH_IO_MCU
+    if (AP_BoardConfig::io_enabled() && iomcu.valid_GPIO_pin(pin)) {
+        iomcu.write_GPIO(pin, value);
+        return;
+    }
+#endif
     struct gpio_entry *g = gpio_by_pin_num(pin);
     if (g) {
         if (g->is_input) {
@@ -220,6 +250,12 @@ void GPIO::write(uint8_t pin, uint8_t value)
 
 void GPIO::toggle(uint8_t pin)
 {
+#if HAL_WITH_IO_MCU
+    if (AP_BoardConfig::io_enabled() && iomcu.valid_GPIO_pin(pin)) {
+        iomcu.toggle_GPIO(pin);
+        return;
+    }
+#endif
     struct gpio_entry *g = gpio_by_pin_num(pin);
     if (g) {
         palToggleLine(g->pal_line);
@@ -229,6 +265,11 @@ void GPIO::toggle(uint8_t pin)
 /* Alternative interface: */
 AP_HAL::DigitalSource* GPIO::channel(uint16_t pin)
 {
+#if HAL_WITH_IO_MCU
+    if (AP_BoardConfig::io_enabled() && iomcu.valid_GPIO_pin(pin)) {
+        return new IOMCU_DigitalSource(pin);
+    }
+#endif
     struct gpio_entry *g = gpio_by_pin_num(pin);
     if (!g) {
         return nullptr;
@@ -352,6 +393,22 @@ void DigitalSource::toggle()
     palToggleLine(line);
 }
 
+#if HAL_WITH_IO_MCU
+IOMCU_DigitalSource::IOMCU_DigitalSource(uint8_t _pin) :
+    pin(_pin)
+{}
+
+void IOMCU_DigitalSource::write(uint8_t value)
+{
+    iomcu.write_GPIO(pin, value);
+}
+
+void IOMCU_DigitalSource::toggle()
+{
+    iomcu.toggle_GPIO(pin);
+}
+#endif // HAL_WITH_IO_MCU
+
 static void pal_interrupt_cb(void *arg)
 {
     if (arg != nullptr) {
@@ -443,6 +500,11 @@ bool GPIO::wait_pin(uint8_t pin, INTERRUPT_TRIGGER_TYPE mode, uint32_t timeout_u
 // check if a pin number is valid
 bool GPIO::valid_pin(uint8_t pin) const
 {
+#if HAL_WITH_IO_MCU
+    if (AP_BoardConfig::io_enabled() && iomcu.valid_GPIO_pin(pin)) {
+        return true;
+    }
+#endif
     return gpio_by_pin_num(pin) != nullptr;
 }
 
