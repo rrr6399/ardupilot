@@ -2787,7 +2787,7 @@ MAV_RESULT GCS_MAVLINK::handle_preflight_reboot(const mavlink_command_long_t &pa
             StorageAccess param_storage{StorageManager::StorageParam};
             uint8_t zeros[40] {};
             param_storage.write_block(0, zeros, sizeof(zeros));
-            return MAV_RESULT_FAILED;
+            return MAV_RESULT_ACCEPTED;
         }
         if (is_equal(packet.param4, 97.0f)) {
             // create a really long loop
@@ -4866,35 +4866,45 @@ void GCS_MAVLINK::send_water_depth() const
     }
 
     RangeFinder *rangefinder = RangeFinder::get_singleton();
-    if (rangefinder == nullptr || !rangefinder->has_data_orient(ROTATION_PITCH_270)) {
-        // no rangefinder or not facing downwards
-        return;
-    }
 
-    const bool sensor_healthy = (rangefinder->status_orient(ROTATION_PITCH_270) == RangeFinder::Status::Good);
+    if (rangefinder == nullptr || !rangefinder->has_orientation(ROTATION_PITCH_270)){
+        return;
+    } 
 
     // get position
     const AP_AHRS &ahrs = AP::ahrs();
     Location loc;
     IGNORE_RETURN(ahrs.get_position(loc));
 
-    // get temperature
-    float temp_C = 0.0f;
-    IGNORE_RETURN(rangefinder->get_temp(ROTATION_PITCH_270, temp_C));
+    for (uint8_t i=0; i<rangefinder->num_sensors(); i++) {
+        const AP_RangeFinder_Backend *s = rangefinder->get_backend(i);
+        
+        if (s == nullptr || s->orientation() != ROTATION_PITCH_270 || !s->has_data()) {
+            continue;
+        }
 
-    mavlink_msg_water_depth_send(
-        chan,
-        AP_HAL::millis(),   // time since system boot TODO: take time of measurement
-        0,                  // sensor id always zero
-        sensor_healthy,     // sensor healthy
-        loc.lat,            // latitude of vehicle
-        loc.lng,            // longitude of vehicle
-        loc.alt * 0.01f,    // altitude of vehicle (MSL)
-        ahrs.get_roll(),    // roll in radians
-        ahrs.get_pitch(),   // pitch in radians
-        ahrs.get_yaw(),     // yaw in radians
-        rangefinder->distance_cm_orient(ROTATION_PITCH_270) * 0.01f,    // distance in meters
-        temp_C);            // temperature in degC
+        // get temperature
+        float temp_C;
+        if (!s->get_temp(temp_C)) {
+            temp_C = 0.0f;
+        }
+
+        const bool sensor_healthy = (s->status() == RangeFinder::Status::Good);
+
+        mavlink_msg_water_depth_send(
+            chan,
+            AP_HAL::millis(),   // time since system boot TODO: take time of measurement
+            i,                  // rangefinder instance
+            sensor_healthy,     // sensor healthy
+            loc.lat,            // latitude of vehicle
+            loc.lng,            // longitude of vehicle
+            loc.alt * 0.01f,    // altitude of vehicle (MSL)
+            ahrs.get_roll(),    // roll in radians
+            ahrs.get_pitch(),   // pitch in radians
+            ahrs.get_yaw(),     // yaw in radians
+            s->distance_cm() * 0.01f,    // distance in meters
+            temp_C);            // temperature in degC
+    }
 #endif
 }
 
@@ -5215,7 +5225,7 @@ bool GCS_MAVLINK::try_send_message(const enum ap_message id)
     case MSG_HIGH_LATENCY2:
 #if HAL_HIGH_LATENCY2_ENABLED
         CHECK_PAYLOAD_SIZE(HIGH_LATENCY2);
-        send_high_latency();
+        send_high_latency2();
 #endif // HAL_HIGH_LATENCY2_ENABLED
         break;
 
@@ -5762,23 +5772,19 @@ GCS &gcs()
   send HIGH_LATENCY2 message
  */
 #if HAL_HIGH_LATENCY2_ENABLED
-void GCS_MAVLINK::send_high_latency() const
+void GCS_MAVLINK::send_high_latency2() const
 {
     AP_AHRS &ahrs = AP::ahrs();
-    struct Location global_position_current;
+    Location global_position_current;
     UNUSED_RESULT(ahrs.get_position(global_position_current));
 
-    Location cur = AP::gps().location();
-
     const AP_BattMonitor &battery = AP::battery();
-    float battery_current;
+    float battery_current = -1;
     int8_t battery_remaining = -1;
 
     if (battery.healthy() && battery.current_amps(battery_current)) {
         battery_remaining = battery_remaining_pct(AP_BATT_PRIMARY_INSTANCE);
         battery_current = constrain_float(battery_current * 100,-INT16_MAX,INT16_MAX);
-    } else {
-        battery_current = -1;
     }
 
     AP_Mission *mission = AP::mission();
@@ -5790,52 +5796,30 @@ void GCS_MAVLINK::send_high_latency() const
     uint32_t present;
     uint32_t enabled;
     uint32_t health;
-    uint16_t failure_flags = 0;
     gcs().get_sensor_status_flags(present, enabled, health);
     // Remap HL_FAILURE_FLAG from system status flags
-    if (!(health & MAV_SYS_STATUS_SENSOR_GPS))
-    {
-        failure_flags |= HL_FAILURE_FLAG_GPS;
-    }
-    if (!(health & MAV_SYS_STATUS_SENSOR_DIFFERENTIAL_PRESSURE))
-    {
-        failure_flags |= HL_FAILURE_FLAG_DIFFERENTIAL_PRESSURE;
-    }    
-    if (!(health & MAV_SYS_STATUS_SENSOR_ABSOLUTE_PRESSURE))
-    {
-        failure_flags |= HL_FAILURE_FLAG_ABSOLUTE_PRESSURE;
-    }    
-    if (!(health & MAV_SYS_STATUS_SENSOR_3D_ACCEL))
-    {
-        failure_flags |= HL_FAILURE_FLAG_3D_ACCEL;
-    }  
-    if (!(health & MAV_SYS_STATUS_SENSOR_3D_GYRO))
-    {
-        failure_flags |= HL_FAILURE_FLAG_3D_GYRO;
-    }  
-    if (!(health & MAV_SYS_STATUS_SENSOR_3D_MAG))
-    {
-        failure_flags |= HL_FAILURE_FLAG_3D_MAG;
-    }  
-    if (!(health & MAV_SYS_STATUS_TERRAIN))
-    {
-        failure_flags |= HL_FAILURE_FLAG_TERRAIN;
-    }  
-    if (!(health & MAV_SYS_STATUS_SENSOR_BATTERY))
-    {
-        failure_flags |= HL_FAILURE_FLAG_BATTERY;
-    }  
-    if (!(health & MAV_SYS_STATUS_SENSOR_RC_RECEIVER))
-    {
-        failure_flags |= HL_FAILURE_FLAG_RC_RECEIVER;
-    }  
-    if (!(health & MAV_SYS_STATUS_GEOFENCE))
-    {
-        failure_flags |= HL_FAILURE_FLAG_GEOFENCE;
-    } 
-    if (!(health & MAV_SYS_STATUS_AHRS))
-    {
-        failure_flags |= HL_FAILURE_FLAG_ESTIMATOR;
+    static const struct PACKED status_map_t {
+        MAV_SYS_STATUS_SENSOR sensor;
+        HL_FAILURE_FLAG failure_flag;
+    } status_map[] {
+        { MAV_SYS_STATUS_SENSOR_GPS, HL_FAILURE_FLAG_GPS },
+        { MAV_SYS_STATUS_SENSOR_DIFFERENTIAL_PRESSURE, HL_FAILURE_FLAG_DIFFERENTIAL_PRESSURE },
+        { MAV_SYS_STATUS_SENSOR_ABSOLUTE_PRESSURE, HL_FAILURE_FLAG_ABSOLUTE_PRESSURE },
+        { MAV_SYS_STATUS_SENSOR_3D_ACCEL, HL_FAILURE_FLAG_3D_ACCEL },
+        { MAV_SYS_STATUS_SENSOR_3D_GYRO, HL_FAILURE_FLAG_3D_GYRO },
+        { MAV_SYS_STATUS_SENSOR_3D_MAG, HL_FAILURE_FLAG_3D_MAG },
+        { MAV_SYS_STATUS_TERRAIN, HL_FAILURE_FLAG_TERRAIN },
+        { MAV_SYS_STATUS_SENSOR_BATTERY, HL_FAILURE_FLAG_BATTERY },
+        { MAV_SYS_STATUS_SENSOR_RC_RECEIVER, HL_FAILURE_FLAG_RC_RECEIVER },
+        { MAV_SYS_STATUS_GEOFENCE, HL_FAILURE_FLAG_GEOFENCE },
+        { MAV_SYS_STATUS_AHRS, HL_FAILURE_FLAG_ESTIMATOR },
+    };
+
+    uint16_t failure_flags = 0;
+    for (auto &map_entry : status_map) {
+        if ((health & map_entry.sensor) == 0) {
+            failure_flags |= map_entry.failure_flag;
+        }
     }
 
     //send_text(MAV_SEVERITY_INFO, "Yaw: %u", (((uint16_t)ahrs.yaw_sensor / 100) % 360));
@@ -5845,8 +5829,8 @@ void GCS_MAVLINK::send_high_latency() const
         gcs().frame_type(), // Type of the MAV (quadrotor, helicopter, etc.)
         MAV_AUTOPILOT_ARDUPILOTMEGA, // Autopilot type / class. Use MAV_AUTOPILOT_INVALID for components that are not flight controllers.
         gcs().custom_mode(), // A bitfield for use for autopilot-specific flags (2 byte version).
-        cur.lat, // [degE7] Latitude
-        cur.lng, // [degE7] Longitude
+        global_position_current.lat, // [degE7] Latitude
+        global_position_current.lng, // [degE7] Longitude
         global_position_current.alt * 0.01f, // [m] Altitude above mean sea level
         high_latency_target_altitude(), // [m] Altitude setpoint
         (((uint16_t)ahrs.yaw_sensor / 100) % 360) / 2, // [deg/2] Heading
