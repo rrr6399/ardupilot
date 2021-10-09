@@ -737,6 +737,13 @@ def write_mcu_config(f):
         for d in defines.keys():
             v = defines[d]
             f.write("#ifndef %s\n#define %s %s\n#endif\n" % (d, d, v))
+    else:
+        defines = {}
+    # enable RNG for all H7 chips
+    if mcu_series.startswith("STM32H7") and 'HAL_USE_HW_RNG' not in defines.keys():
+        f.write("#define HAL_USE_HW_RNG TRUE\n")
+    elif 'HAL_USE_HW_RNG' not in defines.keys():
+        f.write("#define HAL_USE_HW_RNG FALSE\n")
 
     if get_config('PROCESS_STACK', required=False):
         env_vars['PROCESS_STACK'] = get_config('PROCESS_STACK')
@@ -1391,6 +1398,9 @@ def write_UART_config(f):
                 (devnames[idx], devnames[idx]))
 
     if 'IOMCU_UART' in config:
+        if not 'io_firmware.bin' in romfs:
+            error("Need io_firmware.bin in ROMFS for IOMCU")
+
         f.write('#define HAL_WITH_IO_MCU 1\n')
         idx = len(uart_list)
         f.write('#define HAL_UART_IOMCU_IDX %u\n' % idx)
