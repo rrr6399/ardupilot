@@ -526,7 +526,7 @@ bool AP_Mount::has_pan_control(uint8_t instance) const
         return false;
     }
 
-    if(state[instance]._has_pan_control < 0 {
+    if(state[instance]._has_pan_control < 0) {
         // ask backend if it support pan
         return _backends[instance]->has_pan_control();
     } else {
@@ -598,7 +598,7 @@ MAV_RESULT AP_Mount::handle_command_do_mount_control(const mavlink_command_long_
     float yaw_alt = packet.param3;
     MAV_MOUNT_MODE mode = (MAV_MOUNT_MODE) packet.param7;
     if(mode == MAV_MOUNT_MODE_MAVLINK_TARGETING) {
-       bool relative = ((int)packet.param6 == MAV_FRAME_BODY_FLU); // TODO: switch this to a mount parameter
+       bool relative = ((int)packet.param6 == MAV_FRAME_LOCAL_FLU); // TODO: switch this to a mount parameter
        if(!relative) {
            // calculate the relative pan angle
             yaw_alt = degrees(wrap_PI(radians(yaw_alt*.01) - AP::ahrs().yaw))*100.0f;
