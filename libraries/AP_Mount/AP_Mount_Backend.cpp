@@ -64,7 +64,11 @@ void AP_Mount_Backend::control(int32_t pitch_or_lat, int32_t roll_or_lon, int32_
 
         // set earth frame target angles from mavlink message
         case MAV_MOUNT_MODE_MAVLINK_TARGETING:
-            set_angle_targets(roll_or_lon*0.01f, pitch_or_lat*0.01f, yaw_or_alt*0.01f);
+            float pan_angle_deg = yaw_or_alt*0.01f;
+            if(!_frontend.has_pan_control()) {
+               pan_angle_deg = 0.0f; //
+            }
+            set_angle_targets(roll_or_lon*0.01f, pitch_or_lat*0.01f, pan_angle_deg);
             break;
 
         // Load neutral position and start RC Roll,Pitch,Yaw control with stabilization

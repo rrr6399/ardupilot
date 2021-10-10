@@ -96,8 +96,8 @@ void AP_Mount_SToRM32::update()
 // has_pan_control - returns true if this mount can control it's pan (required for multicopters)
 bool AP_Mount_SToRM32::has_pan_control() const
 {
-    // we do not have yaw control
-    return false;
+    // we do have yaw control
+    return true;
 }
 
 // set_mode - sets mount's mode
