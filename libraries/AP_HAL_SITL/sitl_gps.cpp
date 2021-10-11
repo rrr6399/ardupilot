@@ -253,6 +253,7 @@ void SITL_State::_save_gps_location(const struct gps_data *d)
         gettimeofday(&tp, nullptr);
         long int sec = tp.tv_sec;
         long int millis = tp.tv_usec/1000 + sec*1000;
+        //::fprintf(fd, "%ld %lf %lf %f\n",millis, d->latitude, d->longitude, d->altitude+_sitl->gps_alt_offset);
         ::fprintf(fd, "%ld %lf %lf %f\n",millis, d->latitude, d->longitude, d->altitude);
 //      ::fflush(fd);
 //      ::printf("storing GPS = %lf %lf %f\n", d->latitude, d->longitude, d->altitude);

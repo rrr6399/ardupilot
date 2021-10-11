@@ -4,8 +4,12 @@ export MASTER_DRONE=1
 location=keywest
 location=Moab
 location=PortHueneme
+
+python3 ../Tools/autotest/sim_vehicle.py --map --console -L $location --instance=2 -f sailboat-motor
+
 #python3 ../Tools/autotest/sim_vehicle.py --map --console -L $location --instance=2 -f boat
-python3 ../Tools/autotest/sim_vehicle.py --map --console -L $location --instance=2
+#python3 ../Tools/autotest/sim_vehicle.py --map --console -L $location --instance=2
+
 
 #python3 ../Tools/autotest/sim_vehicle.py --map --console -L $location --instance=1
 

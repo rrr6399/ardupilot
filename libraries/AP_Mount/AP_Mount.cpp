@@ -612,7 +612,7 @@ MAV_RESULT AP_Mount::handle_command_do_mount_control(const mavlink_command_long_
     }
 
     // send message to backend
-    _backends[_primary]->control(packet.param1, packet.param2, packet.param3, mode);
+    _backends[_primary]->control(packet.param1, packet.param2, yaw_alt, mode);
 
     return MAV_RESULT_ACCEPTED;
 }
