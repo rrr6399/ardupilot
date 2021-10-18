@@ -152,7 +152,12 @@ void AP_Mount_SToRM32::send_do_mount_control(float pitch_deg, float roll_deg, fl
 
     // reverse pitch and yaw control
     pitch_deg = -pitch_deg;
-    yaw_deg = -yaw_deg;
+
+    if(this->_frontend.has_pan_control()) {
+        yaw_deg = -yaw_deg;
+    } else {
+        yaw_deg = 0;
+    }
 
     // send command_long command containing a do_mount_control command
     mavlink_msg_command_long_send(_chan,
