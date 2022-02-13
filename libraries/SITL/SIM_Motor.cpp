@@ -18,6 +18,7 @@
 
 #include "SIM_Motor.h"
 #include <AP_Motors/AP_Motors.h>
+#include <stdio.h>
 
 using namespace SITL;
 
@@ -79,8 +80,10 @@ void Motor::calculate_forces(const struct sitl_input &input,
     // calculate total rotational acceleration
     rot_accel = (arm % thrust) + rotor_torque;
 
+//printf("thrust before scaling = %f, scale = %f\n",thrust,thrust_scale);
     // scale the thrust
     thrust = thrust * thrust_scale;
+//printf("thrust after scaling = %f\n",thrust);
 }
 
 /*
@@ -118,10 +121,21 @@ void Motor::current_and_voltage(const struct sitl_input &input, float &voltage, 
     float motor_speed = constrain_float((input.servos[motor_offset+servo]-1100)/900.0, 0, 1);
 
     // assume 10A per motor at full speed
-    current = 10 * motor_speed;
+//    current = 10 * motor_speed * 1/.80 * 1.6438; // 60 Amps at 80% throttle
+    current = 10 * motor_speed * 1/.80 * 1.409; // 60 Amps at 80% throttle, no
+
+//printf("motor speed = %f, current = %f\n",motor_speed,current);
 
     // assume 3S, and full throttle drops voltage by 0.7V
     if (AP::sitl()) {
-        voltage = AP::sitl()->batt_voltage - motor_speed * 0.7;
+        //voltage = AP::sitl()->batt_voltage - motor_speed * 0.7;
+        voltage = AP::sitl()->batt_voltage - motor_speed * .50; // 50.5 v on ground, 50.1 v hovering at 250'
     }
 }
+/*
+Altitude  Voltage      Current
+-------------------------------------
+2.3          50.2          37
+12.2         50.13         37.2
+24           50.16         36.62
+ */
