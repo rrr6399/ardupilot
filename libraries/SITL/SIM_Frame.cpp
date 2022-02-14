@@ -357,6 +357,7 @@ void Frame::load_frame_params(const char *model_json)
         AP_HAL::panic("Invalid json %s", model_json);
 
 //printf("mass = %f, motors = %d, thrust_scale = %f, hover throttle = %f\n",_mass, num_motors,thrust_scale,hover_throttle);
+
 }
     free(fname);
 
