@@ -122,7 +122,9 @@ public:
 
     static bool _detect(struct UBLOX_detect_state &state, uint8_t data);
 
-    bool supports_mavlink_gps_rtk_message() override { return state.rtk_time_week_ms > 0; }
+    bool supports_mavlink_gps_rtk_message() const override {
+        return state.rtk_time_week_ms > 0;
+    }
 
  
     bool is_configured(void) const override {

@@ -1362,20 +1362,6 @@ AP_GPS_UBLOX::_parse_gps(void)
 			state.have_gps_yaw = false;
 			state.have_gps_yaw_accuracy = false;
             if(version > 0) {
-                const Vector3f antenna_offset = offset0 - offset1;
-                const float offset_dist = antenna_offset.length();
-                const float rel_dist = _buffer.relposned_v01.rel_pos_length_cm * 0.01;
-                const float dist_error = offset_dist - rel_dist;
-                const float strict_length_error_allowed = 0.2; // allow for up to 20% error
-                const float min_separation = 0.05;
-                bool tilt_ok = true;
-                const float min_dist = MIN(offset_dist, rel_dist);
-    #ifndef HAL_BUILD_AP_PERIPH
-                // when ahrs is available use it to constrain vertical component
-                const Vector3f antenna_tilt = AP::ahrs().get_rotation_body_to_ned() * antenna_offset;
-                const float alt_error = _buffer.relposned_v01.rel_pos_d_cm*0.01 + antenna_tilt.z;
-                tilt_ok = fabsf(alt_error) < strict_length_error_allowed * min_dist;
-    #endif
                 _check_new_itow(_buffer.relposned_v01.itow_ms);
                 if (_buffer.relposned_v01.itow_ms != _last_relposned_itow+200) {
                     // useful for looking at packet loss on links
@@ -1385,15 +1371,19 @@ AP_GPS_UBLOX::_parse_gps(void)
 
                 if (((_buffer.relposned_v01.flags & valid_mask) == valid_mask) &&
                     ((_buffer.relposned_v01.flags & invalid_mask) == 0) &&
-                calculate_moving_base_yaw(_buffer.relposned_v01.rel_pos_heading_deg * 1e-5,
+                     calculate_moving_base_yaw(_buffer.relposned_v01.rel_pos_heading_deg * 1e-5,
                                           _buffer.relposned_v01.rel_pos_length_cm * 0.01,
                                           _buffer.relposned_v01.rel_pos_d_cm*0.01)) {
                     state.gps_yaw_accuracy = _buffer.relposned_v01.acc_heading_deg * 1e-5;
                     state.have_gps_yaw_accuracy = true;
-                _last_relposned_ms = AP_HAL::millis();
-_process_rtk_solution_v01(); // calculate even if moving base heading is not being used ToDo/rrr            } else {
-            	// don't bother trying to perform a yaw calculation with the M8P since it doesn't support 5 Hz solutions
-            	_process_rtk_solution_v00();
+                   _last_relposned_ms = AP_HAL::millis();
+                } else {
+                    state.have_gps_yaw_accuracy = false;
+                }
+                _process_rtk_solution_v01();
+            } else {
+              // don't bother trying to perform a yaw calculation with the M8P since it doesn't support 5 Hz solutions
+              _process_rtk_solution_v00();
             }
         }
         break;

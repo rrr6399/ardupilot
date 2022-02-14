@@ -261,6 +261,8 @@ public:
             return '5';
         case AP_GPS::GPS_OK_FIX_3D_RTK_FIXED:
             return '6';
+        case AP_GPS::GPS_OK_FIX_3D_STATIC:
+            return '7';
         }
         // should never reach here; compiler flags guarantees this.
         return '?';
