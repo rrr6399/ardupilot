@@ -6,6 +6,9 @@
   Andrew Tridgell November 2011
  */
 
+// comment this out when building firmware
+#define CONFIG_HAL_BOARD HAL_BOARD_SITL
+
 #include <AP_HAL/AP_HAL.h>
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL && !defined(HAL_BUILD_AP_PERIPH)
 
@@ -102,7 +105,7 @@ void SITL_State::_gps_write(const uint8_t *p, uint16_t size, uint8_t instance)
     if (_gps_fifo[instance] == nullptr) {
         printf("GPS FIFO path not set\n");
         return;
-}
+    }
     // also write to external fifo
     int fd = open(_gps_fifo[instance], O_WRONLY | O_NONBLOCK);
     if (fd >= 0) {
@@ -186,7 +189,7 @@ static void gps_time(uint16_t *time_week, uint32_t *time_week_ms)
     *time_week_ms = (epoch_seconds % AP_SEC_PER_WEEK) * AP_MSEC_PER_SEC + ((t_ms/200) * 200);
 }
 
-static char * gps_filename = "/tmp/master-gps.data";
+static char gps_filename[22] = "/tmp/master-gps.data";
 void SITL_State::_calculate_ned(const struct gps_data *d, struct ned_offset &ned)
 {
     static FILE *fd;
@@ -359,29 +362,29 @@ void SITL_State::_update_gps_ubx(const struct gps_data *d, uint8_t instance)
         relPosHeadingValid = 1U << 8,
         relPosNormalized   = 1U << 9
     };
-    struct PACKED ubx_nav_relposned {
-        uint8_t version;
-        uint8_t reserved1;
-        uint16_t refStationId;
-        uint32_t iTOW;
-        int32_t relPosN;
-        int32_t relPosE;
-        int32_t relPosD;
-        int32_t relPosLength;
-        int32_t relPosHeading;
-        uint8_t reserved2[4];
-        int8_t relPosHPN;
-        int8_t relPosHPE;
-        int8_t relPosHPD;
-        int8_t relPosHPLength;
-        uint32_t accN;
-        uint32_t accE;
-        uint32_t accD;
-        uint32_t accLength;
-        uint32_t accHeading;
-        uint8_t reserved3[4];
-        uint32_t flags;
-    } relposned {};
+//    struct PACKED ubx_nav_relposned {
+//        uint8_t version;
+//        uint8_t reserved1;
+//        uint16_t refStationId;
+//        uint32_t iTOW;
+//        int32_t relPosN;
+//        int32_t relPosE;
+//        int32_t relPosD;
+//        int32_t relPosLength;
+//        int32_t relPosHeading;
+//        uint8_t reserved2[4];
+//        int8_t relPosHPN;
+//        int8_t relPosHPE;
+//        int8_t relPosHPD;
+//        int8_t relPosHPLength;
+//        uint32_t accN;
+//        uint32_t accE;
+//        uint32_t accD;
+//        uint32_t accLength;
+//        uint32_t accHeading;
+//        uint8_t reserved3[4];
+//        uint32_t flags;
+//    } relposned_old {};
 
     struct PACKED ubx_nav_relposned_v01 { // F9P
         uint8_t version;
@@ -515,29 +518,16 @@ void SITL_State::_update_gps_ubx(const struct gps_data *d, uint8_t instance)
         rot.rotate(gyro * (-lag));
         rel_antenna_pos = rot * rel_antenna_pos;
         relposned.version = 1;
-        relposned.iTOW = time_week_ms;
-        relposned.relPosN = rel_antenna_pos.x * 100;
-        relposned.relPosE = rel_antenna_pos.y * 100;
-        relposned.relPosD = rel_antenna_pos.z * 100;
-        relposned.relPosLength = rel_antenna_pos.length() * 100;
-        relposned.relPosHeading = degrees(Vector2f(rel_antenna_pos.x, rel_antenna_pos.y).angle()) * 1.0e5;
+        relposned.itow_ms = time_week_ms;
+        relposned.rel_pos_n_cm = rel_antenna_pos.x * 100;
+        relposned.rel_pos_e_cm = rel_antenna_pos.y * 100;
+        relposned.rel_pos_d_cm = rel_antenna_pos.z * 100;
+        relposned.rel_pos_length_cm = rel_antenna_pos.length() * 100;
+        relposned.rel_pos_heading_deg = degrees(Vector2f(rel_antenna_pos.x, rel_antenna_pos.y).angle()) * 1.0e5;
         relposned.flags = gnssFixOK | diffSoln | carrSolnFixed | isMoving | relPosValid | relPosHeadingValid;
     }
 
-    enum class RELPOSNED {
-        gnssFixOK          = 1U << 0,
-        diffSoln           = 1U << 1,
-        relPosValid        = 1U << 2,
-        carrSolnFloat      = 1U << 3,
 
-        carrSolnFixed      = 1U << 4,
-        isMoving           = 1U << 5,
-        refPosMiss         = 1U << 6,
-        refObsMiss         = 1U << 7,
-
-        relPosHeadingValid = 1U << 8,
-        relPosNormalized   = 1U << 9
-    };
     const uint32_t valid_mask = static_cast<uint32_t>(RELPOSNED::relPosHeadingValid) |
                                         static_cast<uint32_t>(RELPOSNED::relPosValid) |
                                         static_cast<uint32_t>(RELPOSNED::gnssFixOK) |

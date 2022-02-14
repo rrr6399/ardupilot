@@ -1029,7 +1029,7 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @Range: 2 120
     // @Increment: 1
     // @User: Standard
-    AP_GROUPINFO("FS_GCS_TIMEOUT", 42, ParametersG2, fs_gcs_timeout, 5),
+    AP_GROUPINFO("FS_GCS_TIMEOUT", 42, ParametersG2, fs_gcs_timeout, 10),
 
 #if MODE_RTL_ENABLED == ENABLED
     // @Param: RTL_OPTIONS
