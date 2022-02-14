@@ -42,7 +42,7 @@ bool AP_Proximity_Backend::get_horizontal_distances(AP_Proximity::Proximity_Dist
 {
     AP_Proximity::Proximity_Distance_Array prx_filt_dist_array; // unused
     return boundary.get_layer_distances(PROXIMITY_MIDDLE_LAYER, distance_max(), prx_dist_array, prx_filt_dist_array);
-}
+            }
 // get distances in PROXIMITY_MAX_DIRECTION directions at a layer. used for logging
 bool AP_Proximity_Backend::get_active_layer_distances(uint8_t layer, AP_Proximity::Proximity_Distance_Array &prx_dist_array, AP_Proximity::Proximity_Distance_Array &prx_filt_dist_array) const
 {
@@ -53,7 +53,7 @@ bool AP_Proximity_Backend::get_active_layer_distances(uint8_t layer, AP_Proximit
 void AP_Proximity_Backend::set_status(AP_Proximity::Status status)
 {
     state.status = status;
-}
+    }
 
 // timeout faces that have not received data recently and update filter frequencies
 void AP_Proximity_Backend::boundary_3D_checks()
@@ -68,14 +68,14 @@ void AP_Proximity_Backend::boundary_3D_checks()
         _last_timeout_check_ms = now_ms;
         boundary.check_face_timeout();
     }
-}
+            }
 
 // correct an angle (in degrees) based on the orientation and yaw correction parameters
 float AP_Proximity_Backend::correct_angle_for_orientation(float angle_degrees) const
 {
     const float angle_sign = (frontend.get_orientation(state.instance) == 1) ? -1.0f : 1.0f;
     return wrap_360(angle_degrees * angle_sign + frontend.get_yaw_correction(state.instance));
-}
+            }
 
 // check if a reading should be ignored because it falls into an ignore area or if obstacle is near land
 bool AP_Proximity_Backend::ignore_reading(uint16_t angle_deg, float distance_m) const
@@ -85,7 +85,7 @@ bool AP_Proximity_Backend::ignore_reading(uint16_t angle_deg, float distance_m) 
         if (frontend._ignore_width_deg[i] != 0) {
             if (abs(angle_deg - frontend._ignore_angle_deg[i]) <= (frontend._ignore_width_deg[i]/2)) {
                 return true;
-            }
+    }
         }
     }
 
@@ -100,7 +100,7 @@ void AP_Proximity_Backend::set_rangefinder_alt(bool use, bool healthy, float alt
     _rangefinder_use = use;
     _rangefinder_healthy = healthy;
     _rangefinder_alt = alt_cm * 0.01f;
-}
+    }
 
 // get alt from rangefinder in meters
 bool AP_Proximity_Backend::get_rangefinder_alt(float &alt_m) const
@@ -118,7 +118,7 @@ bool AP_Proximity_Backend::get_rangefinder_alt(float &alt_m) const
     // readings are healthy
     alt_m = _rangefinder_alt;
     return true;
-}
+    }
 
 // Check if Obstacle defined by body-frame yaw and pitch is near ground
 bool AP_Proximity_Backend::check_obstacle_near_ground(float yaw, float pitch, float distance) const
@@ -140,7 +140,7 @@ bool AP_Proximity_Backend::check_obstacle_near_ground(float yaw, float pitch, fl
     const Matrix3f body_to_ned = AP::ahrs().get_rotation_body_to_ned();
     const Vector3f rotated_object_3D = body_to_ned * object_3D;
     return check_obstacle_near_ground(rotated_object_3D);
-}
+    }
 
 // Check if Obstacle defined by Vector3f is near ground. The vector is assumed to be body frame FRD
 bool AP_Proximity_Backend::check_obstacle_near_ground(const Vector3f &obstacle) const
@@ -151,20 +151,20 @@ bool AP_Proximity_Backend::check_obstacle_near_ground(const Vector3f &obstacle) 
     if (!hal.util->get_soft_armed()) {
         // don't run this feature while vehicle is disarmed, otherwise proximity data will not show up on GCS
         return false;
-    }
+}
 
     float alt = FLT_MAX;
     if (!get_rangefinder_alt(alt)) {
         return false;
-    }
+}
 
     if (obstacle.z > -0.5f) {
         // obstacle is at the most 0.5 meters above vehicle
         if ((alt - PROXIMITY_GND_DETECT_THRESHOLD) < obstacle.z) {
             // obstacle is near or below ground
-            return true;
+                return true;
+            }
         }
-    }
     return false;
 }
 

@@ -333,7 +333,7 @@ const AP_Param::GroupInfo AP_SerialManager::var_info[] = {
     // @RebootRequired: True
     AP_GROUPINFO("7_OPTIONS",  25, AP_SerialManager, state[7].options, 0),
 #endif
-
+    
 #if SERIALMANAGER_NUM_PORTS > 8
     // @Param: 8_PROTOCOL
     // @DisplayName: Serial8 protocol selection
@@ -381,8 +381,8 @@ void AP_SerialManager::init_console()
     if (!init_console_done) {
         init_console_done = true;
         hal.serial(0)->begin(AP_SERIALMANAGER_CONSOLE_BAUD,
-                             AP_SERIALMANAGER_CONSOLE_BUFSIZE_RX,
-                             AP_SERIALMANAGER_CONSOLE_BUFSIZE_TX);
+                         AP_SERIALMANAGER_CONSOLE_BUFSIZE_RX,
+                         AP_SERIALMANAGER_CONSOLE_BUFSIZE_TX);
     }
 #endif
 }
@@ -407,8 +407,8 @@ void AP_SerialManager::init()
     }
 #endif
 
-    init_console();
-
+        init_console();
+    
     // initialise serial ports
     for (uint8_t i=1; i<SERIALMANAGER_NUM_PORTS; i++) {
         auto *uart = hal.serial(i);
@@ -574,7 +574,7 @@ AP_HAL::UARTDriver *AP_SerialManager::find_serial(enum SerialProtocol protocol, 
     AP_HAL::UARTDriver *port = hal.serial(serial_idx);
     if (port) {
         port->set_options(_state->options);
-    }
+}
     return port;
 }
 

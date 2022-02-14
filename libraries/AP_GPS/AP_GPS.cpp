@@ -678,7 +678,7 @@ void AP_GPS::detect_instance(uint8_t instance)
              _type[instance] == GPS_TYPE_UBLOX) &&
             ((!_auto_config && _baudrates[dstate->current_baud] >= 38400) ||
              (_baudrates[dstate->current_baud] >= 115200 && (_driver_options & AP_GPS_Backend::DriverOptions::UBX_Use115200)) ||
-             _baudrates[dstate->current_baud] == 230400) &&
+            _baudrates[dstate->current_baud] == 460800) &&
             AP_GPS_UBLOX::_detect(dstate->ublox_detect_state, data)) {
             new_gps = new AP_GPS_UBLOX(*this, state[instance], _port[instance], GPS_ROLE_NORMAL);
         }
@@ -744,8 +744,8 @@ found_gps:
         timing[instance].last_message_time_ms = now;
         timing[instance].delta_time_ms = GPS_TIMEOUT_MS;
         new_gps->broadcast_gps_type();
+        }
     }
-}
 
 AP_GPS::GPS_Status AP_GPS::highest_supported_status(uint8_t instance) const
 {
@@ -876,7 +876,8 @@ void AP_GPS::update_instance(uint8_t instance)
 
     if (data_should_be_logged) {
         // keep count of delayed frames and average frame delay for health reporting
-        const uint16_t gps_max_delta_ms = 245; // 200 ms (5Hz) + 45 ms buffer
+//        const uint16_t gps_max_delta_ms = 245; // 200 ms (5Hz) + 45 ms buffer
+        const uint16_t gps_max_delta_ms = 445; // 400 ms  + 45 ms buffer
         GPS_timing &t = timing[instance];
 
         if (t.delta_time_ms > gps_max_delta_ms) {
@@ -891,8 +892,9 @@ void AP_GPS::update_instance(uint8_t instance)
                 t.average_delta_ms = 0.98f * t.average_delta_ms + 0.02f * t.delta_time_ms;
             }
         }
+        //GCS_SEND_TEXT(MAV_SEVERITY_INFO, "GPS: delta_time_ms=%d, average_delta_ms=%f",t.delta_time_ms,t.average_delta_ms);
     }
-
+    
 #if HAL_LOGGING_ENABLED
     if (data_should_be_logged && should_log()) {
         Write_GPS(instance);
@@ -1007,7 +1009,7 @@ void AP_GPS::update_primary(void)
             return;
         }
     }
-
+    
     // handling switching away from blended GPS
     if (primary_instance == GPS_BLENDED_INSTANCE) {
         primary_instance = 0;
@@ -1110,8 +1112,8 @@ void AP_GPS::handle_msp(const MSP::msp_gps_data_message_t &pkt)
     for (uint8_t i=0; i<num_instances; i++) {
         if (drivers[i] != nullptr && _type[i] == GPS_TYPE_MSP) {
             drivers[i]->handle_msp(pkt);
-        }
     }
+}
 }
 #endif // HAL_MSP_GPS_ENABLED
 
@@ -1121,7 +1123,7 @@ void AP_GPS::handle_external(const AP_ExternalAHRS::gps_data_message_t &pkt)
     for (uint8_t i=0; i<num_instances; i++) {
         if (drivers[i] != nullptr && _type[i] == GPS_TYPE_EXTERNAL_AHRS) {
             drivers[i]->handle_external(pkt);
-        }
+    }
     }
 }
 #endif // HAL_EXTERNAL_AHRS_ENABLED
@@ -1339,7 +1341,7 @@ void AP_GPS::handle_gps_rtcm_fragment(uint8_t flags, const uint8_t *data, uint8_
     // see if this fragment is consistent with existing fragments
     if (rtcm_buffer->fragments_received &&
         (rtcm_buffer->sequence != sequence ||
-         (rtcm_buffer->fragments_received & (1U<<fragment)))) {
+        (rtcm_buffer->fragments_received & (1U<<fragment)))) {
         // we have one or more partial fragments already received
         // which conflict with the new fragment, discard previous fragments
         rtcm_buffer->fragment_count = 0;
@@ -1829,7 +1831,7 @@ void AP_GPS::calc_blended_state(void)
     if (timing[GPS_BLENDED_INSTANCE].last_message_time_ms > last_blended_message_time_ms &&
         should_log()) {
         Write_GPS(GPS_BLENDED_INSTANCE);
-    }
+}
 #endif
 }
 #endif // GPS_BLENDED_INSTANCE
@@ -1851,7 +1853,8 @@ bool AP_GPS::is_healthy(uint8_t instance) const
       happens with the RTCMv3 data
      */
     const uint8_t delay_threshold = 2;
-    const float delay_avg_max = _type[instance] == GPS_TYPE_UBLOX_RTK_ROVER?245:215;
+//    const float delay_avg_max = _type[instance] == GPS_TYPE_UBLOX_RTK_ROVER?245:215;
+    const float delay_avg_max = _type[instance] == GPS_TYPE_UBLOX_RTK_ROVER?245:445; // for TMRS moving base scenario
     const GPS_timing &t = timing[instance];
     bool delay_ok = (t.delayed_count < delay_threshold) &&
         t.average_delta_ms < delay_avg_max &&

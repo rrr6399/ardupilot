@@ -199,3 +199,10 @@ float Motor::calc_thrust(float command, float air_density, float effective_prop_
 #endif
     return ret;
 }
+/*
+Altitude  Voltage      Current
+-------------------------------------
+2.3          50.2          37
+12.2         50.13         37.2
+24           50.16         36.62
+ */

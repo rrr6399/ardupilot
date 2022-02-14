@@ -19,6 +19,7 @@
 #include "SIM_Aircraft.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/time.h>
 #include <unistd.h>
 
@@ -898,6 +899,15 @@ void Aircraft::extrapolate_sensors(float delta_time)
 void Aircraft::update_external_payload(const struct sitl_input &input)
 {
     external_payload_mass = 0;
+
+    // Tether is 4 lbs per 250 feet or 1.81437 kg per 76.2 meters of tether or .0238 kg/m
+    float tetherWeightkgPerMeter = .0238;
+    char* tetherKgPerMeterString = getenv("TETHER_KG_PER_METER");
+    if(tetherKgPerMeterString != NULL) {
+         tetherWeightkgPerMeter= (float)atof(tetherKgPerMeterString);
+    }
+
+    external_payload_mass += hagl()*tetherWeightkgPerMeter;
 
     // update sprayer
     if (sprayer && sprayer->is_enabled()) {

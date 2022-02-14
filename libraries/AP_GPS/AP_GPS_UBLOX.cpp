@@ -97,7 +97,7 @@ AP_GPS_UBLOX::AP_GPS_UBLOX(AP_GPS &_gps, AP_GPS::GPS_State &_state, AP_HAL::UART
 AP_GPS_UBLOX::~AP_GPS_UBLOX()
 {
 #if GPS_MOVING_BASELINE
-    delete rtcm3_parser;
+        delete rtcm3_parser;
 #endif
 }
 
@@ -354,6 +354,11 @@ AP_GPS_UBLOX::_request_next_config(void)
             }
         }
         break;
+    case STEP_NAV_RELPOSNED:
+         if(!_request_message_rate(CLASS_NAV, MSG_NAV_RELPOSNED)) {
+             _next_message--;
+         }
+         break;
     case STEP_RTK_MOVBASE:
 #if GPS_MOVING_BASELINE
         if (supports_F9_config()) {
@@ -422,6 +427,15 @@ AP_GPS_UBLOX::_verify_rate(uint8_t msg_class, uint8_t msg_id, uint8_t rate) {
                 _cfg_needs_save = true;
             }
             break;
+        case MSG_NAV_RELPOSNED:
+        	if(rate == RATE_RTK) {
+        		_unconfigured_messages &= ~CONFIG_RATE_RTK;
+        	} else {
+        		_configure_message_rate(msg_class, msg_id, RATE_RTK);
+        		_unconfigured_messages |= CONFIG_RATE_RTK;
+        		_cfg_needs_save = true;
+        	}
+        	break;
         case MSG_PVT:
             if(rate == RATE_PVT) {
                 _unconfigured_messages &= ~CONFIG_RATE_PVT;
@@ -987,9 +1001,9 @@ AP_GPS_UBLOX::_parse_gps(void)
                             _buffer.gnss.configBlock[i].maxTrkCh = _buffer.gnss.numTrkChHw;
                         } else {
                             if(GNSS_SBAS ==_buffer.gnss.configBlock[i].gnssId) {
-                                _buffer.gnss.configBlock[i].resTrkCh = 1;
-                                _buffer.gnss.configBlock[i].maxTrkCh = 3;
-                            }
+                            _buffer.gnss.configBlock[i].resTrkCh = 1;
+                            _buffer.gnss.configBlock[i].maxTrkCh = 3;
+                        }
                             if(GNSS_GALILEO ==_buffer.gnss.configBlock[i].gnssId) {
                                 _buffer.gnss.configBlock[i].resTrkCh = (_buffer.gnss.numTrkChHw - 3) / (gnssCount * 2);
                                 _buffer.gnss.configBlock[i].maxTrkCh = 8; //Per the M8 receiver description UBX-13003221 - R16, 4.1.1.3 it is not recommended to set the number of galileo channels higher then eigh
@@ -1109,7 +1123,7 @@ AP_GPS_UBLOX::_parse_gps(void)
                 cfg_len -= 4;
                 cfg_data += 4;
                 switch (id) {
-                    case ConfigKey::TMODE_MODE: {
+                    case ConfigKey::TMODE_MODE: { // RRR @TODO need to handle the ground station scenario
                         uint8_t mode = cfg_data[0];
                         if (mode != 0) {
                             // ask for mode 0, to disable TIME mode
@@ -1172,7 +1186,6 @@ AP_GPS_UBLOX::_parse_gps(void)
             break;
         case MSG_MON_VER:
             _have_version = true;
-            strncpy(_version.hwVersion, _buffer.mon_ver.hwVersion, sizeof(_version.hwVersion));
             strncpy(_version.swVersion, _buffer.mon_ver.swVersion, sizeof(_version.swVersion));
             GCS_SEND_TEXT(MAV_SEVERITY_INFO, 
                                              "u-blox %d HW: %s SW: %s",
@@ -1185,7 +1198,7 @@ AP_GPS_UBLOX::_parse_gps(void)
                 if (strncmp(_version.swVersion, "EXT CORE 1", 10) == 0) {
                     // a F9
                     if (_hardware_generation != UBLOX_F9) {
-                        // need to ensure time mode is correctly setup on F9
+                    	// need to ensure time mode is correctly setup on F9 // RRR: unless it is a ground station
                         _unconfigured_messages |= CONFIG_TMODE_MODE;
                     }
                     _hardware_generation = UBLOX_F9;
@@ -1345,23 +1358,42 @@ AP_GPS_UBLOX::_parse_gps(void)
                                           static_cast<uint32_t>(RELPOSNED::refObsMiss) |
                                           static_cast<uint32_t>(RELPOSNED::carrSolnFloat);
 
-            _check_new_itow(_buffer.relposned.iTOW);
-            if (_buffer.relposned.iTOW != _last_relposned_itow+200) {
-                // useful for looking at packet loss on links
-                MB_Debug("RELPOSNED ITOW %u %u\n", unsigned(_buffer.relposned.iTOW), unsigned(_last_relposned_itow));
-            }
-            _last_relposned_itow = _buffer.relposned.iTOW;
+            uint8_t version = _buffer.relposned_v00.version;
+			state.have_gps_yaw = false;
+			state.have_gps_yaw_accuracy = false;
+            if(version > 0) {
+                const Vector3f antenna_offset = offset0 - offset1;
+                const float offset_dist = antenna_offset.length();
+                const float rel_dist = _buffer.relposned_v01.rel_pos_length_cm * 0.01;
+                const float dist_error = offset_dist - rel_dist;
+                const float strict_length_error_allowed = 0.2; // allow for up to 20% error
+                const float min_separation = 0.05;
+                bool tilt_ok = true;
+                const float min_dist = MIN(offset_dist, rel_dist);
+    #ifndef HAL_BUILD_AP_PERIPH
+                // when ahrs is available use it to constrain vertical component
+                const Vector3f antenna_tilt = AP::ahrs().get_rotation_body_to_ned() * antenna_offset;
+                const float alt_error = _buffer.relposned_v01.rel_pos_d_cm*0.01 + antenna_tilt.z;
+                tilt_ok = fabsf(alt_error) < strict_length_error_allowed * min_dist;
+    #endif
+                _check_new_itow(_buffer.relposned_v01.itow_ms);
+                if (_buffer.relposned_v01.itow_ms != _last_relposned_itow+200) {
+                    // useful for looking at packet loss on links
+                    MB_Debug("RELPOSNED ITOW %u %u\n", unsigned(_buffer.relposned.iTOW), unsigned(_last_relposned_itow));
+                }
+                _last_relposned_itow = _buffer.relposned_v01.itow_ms;
 
-            if (((_buffer.relposned.flags & valid_mask) == valid_mask) &&
-                ((_buffer.relposned.flags & invalid_mask) == 0) &&
-                calculate_moving_base_yaw(_buffer.relposned.relPosHeading * 1e-5,
-                                          _buffer.relposned.relPosLength * 0.01,
-                                          _buffer.relposned.relPosD*0.01)) {
-                state.gps_yaw_accuracy = _buffer.relposned.accHeading * 1e-5;
-                state.have_gps_yaw_accuracy = true;
+                if (((_buffer.relposned_v01.flags & valid_mask) == valid_mask) &&
+                    ((_buffer.relposned_v01.flags & invalid_mask) == 0) &&
+                calculate_moving_base_yaw(_buffer.relposned_v01.rel_pos_heading_deg * 1e-5,
+                                          _buffer.relposned_v01.rel_pos_length_cm * 0.01,
+                                          _buffer.relposned_v01.rel_pos_d_cm*0.01)) {
+                    state.gps_yaw_accuracy = _buffer.relposned_v01.acc_heading_deg * 1e-5;
+                    state.have_gps_yaw_accuracy = true;
                 _last_relposned_ms = AP_HAL::millis();
-            } else {
-                state.have_gps_yaw_accuracy = false;
+_process_rtk_solution_v01(); // calculate even if moving base heading is not being used ToDo/rrr            } else {
+            	// don't bother trying to perform a yaw calculation with the M8P since it doesn't support 5 Hz solutions
+            	_process_rtk_solution_v00();
             }
         }
         break;
@@ -1404,7 +1436,7 @@ AP_GPS_UBLOX::_parse_gps(void)
                 state.status = AP_GPS::GPS_OK_FIX_3D;
                 break;
             case 5:
-                state.status = AP_GPS::NO_FIX;
+                state.status = AP_GPS::GPS_OK_FIX_3D_STATIC;
                 break;
             default:
                 state.status = AP_GPS::NO_FIX;
@@ -1544,7 +1576,115 @@ AP_GPS_UBLOX::_parse_gps(void)
     return false;
 }
 
+void
+AP_GPS_UBLOX::_process_rtk_solution_v00(void)
+{
+    Debug("MSG_NAV_RELPOSNED V0 RTK status Received");
 
+    state.rtk_age_ms    = 0xFFFFFFFF;
+
+	state.rtk_baseline_x_mm = _buffer.relposned_v00.rel_pos_n_cm*10+_buffer.relposned_v00.rel_pos_hp_n_mm/10;
+	state.rtk_baseline_y_mm = _buffer.relposned_v00.rel_pos_e_cm*10+_buffer.relposned_v00.rel_pos_hp_e_mm/10;
+	state.rtk_baseline_z_mm = _buffer.relposned_v00.rel_pos_d_cm*10+_buffer.relposned_v00.rel_pos_hp_d_mm/10;
+
+	const float acc_n_mm = _buffer.relposned_v00.acc_n_mm;
+	const float acc_e_mm = _buffer.relposned_v00.acc_e_mm;
+	const float acc_d_mm = _buffer.relposned_v00.acc_d_mm;
+
+	// rms of error terms
+	float rtk_accuracy = acc_n_mm*acc_n_mm + acc_e_mm*acc_e_mm + acc_d_mm*acc_d_mm;
+	state.rtk_accuracy = (uint32_t) safe_sqrt(rtk_accuracy);
+	state.rtk_baseline_coords_type = 1; // NED
+	state.rtk_time_week_ms = _buffer.relposned_v00.itow_ms;
+	state.rtk_week_number = state.time_week;
+
+  Debug("MSG_NAV_RELPOSNED RTK status=%u pos_n=%d, pos_e=%d, pos_d=%d, acc_n=%d, acc_e=%d, acc_d=%d",
+        _relposned_v00.flags_bitfield,
+        _relposned_v00.rel_pos_n_cm,
+        _relposned_v00.rel_pos_e_cm,
+        _relposned_v00.rel_pos_d_cm,
+        _relposned_v00.acc_n_mm,
+        _relposned_v00.acc_e_mm,
+        _relposned_v00.acc_d_mm
+  );
+
+#if UBLOX_DEBUGGING
+	uint32_t flags = _relposned_v00.flags_bitfield;
+	uint8_t gnss_fix_ok = flags & 1;
+	uint8_t diff_soln = flags & (1 << 1);
+	uint8_t rel_pos_valid = flags & (1 << 2);
+	uint8_t carr_soln = ((flags & (1 << 4)) << 1) | (flags & (1 << 3));
+	uint8_t is_moving = flags & (1 << 5);
+	uint8_t ref_pos_miss = flags & (1 << 6);
+	uint8_t ref_obs_miss = flags & (1 << 2);
+
+  Debug("MSG_NAV_RELPOSNED RTK Status: fix_ok=%u, diff_soln=%u, rel_pos_valid=%u,"
+  		" carr_soln=%u, is_moving=%u, ref_pos_miss=%u, ref_obs_miss=%u",
+  		gnss_fix_ok,
+  		diff_soln,
+  		rel_pos_valid,
+  		carr_soln,
+  		is_moving,
+  		ref_pos_miss,
+  		ref_obs_miss
+  );
+#endif
+}
+
+void
+AP_GPS_UBLOX::_process_rtk_solution_v01(void)
+{
+    Debug("MSG_NAV_RELPOSNED V1 RTK status Received");
+
+    state.rtk_age_ms    = 0xFFFFFFFF;
+
+	state.rtk_baseline_x_mm = _buffer.relposned_v01.rel_pos_n_cm*10+_buffer.relposned_v01.rel_pos_hp_n_mm/10;
+	state.rtk_baseline_y_mm = _buffer.relposned_v01.rel_pos_e_cm*10+_buffer.relposned_v01.rel_pos_hp_e_mm/10;
+	state.rtk_baseline_z_mm = _buffer.relposned_v01.rel_pos_d_cm*10+_buffer.relposned_v01.rel_pos_hp_d_mm/10;
+
+	const float acc_n_mm = _buffer.relposned_v01.acc_n_mm;
+	const float acc_e_mm = _buffer.relposned_v01.acc_e_mm;
+	const float acc_d_mm = _buffer.relposned_v01.acc_d_mm;
+
+	// rms of error terms
+	float rtk_accuracy = acc_n_mm*acc_n_mm + acc_e_mm*acc_e_mm + acc_d_mm*acc_d_mm;
+	state.rtk_accuracy = (uint32_t) safe_sqrt(rtk_accuracy);
+	state.rtk_baseline_coords_type = 1; // NED
+	state.rtk_time_week_ms = _buffer.relposned_v01.itow_ms;
+	state.rtk_week_number = state.time_week;
+
+  Debug("MSG_NAV_RELPOSNED RTK status=%u pos_n=%d, pos_e=%d, pos_d=%d, acc_n=%d, acc_e=%d, acc_d=%d",
+        _relposned_v01.flags_bitfield,
+        _relposned_v01.rel_pos_n_cm,
+        _relposned_v01.rel_pos_e_cm,
+        _relposned_v01.rel_pos_d_cm,
+        _relposned_v01.acc_n_mm,
+        _relposned_v01.acc_e_mm,
+        _relposned_v01.acc_d_mm
+  );
+
+#if UBLOX_DEBUGGING
+	uint32_t flags = _relposned_v01.flags_bitfield;
+	uint8_t gnss_fix_ok = flags & 1;
+	uint8_t diff_soln = flags & (1 << 1);
+	uint8_t rel_pos_valid = flags & (1 << 2);
+	uint8_t carr_soln = ((flags & (1 << 4)) << 1) | (flags & (1 << 3));
+	uint8_t is_moving = flags & (1 << 5);
+	uint8_t ref_pos_miss = flags & (1 << 6);
+	uint8_t ref_obs_miss = flags & (1 << 2);
+
+  Debug("MSG_NAV_RELPOSNED RTK Status: fix_ok=%u, diff_soln=%u, rel_pos_valid=%u,"
+  		" carr_soln=%u, is_moving=%u, ref_pos_miss=%u, ref_obs_miss=%u",
+  		gnss_fix_ok,
+  		diff_soln,
+  		rel_pos_valid,
+  		carr_soln,
+  		is_moving,
+  		ref_pos_miss,
+  		ref_obs_miss
+  );
+#endif
+}
 // UBlox auto configuration
 
 /*
@@ -1818,7 +1958,9 @@ static const char *reasons[] = {"navigation rate",
                                 "time pulse settings",
                                 "TIMEGPS rate",
                                 "Time mode settings",
-                                "RTK MB"};
+                                "RTK MB",
+                                "Nav_RelPosNED Rate"
+                                };
 
 static_assert((1 << ARRAY_SIZE(reasons)) == CONFIG_LAST, "UBLOX: Missing configuration description");
 

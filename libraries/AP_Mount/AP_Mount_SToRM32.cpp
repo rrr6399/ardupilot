@@ -97,7 +97,7 @@ void AP_Mount_SToRM32::update()
 bool AP_Mount_SToRM32::has_pan_control() const
 {
     // we do not have yaw control
-    return false;
+    return true; // make this configurable
 }
 
 // set_mode - sets mount's mode
