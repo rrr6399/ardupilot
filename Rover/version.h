@@ -6,14 +6,13 @@
 
 #include "ap_version.h"
 
-#define THISFIRMWARE "ArduRover V4.1.0-dev"
+#define THISFIRMWARE "ArduRover V4.1.5-rc1-tmrs"
 
 // the following line is parsed by the autotest scripts
-#define FIRMWARE_VERSION 4,1,0,FIRMWARE_VERSION_TYPE_DEV
+#define FIRMWARE_VERSION 4,1,5,FIRMWARE_VERSION_TYPE_DEV
 
 #define FW_MAJOR 4
 #define FW_MINOR 1
-#define FW_PATCH 0
-#define FW_TYPE FIRMWARE_VERSION_TYPE_DEV
-
+#define FW_PATCH 5
+#define FW_TYPE FIRMWARE_VERSION_TYPE_RC
 #include <AP_Common/AP_FWVersionDefine.h>

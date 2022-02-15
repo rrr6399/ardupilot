@@ -408,6 +408,8 @@ bool ModeGuided::set_destination(const Location& dest_loc, bool use_yaw, float y
     }
 #endif
 
+    //rrr pos_control->set_max_speed_accel_z(wp_nav->get_default_speed_down(),wp_nav->get_default_speed_up(), wp_nav->get_wp_acceleration());
+
     // if using wpnav for position control
     if (use_wpnav_for_position_control()) {
         if (guided_mode != SubMode::WP) {

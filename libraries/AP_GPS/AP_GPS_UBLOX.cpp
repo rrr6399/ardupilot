@@ -1597,6 +1597,7 @@ AP_GPS_UBLOX::_process_rtk_solution_v00(void)
         _relposned_v00.acc_e_mm,
         _relposned_v00.acc_d_mm
   );
+  log_rtk_solution();
 
 #if UBLOX_DEBUGGING
 	uint32_t flags = _relposned_v00.flags_bitfield;
@@ -1652,6 +1653,7 @@ AP_GPS_UBLOX::_process_rtk_solution_v01(void)
         _relposned_v01.acc_e_mm,
         _relposned_v01.acc_d_mm
   );
+  log_rtk_solution();
 
 #if UBLOX_DEBUGGING
 	uint32_t flags = _relposned_v01.flags_bitfield;
