@@ -6,8 +6,8 @@
   Andrew Tridgell November 2011
  */
 
-// comment this out when building firmware
-#define CONFIG_HAL_BOARD HAL_BOARD_SITL
+//comment this out when building firmware
+//define CONFIG_HAL_BOARD HAL_BOARD_SITL
 
 #include <AP_HAL/AP_HAL.h>
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL && !defined(HAL_BUILD_AP_PERIPH)
