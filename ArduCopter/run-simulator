@@ -3,6 +3,7 @@
 export TETHER_KG_PER_METER=.0238
 location=keywest
 location=PortHueneme
+location=AustinRC
 location=Moab
 /bin/rm -rf logs mav.tlog  mav.tlog.raw /tmp/master-gps.data
 python3 ../Tools/autotest/sim_vehicle.py --instance=0 --map --console -L $location -f hexa -D
