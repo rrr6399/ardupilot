@@ -207,12 +207,9 @@ void ModeAuto::takeoff_start(const Location& dest_loc)
     }
 
     // sanity check target
-    if (alt_target < copter.current_loc.alt) {
-        dest.set_alt_cm(copter.current_loc.alt, Location::AltFrame::ABOVE_HOME);
-    }
-    // Note: if taking off from below home this could cause a climb to an unexpectedly high altitude
-    if (alt_target < 100) {
-        dest.set_alt_cm(100, Location::AltFrame::ABOVE_HOME);
+    int32_t alt_target_min_cm = copter.current_loc.alt + (copter.ap.land_complete ? 100 : 0);
+    if (alt_target < alt_target_min_cm ) {
+        dest.set_alt_cm(alt_target_min_cm , Location::AltFrame::ABOVE_HOME);
     }
 
     // set waypoint controller target
@@ -979,6 +976,7 @@ void ModeAuto::loiter_to_alt_run()
         pos_control->get_pos_z_p().kP(),
         pos_control->get_max_accel_z_cmss(),
         G_Dt);
+    target_climb_rate = constrain_float(target_climb_rate, pos_control->get_max_speed_down_cms(), pos_control->get_max_speed_up_cms());
 
     // get avoidance adjusted climb rate
     target_climb_rate = get_avoidance_adjusted_climbrate(target_climb_rate);

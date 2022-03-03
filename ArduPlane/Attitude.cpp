@@ -1,11 +1,11 @@
 #include "Plane.h"
 
 /*
-  get a speed scaling number for control surfaces. This is applied to
-  PIDs to change the scaling of the PID with speed. At high speed we
-  move the surfaces less, and at low speeds we move them more.
+  calculate speed scaling number for control surfaces. This is applied
+  to PIDs to change the scaling of the PID with speed. At high speed
+  we move the surfaces less, and at low speeds we move them more.
  */
-float Plane::get_speed_scaler(void)
+float Plane::calc_speed_scaler(void)
 {
     float aspeed, speed_scaler;
     if (ahrs.airspeed_estimate(aspeed)) {
@@ -128,7 +128,8 @@ void Plane::stabilize_roll(float speed_scaler)
         */
         rollController.decay_I();
     } else {
-        roll_out = rollController.get_servo_out(nav_roll_cd - ahrs.roll_sensor, speed_scaler, disable_integrator);
+        roll_out = rollController.get_servo_out(nav_roll_cd - ahrs.roll_sensor, speed_scaler, disable_integrator,
+                                                ground_mode && !(plane.g2.flight_options & FlightOptions::DISABLE_GROUND_PID_SUPPRESSION));
     }
     SRV_Channels::set_output_scaled(SRV_Channel::k_aileron, roll_out);
 }
@@ -172,7 +173,8 @@ void Plane::stabilize_pitch(float speed_scaler)
             demanded_pitch = landing.get_pitch_cd();
         }
 
-        pitch_out = pitchController.get_servo_out(demanded_pitch - ahrs.pitch_sensor, speed_scaler, disable_integrator);
+        pitch_out = pitchController.get_servo_out(demanded_pitch - ahrs.pitch_sensor, speed_scaler, disable_integrator,
+                                                  ground_mode && !(plane.g2.flight_options & FlightOptions::DISABLE_GROUND_PID_SUPPRESSION));
     }
     SRV_Channels::set_output_scaled(SRV_Channel::k_elevator, pitch_out);
 }
@@ -372,7 +374,7 @@ void Plane::stabilize_acro(float speed_scaler)
         // 'stabilze' to true, which disables the roll integrator
         SRV_Channels::set_output_scaled(SRV_Channel::k_aileron, rollController.get_servo_out(roll_error_cd,
                                                                                              speed_scaler,
-                                                                                             true));
+                                                                                             true, false));
     } else {
         /*
           aileron stick is non-zero, use pure rate control until the
@@ -396,7 +398,7 @@ void Plane::stabilize_acro(float speed_scaler)
         nav_pitch_cd = acro_state.locked_pitch_cd;
         SRV_Channels::set_output_scaled(SRV_Channel::k_elevator, pitchController.get_servo_out(nav_pitch_cd - ahrs.pitch_sensor,
                                                                                                speed_scaler,
-                                                                                               false));
+                                                                                               false, false));
     } else {
         /*
           user has non-zero pitch input, use a pure rate controller
@@ -590,6 +592,13 @@ void Plane::calc_nav_yaw_ground(void)
         return;
     }
 
+    // if we haven't been steering for 1s then clear locked course
+    const uint32_t now_ms = AP_HAL::millis();
+    if (now_ms - steer_state.last_steer_ms > 1000) {
+        steer_state.locked_course = false;
+    }
+    steer_state.last_steer_ms = now_ms;
+
     float steer_rate = (rudder_input()/4500.0f) * g.ground_steer_dps;
     if (flight_stage == AP_Vehicle::FixedWing::FLIGHT_TAKEOFF ||
         flight_stage == AP_Vehicle::FixedWing::FLIGHT_ABORT_LAND) {
@@ -606,6 +615,7 @@ void Plane::calc_nav_yaw_ground(void)
             steer_state.locked_course_err = 0;
         }
     }
+
     if (!steer_state.locked_course) {
         // use a rate controller at the pilot specified rate
         steering_control.steering = steerController.get_steering_out_rate(steer_rate);

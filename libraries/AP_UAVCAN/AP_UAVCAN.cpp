@@ -99,6 +99,13 @@ const AP_Param::GroupInfo AP_UAVCAN::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("SRV_RT", 4, AP_UAVCAN, _servo_rate_hz, 50),
 
+    // @Param: OPTION
+    // @DisplayName: UAVCAN options
+    // @Description: Option flags
+    // @Bitmask: 0:ClearDNADatabase,1:IgnoreDNANodeConflicts
+    // @User: Advanced
+    AP_GROUPINFO("OPTION", 5, AP_UAVCAN, _options, 0),
+    
     AP_GROUPEND
 };
 
@@ -658,7 +665,7 @@ void AP_UAVCAN::safety_state_send()
 
     { // handle ArmingStatus
         uavcan::equipment::safety::ArmingStatus arming_msg;
-        arming_msg.status = AP::arming().is_armed() ? uavcan::equipment::safety::ArmingStatus::STATUS_FULLY_ARMED :
+        arming_msg.status = hal.util->get_soft_armed() ? uavcan::equipment::safety::ArmingStatus::STATUS_FULLY_ARMED :
                                                       uavcan::equipment::safety::ArmingStatus::STATUS_DISARMED;
         arming_status[_driver_index]->broadcast(arming_msg);
     }
@@ -833,6 +840,17 @@ void AP_UAVCAN::handle_debug(AP_UAVCAN* ap_uavcan, uint8_t node_id, const DebugC
         AP::logger().Write_MessageF("CAN[%u] %s", node_id, msg.text.c_str());
     }
 #endif
+}
+
+// check if a option is set and if it is then reset it to 0.
+// return true if it was set
+bool AP_UAVCAN::check_and_reset_option(Options option)
+{
+    bool ret = option_is_set(option);
+    if (ret) {
+        _options.set_and_save(int16_t(_options.get() & ~uint16_t(option)));
+    }
+    return ret;
 }
 
 #endif // HAL_NUM_CAN_IFACES

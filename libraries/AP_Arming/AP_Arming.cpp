@@ -40,6 +40,7 @@
 #include <AP_RCMapper/AP_RCMapper.h>
 #include <AP_VisualOdom/AP_VisualOdom.h>
 #include <AP_OSD/AP_OSD.h>
+#include <AP_FETtecOneWire/AP_FETtecOneWire.h>
 
 #if HAL_MAX_CAN_PROTOCOL_DRIVERS
   #include <AP_CANManager/AP_CANManager.h>
@@ -924,6 +925,7 @@ bool AP_Arming::can_checks(bool report)
                 case AP_CANManager::Driver_Type_USD1:
                 case AP_CANManager::Driver_Type_MPPT_PacketDigital:
                 case AP_CANManager::Driver_Type_None:
+                case AP_CANManager::Driver_Type_Benewake:
                     break;
             }
         }
@@ -990,6 +992,24 @@ bool AP_Arming::osd_checks(bool display_failure) const
             check_failed(ARMING_CHECK_CAMERA, display_failure, "%s", fail_msg);
             return false;
         }
+    }
+#endif
+    return true;
+}
+
+bool AP_Arming::fettec_checks(bool display_failure) const
+{
+#if HAL_AP_FETTEC_ONEWIRE_ENABLED
+    const AP_FETtecOneWire *f = AP_FETtecOneWire::get_singleton();
+    if (f == nullptr) {
+        return true;
+    }
+
+    // check camera is ready
+    char fail_msg[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN+1];
+    if (!f->pre_arm_check(fail_msg, ARRAY_SIZE(fail_msg))) {
+        check_failed(ARMING_CHECK_ALL, display_failure, "FETtec: %s", fail_msg);
+        return false;
     }
 #endif
     return true;
@@ -1156,6 +1176,7 @@ bool AP_Arming::pre_arm_checks(bool report)
         &  proximity_checks(report)
         &  camera_checks(report)
         &  osd_checks(report)
+        &  fettec_checks(report)
         &  visodom_checks(report)
         &  aux_auth_checks(report)
         &  disarm_switch_checks(report)

@@ -51,7 +51,6 @@ void Plane::set_next_WP(const struct Location &loc)
     // location as the previous waypoint, to prevent immediately
     // considering the waypoint complete
     if (current_loc.past_interval_finish_line(prev_WP_loc, next_WP_loc)) {
-        gcs().send_text(MAV_SEVERITY_NOTICE, "Resetting previous waypoint");
         prev_WP_loc = current_loc;
     }
 
@@ -99,6 +98,9 @@ void Plane::set_guided_WP(void)
     auto_state.vtol_loiter = false;
     
     loiter_angle_reset();
+
+    // cancel pending takeoff
+    quadplane.guided_takeoff = false;
 }
 
 /*
