@@ -981,7 +981,8 @@ ap_message GCS_MAVLINK::next_deferred_bucket_message_to_send(uint16_t now16_ms)
     if (next == -1) {
         // should not happen
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
-        AP_HAL::panic("next_deferred_bucket_message_to_send called on empty bucket");
+//      AP_HAL::panic("next_deferred_bucket_message_to_send called on empty bucket");
+        send_text(MAV_SEVERITY_WARNING,"next_deferred_bucket_message_to_send called on empty bucket");
 #endif
         find_next_bucket_to_send(now16_ms);
         return no_message_to_send;
