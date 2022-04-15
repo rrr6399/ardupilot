@@ -6,8 +6,9 @@ location=PortHueneme
 location=AustinRC
 location=Moab
 
-#python3 ../Tools/autotest/sim_vehicle.py  --map --console -L $location --instance=2 -f sailboat-motor -D
-python3 ../Tools/autotest/sim_vehicle.py  --map --console -L $location --instance=2 -f sailboat-motor 
+python3 ../Tools/autotest/sim_vehicle.py  --map --console -L $location --instance=2 -f sailboat-motor
+
+#python3 ../Tools/autotest/sim_vehicle.py  --map --console -L $location --instance=2 -f sailboat-motor --mavproxy-args "--out=udp:192.168.234.1:14551" 
 
 #python3 ../Tools/autotest/sim_vehicle.py -D -G --map --console -L $location --instance=2 -f sailboat-motor
 #python3 ../Tools/autotest/sim_vehicle.py -D --map --console -L $location --instance=2 -f sailboat-motor
