@@ -7,7 +7,14 @@ location=AustinRC
 location=Moab
 /bin/rm -rf logs mav.tlog  mav.tlog.raw /tmp/master-gps.data
 #ulimit
+
+#python3 ../Tools/autotest/sim_vehicle.py --instance=0 --map --console -L $location -f hexa --mavproxy-args "--out=udp:192.168.234.1:14550" 
+
 python3 ../Tools/autotest/sim_vehicle.py --instance=0 --map --console -L $location -f hexa 
+
+
+
+
 #python3 ../Tools/autotest/sim_vehicle.py --instance=0 --map --console -L $location -f hexa -D 
 #python3 ../Tools/autotest/sim_vehicle.py --instance=0 --map --console -L $location -f hexa -D --gdb  #debugging 
 #python3 ../Tools/autotest/sim_vehicle.py -M -f hexa --map --console -L $location -I 0
