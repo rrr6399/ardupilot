@@ -15,7 +15,7 @@
 /*
   Simulator for the RPLidarA2 proximity sensor
 
-./Tools/autotest/sim_vehicle.py --gdb --debug -v ArduCopter -A --uartF=sim:rplidara2 --speedup=1 -l 51.8752066,14.6487840,0,0 --map
+./Tools/autotest/sim_vehicle.py --gdb --debug -v ArduCopter -A --uartF=sim:rplidara2 --speedup=1 -l 51.8752066,14.6487840,54.15,0 --map
 
 param set SERIAL5_PROTOCOL 11
 param set PRX_TYPE 5
@@ -44,6 +44,12 @@ rc 2 1450
 #pragma once
 
 #include "SIM_SerialProximitySensor.h"
+
+#ifndef HAL_SIM_PS_RPLIDARA2_ENABLED
+#define HAL_SIM_PS_RPLIDARA2_ENABLED HAL_SIM_SERIALPROXIMITYSENSOR_ENABLED
+#endif
+
+#if HAL_SIM_PS_RPLIDARA2_ENABLED
 
 #include <stdio.h>
 
@@ -127,3 +133,5 @@ private:
 };
 
 };
+
+#endif  // HAL_SIM_PS_RPLIDARA2_ENABLED

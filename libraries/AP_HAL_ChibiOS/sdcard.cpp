@@ -14,6 +14,7 @@
  *
  */
 
+#include <hal.h>
 #include "SPIDevice.h"
 #include "sdcard.h"
 #include "hwdef/common/spi_hook.h"
@@ -55,10 +56,16 @@ bool sdcard_init()
     uint8_t sd_slowdown = AP_BoardConfig::get_sdcard_slowdown();
 #if HAL_USE_SDC
 
-    if (SDCD1.bouncebuffer == nullptr) {
+#if STM32_SDC_USE_SDMMC2 == TRUE
+    auto &sdcd = SDCD2;
+#else
+    auto &sdcd = SDCD1;
+#endif
+
+    if (sdcd.bouncebuffer == nullptr) {
         // allocate 4k bouncebuffer for microSD to match size in
         // AP_Logger
-        bouncebuffer_init(&SDCD1.bouncebuffer, 4096, true);
+        bouncebuffer_init(&sdcd.bouncebuffer, 4096, true);
     }
 
     if (sdcard_running) {
@@ -68,14 +75,14 @@ bool sdcard_init()
     const uint8_t tries = 3;
     for (uint8_t i=0; i<tries; i++) {
         sdcconfig.slowdown = sd_slowdown;
-        sdcStart(&SDCD1, &sdcconfig);
-        if(sdcConnect(&SDCD1) == HAL_FAILED) {
-            sdcStop(&SDCD1);
+        sdcStart(&sdcd, &sdcconfig);
+        if(sdcConnect(&sdcd) == HAL_FAILED) {
+            sdcStop(&sdcd);
             continue;
         }
         if (f_mount(&SDC_FS, "/", 1) != FR_OK) {
-            sdcDisconnect(&SDCD1);
-            sdcStop(&SDCD1);
+            sdcDisconnect(&sdcd);
+            sdcStop(&sdcd);
             continue;
         }
         printf("Successfully mounted SDCard (slowdown=%u)\n", (unsigned)sd_slowdown);
@@ -140,9 +147,14 @@ void sdcard_stop(void)
     f_mount(nullptr, "/", 1);
 #endif
 #if HAL_USE_SDC
+#if STM32_SDC_USE_SDMMC2 == TRUE
+    auto &sdcd = SDCD2;
+#else
+    auto &sdcd = SDCD1;
+#endif
     if (sdcard_running) {
-        sdcDisconnect(&SDCD1);
-        sdcStop(&SDCD1);
+        sdcDisconnect(&sdcd);
+        sdcStop(&sdcd);
         sdcard_running = false;
     }
 #elif HAL_USE_MMC_SPI
@@ -186,7 +198,7 @@ void spiStopHook(SPIDriver *spip)
 {
 }
 
-void spiSelectHook(SPIDriver *spip)
+__RAMFUNC__ void spiSelectHook(SPIDriver *spip)
 {
     if (sdcard_running) {
         device->get_semaphore()->take_blocking();
@@ -194,7 +206,7 @@ void spiSelectHook(SPIDriver *spip)
     }
 }
 
-void spiUnselectHook(SPIDriver *spip)
+__RAMFUNC__ void spiUnselectHook(SPIDriver *spip)
 {
     if (sdcard_running) {
         device->set_chip_select(false);
@@ -209,14 +221,14 @@ void spiIgnoreHook(SPIDriver *spip, size_t n)
     }
 }
 
-void spiSendHook(SPIDriver *spip, size_t n, const void *txbuf)
+__RAMFUNC__ void spiSendHook(SPIDriver *spip, size_t n, const void *txbuf)
 {
     if (sdcard_running) {
         device->transfer((const uint8_t *)txbuf, n, nullptr, 0);
     }
 }
 
-void spiReceiveHook(SPIDriver *spip, size_t n, void *rxbuf)
+__RAMFUNC__ void spiReceiveHook(SPIDriver *spip, size_t n, void *rxbuf)
 {
     if (sdcard_running) {
         device->transfer(nullptr, 0, (uint8_t *)rxbuf, n);

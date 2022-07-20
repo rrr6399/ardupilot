@@ -15,7 +15,7 @@
 /*
   Simulator for the TeraRangerTower proximity sensor
 
-./Tools/autotest/sim_vehicle.py --gdb --debug -v ArduCopter -A --uartF=sim:terarangertower --speedup=1 -l 51.8752066,14.6487840,0,0
+./Tools/autotest/sim_vehicle.py --gdb --debug -v ArduCopter -A --uartF=sim:terarangertower --speedup=1 -l 51.8752066,14.6487840,54.15,0
 
 param set SERIAL5_PROTOCOL 11
 param set PRX_TYPE 3  # terarangertower
@@ -43,6 +43,12 @@ rc 2 1450
 
 #include "SIM_SerialProximitySensor.h"
 
+#ifndef HAL_SIM_PS_TERARANGERTOWER_ENABLED
+#define HAL_SIM_PS_TERARANGERTOWER_ENABLED HAL_SIM_SERIALPROXIMITYSENSOR_ENABLED
+#endif
+
+#if HAL_SIM_PS_TERARANGERTOWER_ENABLED
+
 #include <stdio.h>
 
 namespace SITL {
@@ -65,3 +71,5 @@ private:
 };
 
 };
+
+#endif  // HAL_SIM_PS_TERARANGERTOWER_ENABLED

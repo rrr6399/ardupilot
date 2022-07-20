@@ -82,11 +82,21 @@ public:
     // check if a pin number is valid
     bool valid_pin(uint8_t pin) const override;
 
+    // return servo channel associated with GPIO pin.  Returns true on success and fills in servo_ch argument
+    // servo_ch uses zero-based indexing
+    bool pin_to_servo_channel(uint8_t pin, uint8_t& servo_ch) const override;
+
     /*
       resolve an ioline to take account of alternative configurations
      */
     static ioline_t resolve_alt_config(ioline_t base, PERIPH_TYPE ptype, uint8_t instance);
 
+#if defined(STM32F7) || defined(STM32H7) || defined(STM32F4) || defined(STM32F3) || defined(STM32G4) || defined(STM32L4)
+    // allow for save and restore of pin settings
+    bool    get_mode(uint8_t pin, uint32_t &mode) override;
+    void    set_mode(uint8_t pin, uint32_t mode) override;
+#endif
+    
 private:
     bool _usb_connected;
     bool _ext_started;

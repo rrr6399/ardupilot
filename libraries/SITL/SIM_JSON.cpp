@@ -18,6 +18,8 @@
 
 #include "SIM_JSON.h"
 
+#if HAL_SIM_JSON_ENABLED
+
 #include <stdio.h>
 #include <arpa/inet.h>
 #include <errno.h>
@@ -253,7 +255,7 @@ void JSON::recv_fdm(const struct sitl_input &input)
 
     const uint32_t received_bitmask = parse_sensors((const char *)(p1+1));
     if (received_bitmask == 0) {
-        // did not receve one of the mandatory fields
+        // did not receive one of the mandatory fields
         printf("Did not contain all mandatory fields\n");
         return;
     }
@@ -448,3 +450,5 @@ void JSON::update(const struct sitl_input &input)
     }
 #endif
 }
+
+#endif  // HAL_SIM_JSON_ENABLED

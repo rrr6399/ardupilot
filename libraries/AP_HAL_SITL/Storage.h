@@ -4,6 +4,7 @@
 #include <AP_Common/Bitmask.h>
 #include "AP_HAL_SITL_Namespace.h"
 #include <AP_FlashStorage/AP_FlashStorage.h>
+#include <AP_RAMTRON/AP_RAMTRON.h>
 
 #ifndef STORAGE_USE_FLASH
 #define STORAGE_USE_FLASH 1
@@ -11,6 +12,10 @@
 
 #ifndef STORAGE_USE_POSIX
 #define STORAGE_USE_POSIX 1
+#endif
+
+#ifndef STORAGE_USE_FRAM
+#define STORAGE_USE_FRAM HAL_WITH_RAMTRON
 #endif
 
 #define STORAGE_LINE_SHIFT 3
@@ -23,6 +28,7 @@ public:
     void init() override {}
     void read_block(void *dst, uint16_t src, size_t n) override;
     void write_block(uint16_t dst, const void* src, size_t n) override;
+    bool get_storage_ptr(void *&ptr, size_t &size) override;
 
     void _timer_tick(void) override;
     bool healthy(void) override;
@@ -30,7 +36,7 @@ public:
 private:
     enum class StorageBackend: uint8_t {
         None,
-//        FRAM,
+        FRAM,
         Flash,
         SDCard,  // AKA POSIX
     };
@@ -67,5 +73,9 @@ private:
 
 #if STORAGE_USE_POSIX
     int log_fd;
+#endif
+
+#if STORAGE_USE_FRAM
+    AP_RAMTRON fram;
 #endif
 };

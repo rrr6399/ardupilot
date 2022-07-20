@@ -12,11 +12,12 @@
  */
 #pragma once
 
+#include <AP_HAL/AP_HAL.h>
+
 #ifndef HAL_MISSION_ENABLED
 #define HAL_MISSION_ENABLED 1
 #endif
 
-#include <AP_HAL/AP_HAL.h>
 #include <GCS_MAVLink/GCS_MAVLink.h>
 #include <AP_Math/AP_Math.h>
 #include <AP_Common/AP_Common.h>
@@ -28,7 +29,13 @@
 #define AP_MISSION_EEPROM_VERSION           0x65AE  // version number stored in first four bytes of eeprom.  increment this by one when eeprom format is changed
 #define AP_MISSION_EEPROM_COMMAND_SIZE      15      // size in bytes of all mission commands
 
+#ifndef AP_MISSION_MAX_NUM_DO_JUMP_COMMANDS
+#if HAL_MEM_CLASS >= HAL_MEM_CLASS_500
+#define AP_MISSION_MAX_NUM_DO_JUMP_COMMANDS 100     // allow up to 100 do-jump commands
+#else
 #define AP_MISSION_MAX_NUM_DO_JUMP_COMMANDS 15      // allow up to 15 do-jump commands
+#endif
+#endif
 
 #define AP_MISSION_JUMP_REPEAT_FOREVER      -1      // when do-jump command's repeat count is -1 this means endless repeat
 
@@ -215,6 +222,33 @@ public:
         float p3;
     };
 
+    // Scripting NAV command (with verify)
+    struct PACKED nav_script_time_Command {
+        uint8_t command;
+        uint8_t timeout_s;
+        float arg1;
+        float arg2;
+    };
+
+    // Scripting NAV command (with verify)
+    struct PACKED nav_attitude_time_Command {
+        uint16_t time_sec;
+        int16_t roll_deg;
+        int8_t pitch_deg;
+        int16_t yaw_deg;
+        float climb_rate;
+    };
+
+    // MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW support
+    struct PACKED gimbal_manager_pitchyaw_Command {
+        int8_t pitch_angle_deg;
+        int16_t yaw_angle_deg;
+        int8_t pitch_rate_degs;
+        int8_t yaw_rate_degs;
+        uint8_t flags;
+        uint8_t gimbal_id;
+    };
+
     union Content {
         // jump structure
         Jump_Command jump;
@@ -285,6 +319,15 @@ public:
         // do scripting
         scripting_Command scripting;
 
+        // nav scripting
+        nav_script_time_Command nav_script_time;
+
+        // nav attitude time
+        nav_attitude_time_Command nav_attitude_time;
+
+        // MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW
+        gimbal_manager_pitchyaw_Command gimbal_manager_pitchyaw;
+
         // location
         Location location{};      // Waypoint location
     };
@@ -295,6 +338,10 @@ public:
         uint16_t id;                // mavlink command id
         uint16_t p1;                // general purpose parameter 1
         Content content;
+
+        // for items which store in location, we offer a few more bits
+        // of storage:
+        uint8_t type_specific_bits;  // bitmask of set/unset bits
 
         // return a human-readable interpretation of the ID stored in this command
         const char *type() const;
@@ -666,6 +713,9 @@ private:
     // check if command is a landing type command.  Asside the obvious, MAV_CMD_DO_PARACHUTE is considered a type of landing
     bool is_landing_type_cmd(uint16_t id) const;
 
+    // check if command is a takeoff type command.
+    bool is_takeoff_type_cmd(uint16_t id) const;
+
     // approximate the distance travelled to get to a landing.  DO_JUMP commands are observed in look forward.
     bool distance_to_landing(uint16_t index, float &tot_distance,Location current_loc);
 
@@ -726,7 +776,7 @@ private:
 
     bool start_command_do_sprayer(const AP_Mission::Mission_Command& cmd);
     bool start_command_do_scripting(const AP_Mission::Mission_Command& cmd);
-
+    bool start_command_do_gimbal_manager_pitchyaw(const AP_Mission::Mission_Command& cmd);
 };
 
 namespace AP

@@ -20,26 +20,39 @@ TARGET_HW_PX4_PIO_V3                   13
 TARGET_HW_PX4_AEROCORE_V1              98
 TARGET_HW_TAP_V1                       64
 TARGET_HW_CRAZYFLIE                    12
+TARGET_HW_CRAZYFLIE21                  14
 TARGET_HW_OMNIBUSF4SD                  42
 TARGET_HW_AUAV_X2V1                    33
 TARGET_HW_AEROFC_V1                    65
+TARGET_TAP_V2                          66
 TARGET_HW_CUBE_F4                       9
 TARGET_HW_AV_V1                        29
 TARGET_HW_KAKUTEF7                    123
+TARGET_HW_SMARTAP_AIRLINK              55
 TARGET_HW_SMARTAP_PRO                  32
 TARGET_HW_MODALAI_FC_V1             41775
+TARGET_HW_MODALAI_FC_V2             41776
 TARGET_HW_HOLYBRO_PIX32_V5             78
+TARGET_HW_HOLYBRO_CAN_GPS              79
 TARGET_HW_FMUK66_V3                    28
 TARGET_HW_AV_X_V1                      29
 TARGET_HW_FMUK66_E                     30
 TARGET_HW_FMURT1062-V1                 31
+TARGET_HW_ARK_CAN_FLOW                 80
+TARGET_HW_ARK_CAN_GPS                  81
+TARGET_HW_ARK_CAN_RTK_GPS              82
+TARGET_HW_FF_RTK_CAN_GPS               85
+TARGET_HW_ATL_MANTIS_EDU               97
 
 
 Reserved  PX4 [BL] FMU v5X.x           51
 Reserved "PX4 [BL] FMU v6.x"           52
 Reserved "PX4 [BL] FMU v6X.x"          53
+Reserved "PX4 [BL] FMU v6C.x"          56
  
 Reserved "GUMSTIX [BL] FMU v6"         54
+Reserved "ARK CAN FLOW"                80
+Reserved "NXP ucans32k146"             34
 
 # values from external vendors
 EXT_HW_RADIOLINK_MINI_PIX               3
@@ -100,7 +113,7 @@ AP_HW_CUAV_X7_PRO                    1010
 AP_HW_SUCCEXF4                       1011
 AP_HW_LIGHTSPARKMINI                 1012
 AP_HW_MATEKH743                      1013
-AP_HW_MRO_MAXXIUM                    1014
+AP_HW_MATEKF405_GPS                  1014
 AP_HW_MRO_NEXUS                      1015
 AP_HW_HITEC_MOSAIC                   1016
 AP_HW_MRO_PIXRACER_PRO               1017
@@ -120,7 +133,7 @@ AP_HW_KAKUTEF4_MINI                  1030
 AP_HW_H31_PIXC4_PI                   1031
 AP_HW_H31_PIXC4_JETSON               1032
 AP_HW_CUBEORANGE_JOEY                1033
-AP_HW_SIERRAF9PGPS_PERIPH            1034
+AP_HW_SierraF9P                      1034
 AP_HW_HolybroGPS                     1035
 AP_HW_QioTekZealotH743               1036
 AP_HW_HEREPRO                        1037
@@ -136,6 +149,33 @@ AP_HW_HITEC_AIRSPEED                 1046
 AP_HW_NucleoL496                     1047
 AP_HW_KakuteH7                       1048
 AP_HW_ICSI_Kestrel                   1049
+AP_HW_SierraL431                     1050
+AP_HW_NucleoL476                     1051
+AP_HW_SierraF405                     1052
+AP_HW_CarbonixL496                   1053
+AP_HW_MatekF405_TE                   1054
+AP_HW_SierraF412                     1055
+AP_HW_BEASTH7v2                      1056
+AP_HW_BEASTF7v2                      1057
+AP_HW_KakuteH7Mini                   1058
+AP_HW_JHEMCUGSF405A                  1059
+AP_HW_SPRACINGH7                     1060
+AP_HW_DEVEBOXH7                      1061
+AP_HW_MatekL431                      1062
+AP_HW_CUBEORANGEPLUS                 1063
+AP_HW_CarbonixF405                   1064
+AP_HW_QioTekAdeptF407                1065
+AP_HW_QioTekAdeptF427                1066
+AP_HW_FlyingMoonF407                 1067
+AP_HW_FlyingMoonF427                 1068
+AP_HW_CUBERED                        1069
+AP_HW_CUBERED_IO                     1070
+AP_HW_GreenSight_UltraBlue           1071
+AP_HW_GreenSight_microBlue           1072
+AP_HW_MAMBAH743_V4                   1073
+AP_HW_REAPERF745_V2                  1074
+AP_HW_SKYSTARSH7HD                   1075
+AP_HW_PixSurveyA1                    1076
 
 AP_HW_CUBEORANGE_PERIPH              1400
 AP_HW_CUBEBLACK_PERIPH               1401

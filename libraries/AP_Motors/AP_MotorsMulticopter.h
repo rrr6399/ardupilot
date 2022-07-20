@@ -44,9 +44,8 @@ public:
     // set_yaw_headroom - set yaw headroom (yaw is given at least this amount of pwm)
     void                set_yaw_headroom(int16_t pwm) { _yaw_headroom = pwm; }
 
-    // set_throttle_range - sets the minimum throttle that will be sent to the engines when they're not off (i.e. to prevents issues with some motors spinning and some not at very low throttle)
-    // also sets minimum and maximum pwm values that will be sent to the motors
-    void                set_throttle_range(int16_t radio_min, int16_t radio_max);
+    // update_throttle_range - update throttle endpoints
+    void                update_throttle_range();
 
     // update estimated throttle required to hover
     void                update_throttle_hover(float dt);
@@ -55,15 +54,6 @@ public:
     // passes throttle directly to all motors for ESC calibration.
     //   throttle_input is in the range of 0 ~ 1 where 0 will send get_pwm_output_min() and 1 will send get_pwm_output_max()
     void                set_throttle_passthrough_for_esc_calibration(float throttle_input);
-
-    // get_lift_max - get maximum lift ratio - for logging purposes only
-    float               get_lift_max() const { return _lift_max; }
-
-    // get_batt_voltage_filt - get battery voltage ratio - for logging purposes only
-    float               get_batt_voltage_filt() const { return _batt_voltage_filt.get(); }
-
-    // get throttle limit imposed by battery current limiting.  This is a number from 0 ~ 1 where 0 means hover throttle, 1 means full throttle (i.e. not limited)
-    float               get_throttle_limit() const { return _throttle_limit; }
 
     // returns maximum thrust in the range 0 to 1
     float               get_throttle_thrust_max() const { return _throttle_thrust_max; }
@@ -78,12 +68,12 @@ public:
 
     // get_motor_mask - returns a bitmask of which outputs are being used for motors (1 means being used)
     //  this can be used to ensure other pwm outputs (i.e. for servos) do not conflict
-    virtual uint16_t    get_motor_mask() override;
+    virtual uint32_t    get_motor_mask() override;
 
     // get minimum or maximum pwm value that can be output to motors
-    int16_t             get_pwm_output_min() const;
-    int16_t             get_pwm_output_max() const;
-
+    int16_t             get_pwm_output_min() const { return _pwm_min; }
+    int16_t             get_pwm_output_max() const { return _pwm_max; }
+    
     // parameter check for MOT_PWM_MIN/MAX, returns true if parameters are valid
     bool check_mot_pwm_params() const;
 
@@ -105,6 +95,12 @@ public:
 
     // return whether a motor is enabled or not
     bool                is_motor_enabled(uint8_t i) override { return motor_enabled[i]; }
+
+    // convert values to PWM min and max if not configured
+    void                convert_pwm_min_max_param(int16_t radio_min, int16_t radio_max);
+
+    // 10hz logging of voltage scaling and max trust
+    void                Log_Write() override;
 
     // var_info for holding Parameter information
     static const struct AP_Param::GroupInfo        var_info[];
@@ -193,9 +189,6 @@ protected:
 
     // motor output variables
     bool                motor_enabled[AP_MOTORS_MAX_NUM_MOTORS];    // true if motor is enabled
-    int16_t             _throttle_radio_min;        // minimum PWM from RC input's throttle channel (i.e. minimum PWM input from receiver, RC3_MIN)
-    int16_t             _throttle_radio_max;        // maximum PWM from RC input's throttle channel (i.e. maximum PWM input from receiver, RC3_MAX)
-    // spool variables
 
     // spool variables
     float               _spin_up_ratio;      // throttle percentage (0 ~ 1) between zero and throttle_min
