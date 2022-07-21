@@ -429,15 +429,6 @@ void Plane::do_landing_vtol_approach(const AP_Mission::Mission_Command& cmd)
     loc.sanitize(current_loc);
     set_next_WP(loc);
 
-    // only set the direction if the quadplane landing radius override is not 0
-    // if it's 0 update_loiter will manage the direction for us when we hand it
-    // 0 later in the controller
-    if (is_negative(quadplane.fw_land_approach_radius)) {
-        loiter.direction = -1;
-    } else if (is_positive(quadplane.fw_land_approach_radius)) {
-        loiter.direction = 1;
-    }
-
     vtol_approach_s.approach_stage = LOITER_TO_ALT;
 }
 #endif
@@ -1026,7 +1017,7 @@ bool Plane::verify_landing_vtol_approach(const AP_Mission::Mission_Command &cmd)
         case RTL:
             {
                 // fly home and loiter at RTL alt
-                update_loiter(fabsf(quadplane.fw_land_approach_radius));
+                nav_controller->update_loiter(cmd.content.location, abs_radius, direction);
                 if (plane.reached_loiter_target()) {
                     // decend to Q RTL alt
                     plane.do_RTL(plane.home.alt + plane.quadplane.qrtl_alt*100UL);
@@ -1037,7 +1028,7 @@ bool Plane::verify_landing_vtol_approach(const AP_Mission::Mission_Command &cmd)
             }
         case LOITER_TO_ALT:
             {
-                update_loiter(fabsf(quadplane.fw_land_approach_radius));
+                nav_controller->update_loiter(cmd.content.location, abs_radius, direction);
 
                 if (labs(loiter.sum_cd) > 1 && (loiter.reached_target_alt || loiter.unable_to_acheive_target_alt)) {
                     Vector3f wind = ahrs.wind_estimate();
@@ -1053,7 +1044,7 @@ bool Plane::verify_landing_vtol_approach(const AP_Mission::Mission_Command &cmd)
                 // require an angle total of at least 2 centidegrees, due to special casing of 1 centidegree
                 if (((fabsf(cmd.content.location.get_distance(current_loc) - abs_radius) > 5.0f) &&
                       (cmd.content.location.get_distance(current_loc) < abs_radius)) ||
-                    (loiter.sum_cd < 2)) {
+                    (labs(loiter.sum_cd) < 2)) {
                     nav_controller->update_loiter(cmd.content.location, abs_radius, direction);
                     break;
                 }
@@ -1064,10 +1055,10 @@ bool Plane::verify_landing_vtol_approach(const AP_Mission::Mission_Command &cmd)
             {
                 nav_controller->update_loiter(cmd.content.location, radius, direction);
 
-                const float breakout_direction_rad = radians(wrap_180(vtol_approach_s.approach_direction_deg + (direction > 0 ? 270 : 90)));
+                const float breakout_direction_rad = radians(vtol_approach_s.approach_direction_deg + (direction > 0 ? 270 : 90));
 
                 // breakout when within 5 degrees of the opposite direction
-                if (fabsf(ahrs.yaw - breakout_direction_rad) < radians(5.0f)) {
+                if (fabsf(wrap_PI(ahrs.yaw - breakout_direction_rad)) < radians(5.0f)) {
                     gcs().send_text(MAV_SEVERITY_INFO, "Starting VTOL land approach path");
                     vtol_approach_s.approach_stage = APPROACH_LINE;
                     set_next_WP(cmd.content.location);
@@ -1090,11 +1081,13 @@ bool Plane::verify_landing_vtol_approach(const AP_Mission::Mission_Command &cmd)
                 nav_controller->update_waypoint(start, end);
 
                 // check if we should move on to the next waypoint
-                Location breakout_loc = cmd.content.location;
-                breakout_loc.offset_bearing(vtol_approach_s.approach_direction_deg + 180, quadplane.stopping_distance());
+                Location breakout_stopping_loc = cmd.content.location;
+                breakout_stopping_loc.offset_bearing(vtol_approach_s.approach_direction_deg + 180, quadplane.stopping_distance());
+                const bool past_finish_line = current_loc.past_interval_finish_line(start, breakout_stopping_loc);
 
-                const bool past_finish_line = current_loc.past_interval_finish_line(start, breakout_loc);
-                const bool half_radius = current_loc.get_distance(cmd.content.location) < 0.5 * abs_radius;
+                Location breakout_loc = cmd.content.location;
+                breakout_loc.offset_bearing(vtol_approach_s.approach_direction_deg + 180, abs_radius);
+                const bool half_radius = current_loc.line_path_proportion(breakout_loc, cmd.content.location) > 0.5;
                 bool lined_up = true;
                 Vector3f vel_NED;
                 if (ahrs.get_velocity_NED(vel_NED)) {
