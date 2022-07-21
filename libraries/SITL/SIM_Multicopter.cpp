@@ -35,8 +35,8 @@ MultiCopter::MultiCopter(const char *frame_str) :
     frame->init(frame_str, &battery);
 
     mass = frame->get_mass();
-    frame_height = 0.1;
-    num_motors = frame->num_motors;
+    //frame_height = 0.1;
+    frame_height = 0.5;
     ground_behavior = GROUND_BEHAVIOR_NO_MOVEMENT;
     lock_step_scheduled = true;
 }

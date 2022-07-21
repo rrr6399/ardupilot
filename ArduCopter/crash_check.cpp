@@ -10,7 +10,7 @@
 // Code to detect a thrust loss main ArduCopter code
 #define THRUST_LOSS_CHECK_TRIGGER_SEC         1     // 1 second descent while level and high throttle indicates thrust loss
 #define THRUST_LOSS_CHECK_ANGLE_DEVIATION_CD  1500  // we can't expect to maintain altitude beyond 15 degrees on all aircraft
-#define THRUST_LOSS_CHECK_MINIMUM_THROTTLE    0.9f  // we can expect to maintain altitude above 90 % throttle
+#define THRUST_LOSS_CHECK_MINIMUM_THROTTLE    0.99f  // we can expect to maintain altitude above 90 % throttle
 
 // Yaw imbalance check
 #define YAW_IMBALANCE_IMAX_THRESHOLD 0.75f
@@ -240,7 +240,7 @@ void Copter::yaw_imbalance_check()
 // called at MAIN_LOOP_RATE
 void Copter::parachute_check()
 {
-    static uint16_t control_loss_count; // number of iterations we have been out of control
+    static uint16_t control_loss_count;	// number of iterations we have been out of control
     static int32_t baro_alt_start;
 
     // exit immediately if parachute is not enabled
