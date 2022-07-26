@@ -29,6 +29,9 @@ param set SERIAL5_PROTOCOL 5
 #define HAL_SIM_GPS_ENABLED (CONFIG_HAL_BOARD == HAL_BOARD_SITL && !defined(HAL_BUILD_AP_PERIPH))
 #endif
 
+#include <stdio.h>
+#include <stdlib.h>
+
 #if HAL_SIM_GPS_ENABLED
 
 #ifndef HAL_SIM_GPS_EXTERNAL_FIFO_ENABLED
@@ -93,6 +96,13 @@ private:
     // last 20 samples, allowing for up to 20 samples of delay
     gps_data _gps_history[20];
 
+    struct ned_offset {
+        double n_m;
+        double e_m;
+        double d_m;
+        double bearing_deg;
+    };
+
 
 #if HAL_SIM_GPS_EXTERNAL_FIFO_ENABLED
     // this will be allocated if needed:
@@ -125,6 +135,10 @@ private:
 
     // get delayed data
     gps_data interpolate_data(const gps_data &d, uint32_t delay_ms);
+
+    void _save_gps_location(const struct gps_data *d);
+    void _calculate_ned(const struct gps_data *d, struct ned_offset &ned);
+
 };
 
 }

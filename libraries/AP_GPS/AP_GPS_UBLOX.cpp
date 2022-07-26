@@ -1355,7 +1355,7 @@ AP_GPS_UBLOX::_parse_gps(void)
                 _last_relposned_itow = _buffer.relposned_v01.itow_ms;
             MB_Debug("RELPOSNED flags: %lx valid: %lx invalid: %lx\n", _buffer.relposned.flags, valid_mask, invalid_mask);
                 if (((_buffer.relposned_v01.flags & valid_mask) == valid_mask) &&
-                    ((_buffer.relposned_v01.flags & invalid_mask) == 0) {
+                    ((_buffer.relposned_v01.flags & invalid_mask) == 0)) {
                      if (calculate_moving_base_yaw(_buffer.relposned_v01.rel_pos_heading_deg * 1e-5,
                                           _buffer.relposned_v01.rel_pos_length_cm * 0.01,
                                           _buffer.relposned_v01.rel_pos_d_cm*0.01)) {
@@ -1364,10 +1364,10 @@ AP_GPS_UBLOX::_parse_gps(void)
                    _last_relposned_ms = AP_HAL::millis();
                   }
                   
-                  state.relPosHeading = _buffer.relposned.relPosHeading * 1e-5;
-                  state.relPosLength  = _buffer.relposned.relPosLength * 0.01;
-                  state.relPosD       = _buffer.relposned.relPosD * 0.01;
-                  state.accHeading    = _buffer.relposned.accHeading * 1e-5;
+                  state.relPosHeading = _buffer.relposned_v01.rel_pos_heading_deg * 1e-5;
+                  state.relPosLength  = _buffer.relposned_v01.rel_pos_length_cm * 0.01;
+                  state.relPosD       = _buffer.relposned_v01.rel_pos_d_cm * 0.01;
+                  state.accHeading    = _buffer.relposned_v01.acc_heading_deg * 1e-5;
                   state.relposheading_ts = AP_HAL::millis();
                 } else {
                     state.have_gps_yaw_accuracy = false;

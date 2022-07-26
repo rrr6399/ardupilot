@@ -17,12 +17,16 @@
 
 // simulated CAN GPS devices get fed from our SITL estimates:
 #if HAL_SIM_GPS_EXTERNAL_FIFO_ENABLED
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <errno.h>
 #include <AP_HAL_SITL/AP_HAL_SITL.h>
 extern const HAL_SITL& hal_sitl;
 #endif
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <fcntl.h>
+#include <sys/time.h>
+#include <errno.h>
 
 // the number of GPS leap seconds - copied from AP_GPS.h
 #define GPS_LEAPSECONDS_MILLIS 18000ULL
@@ -169,9 +173,10 @@ static void gps_time(uint16_t *time_week, uint32_t *time_week_ms)
 }
 
 static char gps_filename[22] = "/tmp/master-gps.data";
-void SITL_State::_calculate_ned(const struct gps_data *d, struct ned_offset &ned)
+
+void GPS::_calculate_ned(const struct gps_data *d, struct ned_offset &ned)
 {
-    static FILE *fd;
+    static ::FILE *fd;
     if(fd == NULL) {
         if(::access(gps_filename,F_OK)!=0) {
             return;
@@ -220,9 +225,9 @@ void SITL_State::_calculate_ned(const struct gps_data *d, struct ned_offset &ned
     }
 }
 
-void SITL_State::_save_gps_location(const struct gps_data *d)
+void GPS::_save_gps_location(const struct gps_data *d)
 {
-    static FILE *fd;
+    static ::FILE *fd;
     if(fd == NULL) {
         mkfifo(gps_filename,0666);
         fd = ::fopen(gps_filename, "w");
@@ -240,8 +245,6 @@ void SITL_State::_save_gps_location(const struct gps_data *d)
     }
 
 }
-
-
 
 /*
   send a new set of GPS UBLOX packets
@@ -532,59 +535,52 @@ void GPS::update_ubx(const struct gps_data *d)
     send_ubx(MSG_SOL,    (uint8_t*)&sol, sizeof(sol));
     send_ubx(MSG_DOP,    (uint8_t*)&dop, sizeof(dop));
     send_ubx(MSG_PVT,    (uint8_t*)&pvt, sizeof(pvt));
+
     if (_sitl->gps_hdg_enabled[instance] > SITL::SIM::GPS_HEADING_NONE) {
         send_ubx(MSG_RELPOSNED,    (uint8_t*)&relposned, sizeof(relposned));
-
-    const uint32_t valid_mask = static_cast<uint32_t>(RELPOSNED::relPosHeadingValid) |
-                                        static_cast<uint32_t>(RELPOSNED::relPosValid) |
-                                        static_cast<uint32_t>(RELPOSNED::gnssFixOK) |
-                                        static_cast<uint32_t>(RELPOSNED::isMoving) |
-                                        static_cast<uint32_t>(RELPOSNED::carrSolnFixed);
-    relposned.version = 0x01; // F9P
-    relposned.itow_ms = time_week_ms;
-    relposned.acc_d_mm = 20;
-    relposned.acc_e_mm = 20;
-    relposned.acc_n_mm = 20;
-    relposned.acc_heading_deg = 1;
-    relposned.acc_length_mm = 20;
-    relposned.flags = valid_mask;
-    relposned.ref_station_id = 0;
-
-    struct ned_offset ned {};
-    char* master = getenv("MASTER_DRONE");
-    if(master != NULL) {
-        _save_gps_location(d);
     } else {
-        _calculate_ned(d, ned);
-    }
+        const uint32_t valid_mask = static_cast<uint32_t>(RELPOSNED::relPosHeadingValid) |
+                static_cast<uint32_t>(RELPOSNED::relPosValid) |
+                static_cast<uint32_t>(RELPOSNED::gnssFixOK) |
+                static_cast<uint32_t>(RELPOSNED::isMoving) |
+                static_cast<uint32_t>(RELPOSNED::carrSolnFixed);
+        relposned.version = 0x01; // F9P
+        relposned.itow_ms = time_week_ms;
+        relposned.acc_d_mm = 20;
+        relposned.acc_e_mm = 20;
+        relposned.acc_n_mm = 20;
+        relposned.acc_heading_deg = 1;
+        relposned.acc_length_mm = 20;
+        relposned.flags = valid_mask;
+        relposned.ref_station_id = 0;
 
-    relposned.rel_pos_d_cm = (int32_t)(ned.d_m * 100);
-    relposned.rel_pos_e_cm = (int32_t)(ned.e_m * 100);
-    relposned.rel_pos_n_cm = (int32_t)(ned.n_m * 100);
-    relposned.rel_pos_hp_d_mm = 0;
-    relposned.rel_pos_hp_e_mm = 0;
-    relposned.rel_pos_hp_n_mm = 0;
-    relposned.rel_pos_hp_length_mm = 0;
-    relposned.reserved1  = 0;
-    relposned.reserved2[0]  = 0;
-    relposned.reserved2[1]  = 0;
-    relposned.reserved2[2]  = 0;
-    relposned.reserved2[3]  = 0;
-    relposned.reserved3[0]  = 0;
-    relposned.reserved3[1]  = 0;
-    relposned.reserved3[2]  = 0;
-    relposned.reserved3[3]  = 0;
+        struct ned_offset ned {};
+        char* master = getenv("MASTER_DRONE");
+        if(master != NULL) {
+            _save_gps_location(d);
+        } else {
+            _calculate_ned(d, ned);
+        }
 
-    _gps_send_ubx(MSG_POSLLH, (uint8_t*)&pos, sizeof(pos), instance);
-    _gps_send_ubx(MSG_STATUS, (uint8_t*)&status, sizeof(status), instance);
-    _gps_send_ubx(MSG_VELNED, (uint8_t*)&velned, sizeof(velned), instance);
-    _gps_send_ubx(MSG_SOL,    (uint8_t*)&sol, sizeof(sol), instance);
-    _gps_send_ubx(MSG_DOP,    (uint8_t*)&dop, sizeof(dop), instance);
-    _gps_send_ubx(MSG_PVT,    (uint8_t*)&pvt, sizeof(pvt), instance);
-    if (_sitl->gps_hdg_enabled[instance] > SITL::SITL::GPS_HEADING_NONE) {
-        _gps_send_ubx(MSG_RELPOSNED,    (uint8_t*)&relposned, sizeof(relposned), instance);
+        relposned.rel_pos_d_cm = (int32_t)(ned.d_m * 100);
+        relposned.rel_pos_e_cm = (int32_t)(ned.e_m * 100);
+        relposned.rel_pos_n_cm = (int32_t)(ned.n_m * 100);
+        relposned.rel_pos_hp_d_mm = 0;
+        relposned.rel_pos_hp_e_mm = 0;
+        relposned.rel_pos_hp_n_mm = 0;
+        relposned.rel_pos_hp_length_mm = 0;
+        relposned.reserved1  = 0;
+        relposned.reserved2[0]  = 0;
+        relposned.reserved2[1]  = 0;
+        relposned.reserved2[2]  = 0;
+        relposned.reserved2[3]  = 0;
+        relposned.reserved3[0]  = 0;
+        relposned.reserved3[1]  = 0;
+        relposned.reserved3[2]  = 0;
+        relposned.reserved3[3]  = 0;
+
+        send_ubx(MSG_RELPOSNED, (uint8_t*)&relposned, sizeof(relposned));
     }
-    _gps_send_ubx(MSG_RELPOSNED, (uint8_t*)&relposned, sizeof(relposned), instance);
 
     if (time_week_ms > _next_nav_sv_info_time) {
         svinfo.itow = time_week_ms;
@@ -623,7 +619,6 @@ void GPS::nmea_printf(const char *fmt, ...)
         write_to_autopilot((const char*)s, strlen(s));
         free(s);
     }
-}
 }
 
 
@@ -1231,7 +1226,7 @@ void GPS::update()
     // run at configured GPS rate (default 5Hz)
         if ((now_ms - last_update) < (uint32_t)(1000/_sitl->gps_hertz[idx])) {
             return;
-    }
+        }
 
     // swallow any config bytes
         char c;
