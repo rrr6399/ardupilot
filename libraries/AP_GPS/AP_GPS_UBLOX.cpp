@@ -408,8 +408,8 @@ AP_GPS_UBLOX::_request_next_config(void)
 
 void
 AP_GPS_UBLOX::_verify_rate(uint8_t msg_class, uint8_t msg_id, uint8_t rate) {
-    uint8_t desired_rate;
-    uint32_t config_msg_id;
+    uint8_t desired_rate=0;
+    uint32_t config_msg_id=0;
     switch(msg_class) {
     case CLASS_NAV:
         switch(msg_id) {
