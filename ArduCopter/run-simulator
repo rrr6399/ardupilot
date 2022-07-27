@@ -9,5 +9,6 @@ location=AustinRC
 #python3 ../Tools/autotest/sim_vehicle.py --instance=0 --map --console -L $location -f hexa -D
 #python3 ../Tools/autotest/sim_vehicle.py -M -f hexa --map --console -L $location -I 0
 #python3 ../Tools/autotest/sim_vehicle.py --instance=0 --map --console -L $location -M  -f hexa
-python3 ../Tools/autotest/sim_vehicle.py -D --instance=0 --map --console -L $location -f hexa --mavproxy-args "--out=udp:192.168.234.1:14550" 
+#python3 ../Tools/autotest/sim_vehicle.py -D --instance=0 --map --console -L $location -f hexa --mavproxy-args "--out=udp:192.168.234.1:14550" 
+python3 ../Tools/autotest/sim_vehicle.py -D --instance=0 --map --console -L $location -f Callisto --mavproxy-args "--out=udp:192.168.234.1:14550" 
 
