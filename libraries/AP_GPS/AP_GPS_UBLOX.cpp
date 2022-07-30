@@ -426,13 +426,8 @@ AP_GPS_UBLOX::_verify_rate(uint8_t msg_class, uint8_t msg_id, uint8_t rate) {
             config_msg_id = CONFIG_RATE_SOL;
             break;
         case MSG_NAV_RELPOSNED:
-        	if(rate == RATE_RTK) {
-        		_unconfigured_messages &= ~CONFIG_RATE_RTK;
-        	} else {
-        		_configure_message_rate(msg_class, msg_id, RATE_RTK);
-        		_unconfigured_messages |= CONFIG_RATE_RTK;
-        		_cfg_needs_save = true;
-        	}
+            desired_rate = RATE_RTK;
+            config_msg_id = CONFIG_RATE_RTK;
         	break;
         case MSG_PVT:
             desired_rate = RATE_PVT;
