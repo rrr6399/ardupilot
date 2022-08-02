@@ -6,6 +6,6 @@ location=PortHueneme
 location=Moab
 /bin/rm -rf logs mav.tlog  mav.tlog.raw /tmp/master-gps.data
 #python3 ../Tools/autotest/sim_vehicle.py --instance=0 --map --console -L $location  -A --adsb
-python3 ../Tools/autotest/sim_vehicle.py --map --console -L $location 
+python3 ../Tools/autotest/sim_vehicle.py --map --console -L $location "--out=udp:192.168.234.1:14550"
 #python3 ../Tools/autotest/sim_vehicle.py -M -f hexa --map --console -L $location -I 0
 #python3 ../Tools/autotest/sim_vehicle.py --instance=0 --map --console -L $location -M  -f hexa
