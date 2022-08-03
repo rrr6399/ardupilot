@@ -48,6 +48,13 @@ const AP_Param::GroupInfo AP_Rally::var_info[] = {
     // @Values: 0:DoNotIncludeHome,1:IncludeHome
     AP_GROUPINFO("INCL_HOME", 2, AP_Rally, _rally_incl_home, RALLY_INCLUDE_HOME_DEFAULT),
 
+    // @Param: FS_MODE
+    // @DisplayName: 
+    // @Description: An alternative mode where RTL will fly to the nearest rally point for a failsafe, but will fly to the takeoff position for normal operations.
+    // @User: Standard
+    // @Values: 0:DefaultMode,1:RallyOnlyOnFailsafe
+    AP_GROUPINFO("FS_MODE", 3, AP_Rally, _rally_fs_mode, 1),
+
     AP_GROUPEND
 };
 
@@ -166,8 +173,13 @@ bool AP_Rally::find_nearest_rally_point(const Location &current_loc, RallyLocati
     return min_dis >= 0;
 }
 
-// return best RTL location from current position
 Location AP_Rally::calc_best_rally_or_home_location(const Location &current_loc, float rtl_home_alt) const
+{
+    return calc_best_rally_or_home_location(current_loc, rtl_home_alt, false);
+}
+
+// return best RTL location from current position
+Location AP_Rally::calc_best_rally_or_home_location(const Location &current_loc, float rtl_home_alt, bool failsafe) const
 {
     RallyLocation ral_loc = {};
     Location return_loc = {};
@@ -178,10 +190,22 @@ Location AP_Rally::calc_best_rally_or_home_location(const Location &current_loc,
     return_loc.alt = rtl_home_alt;
     return_loc.relative_alt = false; // read_alt_to_hold returns an absolute altitude
 
+
+    bool include_home = _rally_incl_home;
+    if(_rally_fs_mode>0) 
+    {
+        if(failsafe) include_home = false; // don't land at home for gcs or radio failsafe (add a parameter as well)
+        if(!failsafe)
+        {
+            // always return to original home position for rally_fs_mode
+           return return_loc;
+        }
+    }
+
     if (find_nearest_rally_point(current_loc, ral_loc)) {
         Location loc = rally_location_to_location(ral_loc);
         // use the rally point if it's closer then home, or we aren't generally considering home as acceptable
-        if (!_rally_incl_home  || (current_loc.get_distance(loc) < current_loc.get_distance(return_loc))) {
+        if (!include_home  || (current_loc.get_distance(loc) < current_loc.get_distance(return_loc))) {
             return_loc = rally_location_to_location(ral_loc);
         }
     }

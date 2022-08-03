@@ -446,7 +446,8 @@ void ModeRTL::compute_return_target()
 {
     // set return target to nearest rally point or home position (Note: alt is absolute)
 #if AC_RALLY == ENABLED
-    rtl_path.return_target = copter.rally.calc_best_rally_or_home_location(copter.current_loc, ahrs.get_home().alt);
+    bool fs = copter.failsafe.gcs > 0 || copter.failsafe.radio > 0;
+    rtl_path.return_target = copter.rally.calc_best_rally_or_home_location(copter.current_loc, ahrs.get_home().alt,fs);
 #else
     rtl_path.return_target = ahrs.get_home();
 #endif

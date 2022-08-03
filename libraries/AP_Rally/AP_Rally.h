@@ -69,6 +69,7 @@ public:
 
     // logic handling
     Location calc_best_rally_or_home_location(const Location &current_loc, float rtl_home_alt) const;
+    Location calc_best_rally_or_home_location(const Location &current_loc, float rtl_home_alt,bool failsafe) const;
     bool find_nearest_rally_point(const Location &myloc, RallyLocation &ret) const;
 
     // last time rally points changed
@@ -92,6 +93,7 @@ private:
     AP_Int8  _rally_point_total_count;
     AP_Float _rally_limit_km;
     AP_Int8  _rally_incl_home;
+    AP_Int8  _rally_fs_mode;
 
     uint32_t _last_change_time_ms = 0xFFFFFFFF;
 };

@@ -17,6 +17,7 @@
 */
 
 #include "SIM_Battery.h"
+#include <stdio.h>
 
 using namespace SITL;
 
@@ -149,7 +150,10 @@ void Battery::set_current(float current)
         voltage = get_resting_voltage(100 * remaining_Ah / capacity_Ah) - voltage_delta;
     }
 
-    voltage_filter.apply(voltage);
+    if (false) {
+        // assume tethered copters with infinite battery life
+        voltage_filter.apply(voltage);
+    }
 }
 
 float Battery::get_voltage(void) const
