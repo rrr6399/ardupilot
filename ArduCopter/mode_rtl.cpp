@@ -439,14 +439,14 @@ void ModeRTL::build_path()
     // set land flag
     rtl_path.land = g.rtl_alt_final <= 0;
 }
-
 // compute the return target - home or rally point
 //   return target's altitude is updated to a higher altitude that the vehicle can safely return at (frame may also be set)
 void ModeRTL::compute_return_target()
 {
     // set return target to nearest rally point or home position (Note: alt is absolute)
-#if AC_RALLY == ENABLED
-    bool fs = copter.failsafe.gcs > 0 || copter.failsafe.radio > 0;
+#if AC_RALLY == ENABLE
+    bool gps_fail = copter.gps.status() != AP_GPS::GPS_OK_FIX_3D_RTK_FIXED;
+    bool fs = copter.failsafe.gcs > 0 || copter.failsafe.radio > 0 || copter.battery.has_failsafed() || gps_fail;
     rtl_path.return_target = copter.rally.calc_best_rally_or_home_location(copter.current_loc, ahrs.get_home().alt,fs);
 #else
     rtl_path.return_target = ahrs.get_home();
