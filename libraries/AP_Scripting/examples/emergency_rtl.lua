@@ -3,7 +3,7 @@
 local PARAM_TABLE_KEY = 7
 local PARAM_TABLE_PREFIX = "RTL2_"
 
-local MODE_RTL = 11
+local MODE_RTL = 6
 
 local ALT_FRAME_ABSOLUTE = 0
 
@@ -22,11 +22,11 @@ end
 
 -- setup SHIP specific parameters
 assert(param:add_table(PARAM_TABLE_KEY, PARAM_TABLE_PREFIX, 1), 'could not add param table')
-RTL2_ENABLE     = bind_add_param('ENABLE', 1)
+RTL2_ENABLE     = bind_add_param('ENABLE', 1,0)
 
 -- other parameters
-WP_LOITER_RAD   = bind_param("WP_LOITER_RAD")
-RTL_RADIUS      = bind_param("RTL_RADIUS")
+-- WP_LOITER_RAD   = bind_param("WP_LOITER_RAD")
+-- RTL_RADIUS      = bind_param("RTL_RADIUS")
 
 -- an auth ID to disallow arming when we don't have the beacon
 --local auth_id = arming:get_aux_auth_id()
@@ -86,10 +86,6 @@ function wrap_180(angle)
     return res
 end
 
---[[
-  update automatic beacon offsets
---]]
-
 -- main update function
 function update()
 
@@ -97,16 +93,21 @@ function update()
       return
    end
 
-   gcs:send_text(0, "Starting emergency RTL")
 
    current_pos = ahrs:get_position()
    if not current_pos then
       return
    end
 
-   local home_position = ahrs:get_home();
-   local landing_position = home_position.offset(10,20)
+   home_location = ahrs:get_home()
+   landing_location = home_location:copy()
+   --landing_location.lat(home_location.lat())
+   --landing_location.lng(home_location.lng())
+   --landing_location.alt(home_location.alt())
+   landing_location:offset(10,20)
 
+   gcs:send_text(6, string.format("home location = %d,%d,%d\n",home_location:lat(),home_location:lng(),home_location:alt()))
+   gcs:send_text(6, string.format("landing location = %d,%d,%d\n",landing_location:lat(),landing_location:lng(),landing_location:alt()))
    -- ahrs:set_home(target_pos)
    --local next_WP = vehicle:get_target_location()
    --if not next_WP then
@@ -116,8 +117,9 @@ function update()
 
    local vehicle_mode = vehicle:get_mode()
    if vehicle_mode == MODE_RTL then
+   	-- gcs:send_text(0, string:format("landing location = %f,%f,%f\n",landing_location.lat(),landing_location.lng(),landing_location.alt()))
       -- vehicle:set_target_pos_NED(arget_pos, use_yaw, yaw_deg, use_yaw_rate, yaw_rate_degs, yaw_relative, terrain_alt) end
-      vehicle:update_target_location(home_position, landing_position)
+      vehicle:update_target_location(home_location, landing_location)
    end
 
 end
@@ -127,8 +129,6 @@ function loop()
    -- run at 20Hz
    return loop, 50
 end
-
-check_parameters()
 
 -- wrapper around update(). This calls update() at 20Hz,
 -- and if update faults then an error is displayed, but the script is not
