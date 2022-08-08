@@ -451,22 +451,22 @@ void ModeRTL::compute_return_target()
     bool fs = copter.failsafe.gcs > 0 || copter.failsafe.radio > 0 || copter.battery.has_failsafed() || gps_fail;
     if(fs)
     {
-        gcs().send_text(MAV_SEVERITY_ALERT, "failsafe detected, RTL will send copter to rally point.");
+        gcs().send_text(MAV_SEVERITY_ALERT, "RTL: failsafe detected, going to rally point.");
         if(copter.failsafe.gcs > 0) 
         {
-            gcs().send_text(MAV_SEVERITY_ALERT, "GCS communication timed out.");
+            gcs().send_text(MAV_SEVERITY_ALERT, "RTL: GCS communication timed out.");
         } 
         else if(copter.failsafe.radio > 0) 
         {
-            gcs().send_text(MAV_SEVERITY_ALERT, "Radio communication timed out.");
+            gcs().send_text(MAV_SEVERITY_ALERT, "RTL: Radio communication timed out.");
         } 
         else if(copter.battery.has_failsafed ()) 
         {
-            gcs().send_text(MAV_SEVERITY_ALERT, "Radio communication timed out.");
+            gcs().send_text(MAV_SEVERITY_ALERT, "RTL: Radio communication timed out.");
         } 
         else if(gps_fail) 
         {
-            gcs().send_text(MAV_SEVERITY_ALERT, "GPS fix type is not accurate enough.");
+            gcs().send_text(MAV_SEVERITY_ALERT, "RTL: GPS fix type is not accurate enough.");
         }
     }
     rtl_path.return_target = copter.rally.calc_best_rally_or_home_location(copter.current_loc, ahrs.get_home().alt,fs);
