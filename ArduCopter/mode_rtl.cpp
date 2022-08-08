@@ -451,7 +451,7 @@ void ModeRTL::compute_return_target()
     bool fs = copter.failsafe.gcs > 0 || copter.failsafe.radio > 0 || copter.battery.has_failsafed() || gps_fail;
     if(fs)
     {
-        gcs().send_text(MAV_SEVERITY_ALERT, "A fail safe was detected, RTL will send copter to rally point if defined.");
+        gcs().send_text(MAV_SEVERITY_ALERT, "failsafe detected, RTL will send copter to rally point.");
         if(copter.failsafe.gcs > 0) 
         {
             gcs().send_text(MAV_SEVERITY_ALERT, "GCS communication timed out.");
