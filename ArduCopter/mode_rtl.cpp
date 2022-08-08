@@ -445,8 +445,30 @@ void ModeRTL::compute_return_target()
 {
     // set return target to nearest rally point or home position (Note: alt is absolute)
 #if AC_RALLY == ENABLE
-    bool gps_fail = copter.gps.status() != AP_GPS::GPS_OK_FIX_3D_RTK_FIXED;
+
+    // bool gps_fail = copter.gps.status() != AP_GPS::GPS_OK_FIX_3D_RTK_FIXED;
+    bool gps_fail = !copter.gps.is_minimum_fix_type();
     bool fs = copter.failsafe.gcs > 0 || copter.failsafe.radio > 0 || copter.battery.has_failsafed() || gps_fail;
+    if(fs)
+    {
+        gcs().send_text(MAV_SEVERITY_ALERT, "A fail safe was detected, RTL will send copter to rally point if defined.");
+        if(copter.failsafe.gcs > 0) 
+        {
+            gcs().send_text(MAV_SEVERITY_ALERT, "GCS communication timed out.");
+        } 
+        else if(copter.failsafe.radio > 0) 
+        {
+            gcs().send_text(MAV_SEVERITY_ALERT, "Radio communication timed out.");
+        } 
+        else if(copter.battery.has_failsafed ()) 
+        {
+            gcs().send_text(MAV_SEVERITY_ALERT, "Radio communication timed out.");
+        } 
+        else if(gps_fail) 
+        {
+            gcs().send_text(MAV_SEVERITY_ALERT, "GPS fix type is not accurate enough.");
+        }
+    }
     rtl_path.return_target = copter.rally.calc_best_rally_or_home_location(copter.current_loc, ahrs.get_home().alt,fs);
 #else
     rtl_path.return_target = ahrs.get_home();

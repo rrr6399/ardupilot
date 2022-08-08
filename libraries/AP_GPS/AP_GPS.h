@@ -525,6 +525,10 @@ public:
         _force_disable_gps_yaw = disable;
     }
 
+    bool is_minimum_fix_type() {
+        return _min_fix_type <= status();
+    }
+
     // handle possibly fragmented RTCM injection data
     void handle_gps_rtcm_fragment(uint8_t flags, const uint8_t *data, uint8_t len);
 
@@ -560,6 +564,7 @@ protected:
     AP_Int8 _navfilter;
     AP_Int8 _auto_switch;
     AP_Int8 _min_dgps;
+    AP_Int8 _min_fix_type;
     AP_Int16 _sbp_logmask;
     AP_Int8 _inject_to;
     uint32_t _last_instance_swap_ms;
@@ -627,6 +632,7 @@ private:
 
     // which ports are locked
     uint8_t locked_ports;
+
 
     // state of auto-detection process, per instance
     struct detect_state {

@@ -388,6 +388,14 @@ const AP_Param::GroupInfo AP_GPS::var_info[] = {
 #endif // GPS_MAX_RECEIVERS > 1
 #endif // HAL_ENABLE_LIBUAVCAN_DRIVERS
 
+    // @Param: _MIN_FIX_TYPE
+    // @DisplayName: Minimum GPS fix type  
+    // @Description: GPS Fix type used for safe takeoff and precision landing
+    // @Values: 0:NO_GPS,1:NO_FIX,2:2D_FIX,3:3D_FIX,4:DGPS,5:RTK_FLOAT,6:RTK_FIXED,7:STATIC_FIX,8:PPP
+    // @RebootRequired: False
+    // @User: Advanced
+    AP_GROUPINFO("_MIN_FIX_TYPE", 32, AP_GPS, _min_fix_type, 6),
+
     AP_GROUPEND
 };
 
