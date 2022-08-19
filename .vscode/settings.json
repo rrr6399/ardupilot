@@ -1,4 +1,11 @@
 {
     "cSpell.language": "en-GB",
-    "astyle.astylerc": "${workspaceFolder}/Tools/CodeStyle/astylerc"
+    "astyle.astylerc": "${workspaceFolder}/Tools/CodeStyle/astylerc",
+    "python.analysis.indexing": false,
+    "files.associations": {
+        "istream": "cpp",
+        "ostream": "cpp",
+        "typeinfo": "cpp"
+    },
+    "cmake.configureOnOpen": true
 }
