@@ -456,13 +456,13 @@ void ModeRTL::compute_return_target()
         {
             gcs().send_text(MAV_SEVERITY_ALERT, "RTL: GCS communication timed out.");
         } 
-        else if(copter.failsafe.radio > 0) 
+        if(copter.failsafe.radio > 0) 
         {
             gcs().send_text(MAV_SEVERITY_ALERT, "RTL: Radio communication timed out.");
         } 
         else if(copter.battery.has_failsafed ()) 
         {
-            gcs().send_text(MAV_SEVERITY_ALERT, "RTL: Radio communication timed out.");
+            gcs().send_text(MAV_SEVERITY_ALERT, "RTL: Battery voltage is too low.");
         } 
         else if(gps_fail) 
         {
