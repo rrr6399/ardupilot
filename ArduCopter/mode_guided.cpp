@@ -315,6 +315,9 @@ void ModeGuided::angle_control_start()
 // else return false if the waypoint is outside the fence
 bool ModeGuided::set_destination(const Vector3f& destination, bool use_yaw, float yaw_cd, bool use_yaw_rate, float yaw_rate_cds, bool relative_yaw, bool terrain_alt)
 {
+    // rrr
+    //printf("RRR *****set_destination:max speed down %f\n",wp_nav->get_default_speed_down());
+    pos_control->set_max_speed_accel_z(wp_nav->get_default_speed_down(),wp_nav->get_default_speed_up(),wp_nav->get_wp_acceleration());
 #if AC_FENCE == ENABLED
     // reject destination if outside the fence
     const Location dest_loc(destination, terrain_alt ? Location::AltFrame::ABOVE_TERRAIN : Location::AltFrame::ABOVE_ORIGIN);
@@ -416,8 +419,10 @@ bool ModeGuided::set_destination(const Location& dest_loc, bool use_yaw, float y
         return false;
     }
 #endif
-
-    //rrr pos_control->set_max_speed_accel_z(wp_nav->get_default_speed_down(),wp_nav->get_default_speed_up(), wp_nav->get_wp_acceleration());
+    // rrr
+    //printf("RRR ***** max speed down %f\n",wp_nav->get_default_speed_down());
+    pos_control->set_max_speed_accel_z(wp_nav->get_default_speed_down(),wp_nav->get_default_speed_up(),wp_nav->get_wp_acceleration());
+    pos_control->set_correction_speed_accel_z(wp_nav->get_default_speed_down(), wp_nav->get_default_speed_up(), wp_nav->get_accel_z());
 
     // if using wpnav for position control
     if (use_wpnav_for_position_control()) {
@@ -552,6 +557,8 @@ bool ModeGuided::set_destination_posvel(const Vector3f& destination, const Vecto
 // set_destination_posvelaccel - set guided mode position, velocity and acceleration target
 bool ModeGuided::set_destination_posvelaccel(const Vector3f& destination, const Vector3f& velocity, const Vector3f& acceleration, bool use_yaw, float yaw_cd, bool use_yaw_rate, float yaw_rate_cds, bool relative_yaw)
 {
+//printf("RRR ***** posvelaccel:   max speed down %f\n",wp_nav->get_default_speed_down());
+pos_control->set_max_speed_accel_z(wp_nav->get_default_speed_down(),wp_nav->get_default_speed_up(),wp_nav->get_wp_acceleration());
 #if AC_FENCE == ENABLED
     // reject destination if outside the fence
     const Location dest_loc(destination, Location::AltFrame::ABOVE_ORIGIN);
@@ -560,7 +567,7 @@ bool ModeGuided::set_destination_posvelaccel(const Vector3f& destination, const 
         // failure is propagated to GCS with NAK
         return false;
     }
-#endif
+#endif 
 
     // check we are in velocity control mode
     if (guided_mode != SubMode::PosVelAccel) {
