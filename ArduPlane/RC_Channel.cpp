@@ -156,6 +156,7 @@ void RC_Channel_Plane::init_aux_function(const RC_Channel::aux_func_t ch_option,
     case AUX_FUNC::FBWA:
 #if HAL_QUADPLANE_ENABLED
     case AUX_FUNC::QRTL:
+    case AUX_FUNC::QSTABILIZE:
 #endif
     case AUX_FUNC::FBWA_TAILDRAGGER:
     case AUX_FUNC::FWD_THR:
@@ -260,6 +261,10 @@ bool RC_Channel_Plane::do_aux_function(const aux_func_t ch_option, const AuxSwit
     case AUX_FUNC::QRTL:
         do_aux_function_change_mode(Mode::Number::QRTL, ch_flag);
         break;
+
+    case AUX_FUNC::QSTABILIZE:
+        do_aux_function_change_mode(Mode::Number::QSTABILIZE, ch_flag);
+        break;
 #endif
 
     case AUX_FUNC::SOARING:
@@ -309,6 +314,7 @@ bool RC_Channel_Plane::do_aux_function(const aux_func_t ch_option, const AuxSwit
         switch (ch_flag) {
         case AuxSwitchPos::HIGH:
             plane.quadplane.air_mode = AirMode::ON;
+            plane.quadplane.throttle_wait = false;
             break;
         case AuxSwitchPos::MIDDLE:
             break;
@@ -359,6 +365,7 @@ bool RC_Channel_Plane::do_aux_function(const aux_func_t ch_option, const AuxSwit
         RC_Channel::do_aux_function_armdisarm(ch_flag);
         if (plane.arming.is_armed()) {
             plane.quadplane.air_mode = AirMode::ON;
+            plane.quadplane.throttle_wait = false;
         }
         break;
 
@@ -400,7 +407,13 @@ bool RC_Channel_Plane::do_aux_function(const aux_func_t ch_option, const AuxSwit
         break;
 
     case AUX_FUNC::FW_AUTOTUNE:
-        plane.autotune_enable(ch_flag == AuxSwitchPos::HIGH);
+        if (ch_flag == AuxSwitchPos::HIGH && plane.control_mode->mode_allows_autotuning()) {
+           plane.autotune_enable(true);
+        } else if (ch_flag == AuxSwitchPos::HIGH) {
+           GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Autotuning not allowed in this mode!");
+        } else {
+           plane.autotune_enable(false); 
+        }
         break;
 
     default:

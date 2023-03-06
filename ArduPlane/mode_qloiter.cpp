@@ -100,16 +100,16 @@ void ModeQLoiter::run()
         float descent_rate_cms = quadplane.landing_descent_rate_cms(height_above_ground);
 
         if (poscontrol.get_state() == QuadPlane::QPOS_LAND_FINAL && !quadplane.option_is_set(QuadPlane::OPTION::DISABLE_GROUND_EFFECT_COMP)) {
-            quadplane.ahrs.set_touchdown_expected(true);
+            ahrs.set_touchdown_expected(true);
         }
 
-        quadplane.set_climb_rate_cms(-descent_rate_cms, descent_rate_cms>0);
+        pos_control->land_at_climb_rate_cm(-descent_rate_cms, descent_rate_cms>0);
         quadplane.check_land_complete();
     } else if (plane.control_mode == &plane.mode_guided && quadplane.guided_takeoff) {
-        quadplane.set_climb_rate_cms(0, false);
+        quadplane.set_climb_rate_cms(0);
     } else {
         // update altitude target and call position controller
-        quadplane.set_climb_rate_cms(quadplane.get_pilot_desired_climb_rate_cms(), false);
+        quadplane.set_climb_rate_cms(quadplane.get_pilot_desired_climb_rate_cms());
     }
     quadplane.run_z_controller();
 }

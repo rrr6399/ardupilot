@@ -70,6 +70,7 @@ void AP_DAL::start_frame(AP_DAL::FrameType frametype)
     _RFRN.opticalflow_enabled = AP::opticalflow() && AP::opticalflow()->enabled();
 #endif
     _RFRN.wheelencoder_enabled = AP::wheelencoder() && (AP::wheelencoder()->num_sensors() > 0);
+    _RFRN.ekf_type = ahrs.get_ekf_type();
     WRITE_REPLAY_BLOCK_IFCHANGED(RFRN, _RFRN, old);
 
     // update body conversion
@@ -85,9 +86,11 @@ void AP_DAL::start_frame(AP_DAL::FrameType frametype)
     if (_rangefinder) {
         _rangefinder->start_frame();
     }
+#if AP_BEACON_ENABLED
     if (_beacon) {
         _beacon->start_frame();
     }
+#endif
 #if HAL_VISUALODOM_ENABLED
     if (_visualodom) {
         _visualodom->start_frame();
@@ -136,10 +139,12 @@ void AP_DAL::init_sensors(void)
     }
 #endif
 
+#if AP_BEACON_ENABLED
     auto *bcn = AP::beacon();
     if (bcn != nullptr && bcn->enabled()) {
         alloc_failed |= (_beacon = new AP_DAL_Beacon) == nullptr;
     }
+#endif
 
 #if HAL_VISUALODOM_ENABLED
     auto *vodom = AP::visualodom();
@@ -317,7 +322,7 @@ bool AP_DAL::ekf_low_time_remaining(EKFType etype, uint8_t core)
 }
 
 // log optical flow data
-void AP_DAL::writeOptFlowMeas(const uint8_t rawFlowQuality, const Vector2f &rawFlowRates, const Vector2f &rawGyroRates, const uint32_t msecFlowMeas, const Vector3f &posOffset)
+void AP_DAL::writeOptFlowMeas(const uint8_t rawFlowQuality, const Vector2f &rawFlowRates, const Vector2f &rawGyroRates, const uint32_t msecFlowMeas, const Vector3f &posOffset, float heightOverride)
 {
     end_frame();
 
@@ -327,6 +332,7 @@ void AP_DAL::writeOptFlowMeas(const uint8_t rawFlowQuality, const Vector2f &rawF
     _ROFH.rawGyroRates = rawGyroRates;
     _ROFH.msecFlowMeas = msecFlowMeas;
     _ROFH.posOffset = posOffset;
+    _ROFH.heightOverride = heightOverride;
     WRITE_REPLAY_BLOCK_IFCHANGED(ROFH, _ROFH, old);
 }
 
@@ -436,8 +442,8 @@ void AP_DAL::handle_message(const log_RFRF &msg, NavEKF2 &ekf2, NavEKF3 &ekf3)
 void AP_DAL::handle_message(const log_ROFH &msg, NavEKF2 &ekf2, NavEKF3 &ekf3)
 {
     _ROFH = msg;
-    ekf2.writeOptFlowMeas(msg.rawFlowQuality, msg.rawFlowRates, msg.rawGyroRates, msg.msecFlowMeas, msg.posOffset);
-    ekf3.writeOptFlowMeas(msg.rawFlowQuality, msg.rawFlowRates, msg.rawGyroRates, msg.msecFlowMeas, msg.posOffset);
+    ekf2.writeOptFlowMeas(msg.rawFlowQuality, msg.rawFlowRates, msg.rawGyroRates, msg.msecFlowMeas, msg.posOffset, msg.heightOverride);
+    ekf3.writeOptFlowMeas(msg.rawFlowQuality, msg.rawFlowRates, msg.rawGyroRates, msg.msecFlowMeas, msg.posOffset, msg.heightOverride);
 }
 
 /*

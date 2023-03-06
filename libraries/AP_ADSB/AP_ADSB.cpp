@@ -27,9 +27,9 @@
 #include "AP_ADSB_uAvionix_UCP.h"
 #include "AP_ADSB_Sagetech.h"
 #include "AP_ADSB_Sagetech_MXS.h"
-#include <AP_Vehicle/AP_Vehicle.h>
 #include <GCS_MAVLink/GCS.h>
 #include <AP_Logger/AP_Logger.h>
+#include <AP_Vehicle/AP_Vehicle_Type.h>
 
 
 #define VEHICLE_TIMEOUT_MS              5000   // if no updates in this time, drop it from the list
@@ -180,7 +180,7 @@ AP_ADSB::AP_ADSB()
     _singleton = this;
 
 #ifdef ADSB_STATIC_CALLSIGN
-    strncpy(&out_state.cfg.callsign, ADSB_STATIC_CALLSIGN, sizeof(out_state.cfg.callsign));
+    strncpy(out_state.cfg.callsign, ADSB_STATIC_CALLSIGN, sizeof(out_state.cfg.callsign));
 #endif
 }
 
@@ -680,7 +680,7 @@ void AP_ADSB::handle_transceiver_report(const mavlink_channel_t chan, const mavl
 void AP_ADSB::send_adsb_out_status(const mavlink_channel_t chan) const
 {
     for (uint8_t i=0; i < ADSB_MAX_INSTANCES; i++) {
-        if (_type[i] == (int8_t)(AP_ADSB::Type::uAvionix_UCP) || (int8_t)(AP_ADSB::Type::Sagetech_MXS)) {
+        if (_type[i] == (int8_t)(AP_ADSB::Type::uAvionix_UCP) || _type[i] == (int8_t)(AP_ADSB::Type::Sagetech_MXS)) {
             mavlink_msg_uavionix_adsb_out_status_send_struct(chan, &out_state.tx_status);
             return;
         }

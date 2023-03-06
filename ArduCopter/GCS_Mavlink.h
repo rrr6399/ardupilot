@@ -21,14 +21,14 @@ protected:
     bool params_ready() const override;
     void send_banner() override;
 
-    MAV_RESULT _handle_command_preflight_calibration(const mavlink_command_long_t &packet) override;
+    MAV_RESULT _handle_command_preflight_calibration(const mavlink_command_long_t &packet, const mavlink_message_t &msg) override;
 
     void send_attitude_target() override;
     void send_position_target_global_int() override;
     void send_position_target_local_ned() override;
 
     MAV_RESULT handle_command_do_set_roi(const Location &roi_loc) override;
-    MAV_RESULT handle_preflight_reboot(const mavlink_command_long_t &packet) override;
+    MAV_RESULT handle_preflight_reboot(const mavlink_command_long_t &packet, const mavlink_message_t &msg) override;
 #if HAL_MOUNT_ENABLED
     MAV_RESULT handle_command_mount(const mavlink_command_long_t &packet) override;
 #endif
@@ -50,6 +50,8 @@ protected:
 
     virtual MAV_VTOL_STATE vtol_state() const override { return MAV_VTOL_STATE_MC; };
     virtual MAV_LANDED_STATE landed_state() const override;
+
+    void handle_manual_control_axes(const mavlink_manual_control_t &packet, const uint32_t tnow) override;
 
 private:
 

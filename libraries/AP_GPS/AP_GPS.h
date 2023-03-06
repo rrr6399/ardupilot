@@ -92,8 +92,7 @@ public:
     AP_GPS();
 
     /* Do not allow copies */
-    AP_GPS(const AP_GPS &other) = delete;
-    AP_GPS &operator=(const AP_GPS&) = delete;
+    CLASS_NO_COPY(AP_GPS);
 
     static AP_GPS *get_singleton() {
         return _singleton;
@@ -129,6 +128,8 @@ public:
         GPS_TYPE_EXTERNAL_AHRS = 21,
         GPS_TYPE_UAVCAN_RTK_BASE = 22,
         GPS_TYPE_UAVCAN_RTK_ROVER = 23,
+        GPS_TYPE_UNICORE_NMEA = 24,
+        GPS_TYPE_UNICORE_MOVINGBASE_NMEA = 25,
 #if HAL_SIM_GPS_ENABLED
         GPS_TYPE_SITL = 100,
 #endif

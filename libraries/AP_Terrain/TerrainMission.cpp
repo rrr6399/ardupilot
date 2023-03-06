@@ -16,17 +16,16 @@
   handle checking mission points for terrain data
  */
 
+#include "AP_Terrain.h"
+
+#if AP_TERRAIN_AVAILABLE
+
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Common/AP_Common.h>
 #include <AP_Math/AP_Math.h>
 #include <AP_Mission/AP_Mission.h>
 #include <AP_Rally/AP_Rally.h>
-#include <GCS_MAVLink/GCS_MAVLink.h>
-#include <GCS_MAVLink/GCS.h>
-#include "AP_Terrain.h"
 #include <AP_GPS/AP_GPS.h>
-
-#if AP_TERRAIN_AVAILABLE
 
 extern const AP_HAL::HAL& hal;
 
@@ -115,6 +114,7 @@ void AP_Terrain::update_mission_data(void)
 #endif  // AP_MISSION_ENABLED
 }
 
+#if HAL_RALLY_ENABLED
 /*
   check that we have fetched all rally terrain data
  */
@@ -171,5 +171,6 @@ void AP_Terrain::update_rally_data(void)
         next_rally_index++;
     }
 }
+#endif
 
 #endif // AP_TERRAIN_AVAILABLE

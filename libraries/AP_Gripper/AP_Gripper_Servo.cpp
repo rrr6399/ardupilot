@@ -1,6 +1,10 @@
 #include <AP_Gripper/AP_Gripper_Servo.h>
+
+#if AP_GRIPPER_SERVO_ENABLED
+
 #include <GCS_MAVLink/GCS.h>
 #include <AP_Logger/AP_Logger.h>
+#include <SRV_Channel/SRV_Channel.h>
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
   #include <SITL/SITL.h>
@@ -115,3 +119,5 @@ bool AP_Gripper_Servo::valid() const
     }
     return true;
 }
+
+#endif  // AP_GRIPPER_SERVO_ENABLED

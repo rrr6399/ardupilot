@@ -28,17 +28,17 @@
   #define SCRIPTING_MAX_NUM_I2C_DEVICE 4
 #endif
 
+#define SCRIPTING_MAX_NUM_PWM_SOURCE 4
+
 class AP_Scripting
 {
 public:
     AP_Scripting();
 
     /* Do not allow copies */
-    AP_Scripting(const AP_Scripting &other) = delete;
-    AP_Scripting &operator=(const AP_Scripting&) = delete;
+    CLASS_NO_COPY(AP_Scripting);
 
     void init(void);
-    bool init_failed(void) const { return _init_failed; }
 
     bool enabled(void) const { return _enable != 0; };
     bool should_run(void) const { return enabled() && !_stop; }
@@ -50,6 +50,10 @@ public:
     MAV_RESULT handle_command_int_packet(const mavlink_command_int_t &packet);
 
     void handle_mission_command(const class AP_Mission::Mission_Command& cmd);
+
+    bool arming_checks(size_t buflen, char *buffer) const;
+    
+    void restart_all(void);
 
    // User parameters for inputs into scripts 
    AP_Float _user[6];
@@ -87,6 +91,10 @@ public:
     };
     ObjectBuffer<struct scripting_mission_cmd> * mission_data;
 
+    // PWMSource storage
+    uint8_t num_pwm_source;
+    AP_HAL::PWMSource *_pwm_source[SCRIPTING_MAX_NUM_PWM_SOURCE];
+
 private:
 
     bool repl_start(void);
@@ -102,6 +110,7 @@ private:
     AP_Int8 _debug_options;
     AP_Int16 _dir_disable;
 
+    bool _thread_failed; // thread allocation failed
     bool _init_failed;  // true if memory allocation failed
     bool _restart; // true if scripts should be restarted
     bool _stop; // true if scripts should be stopped

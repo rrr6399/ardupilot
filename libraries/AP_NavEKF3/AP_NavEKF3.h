@@ -35,8 +35,7 @@ public:
     NavEKF3();
 
     /* Do not allow copies */
-    NavEKF3(const NavEKF3 &other) = delete;
-    NavEKF3 &operator=(const NavEKF3&) = delete;
+    CLASS_NO_COPY(NavEKF3);
 
     static const struct AP_Param::GroupInfo var_info[];
     static const struct AP_Param::GroupInfo var_info2[];
@@ -83,6 +82,10 @@ public:
     // return estimate of true airspeed vector in body frame in m/s
     // returns false if estimate is unavailable
     bool getAirSpdVec(Vector3f &vel) const;
+
+    // return the innovation in m/s, innovation variance in (m/s)^2 and age in msec of the last TAS measurement processed
+    // returns false if the data is unavilable
+    bool getAirSpdHealthData(float &innovation, float &innovationVariance, uint32_t &age_ms) const;
 
     // Return the rate of change of vertical position in the down direction (dPosD/dt) in m/s
     // This can be different to the z component of the EKF velocity state because it will fluctuate with height errors and corrections in the EKF
@@ -136,12 +139,12 @@ public:
     // If a calculated location isn't available, return a raw GPS measurement
     // The status will return true if a calculation or raw measurement is available
     // The getFilterStatus() function provides a more detailed description of data health and must be checked if data is to be used for flight control
-    bool getLLH(struct Location &loc) const;
+    bool getLLH(Location &loc) const;
 
     // Return the latitude and longitude and height used to set the NED origin
     // All NED positions calculated by the filter are relative to this location
     // Returns false if the origin has not been set
-    bool getOriginLLH(struct Location &loc) const;
+    bool getOriginLLH(Location &loc) const;
 
     // set the latitude and longitude and height used to set the NED origin
     // All NED positions calculated by the filter will be relative to this location
@@ -186,7 +189,8 @@ public:
     // The sign convention is that a RH physical rotation of the sensor about an axis produces both a positive flow and gyro rate
     // msecFlowMeas is the scheduler time in msec when the optical flow data was received from the sensor.
     // posOffset is the XYZ flow sensor position in the body frame in m
-    void writeOptFlowMeas(const uint8_t rawFlowQuality, const Vector2f &rawFlowRates, const Vector2f &rawGyroRates, const uint32_t msecFlowMeas, const Vector3f &posOffset);
+    // heightOverride is the fixed height of the sensor above ground in m, when on rover vehicles. 0 if not used
+    void writeOptFlowMeas(const uint8_t rawFlowQuality, const Vector2f &rawFlowRates, const Vector2f &rawGyroRates, const uint32_t msecFlowMeas, const Vector3f &posOffset, float heightOverride);
 
     // retrieve latest corrected optical flow samples (used for calibration)
     bool getOptFlowSample(uint32_t& timeStamp_ms, Vector2f& flowRate, Vector2f& bodyRate, Vector2f& losPred) const;
@@ -308,6 +312,9 @@ public:
     // allow the enable flag to be set by Replay
     void set_enable(bool enable) { _enable.set_enable(enable); }
 
+    // get the enable parameter
+    bool get_enable(void) const { return bool(_enable.get()); }
+    
     /*
       check if switching lanes will reduce the normalised
       innovations. This is called when the vehicle code is about to
@@ -518,7 +525,7 @@ private:
     uint64_t coreLastTimePrimary_us[MAX_EKF_CORES]; // last time we were using this core as primary
 
     // origin set by one of the cores
-    struct Location common_EKF_origin;
+    Location common_EKF_origin;
     bool common_origin_valid;
     
     // update the yaw reset data to capture changes due to a lane switch

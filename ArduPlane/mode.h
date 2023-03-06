@@ -7,6 +7,7 @@
 #include <AP_ADSB/AP_ADSB.h>
 #include <AP_Vehicle/ModeReason.h>
 #include "quadplane.h"
+#include <AP_AHRS/AP_AHRS.h>
 
 class AC_PosControl;
 class AC_AttitudeControl_Multi;
@@ -16,8 +17,7 @@ class Mode
 public:
 
     /* Do not allow copies */
-    Mode(const Mode &other) = delete;
-    Mode &operator=(const Mode&) = delete;
+    CLASS_NO_COPY(Mode);
 
     // Auto Pilot modes
     // ----------------
@@ -77,7 +77,7 @@ public:
     virtual const char *name4() const = 0;
 
     // returns true if the vehicle can be armed in this mode
-    virtual bool allows_arming() const { return true; }
+    bool pre_arm_checks(size_t buflen, char *buffer) const;
 
     //
     // methods that sub classes should override to affect movement of the vehicle in this mode
@@ -114,9 +114,13 @@ public:
     // true if the mode sets the vehicle destination, which controls
     // whether control input is ignored with STICK_MIXING=0
     virtual bool does_auto_throttle() const { return false; }
+    
+    // true if the mode supports autotuning (via switch for modes other
+    // that AUTOTUNE itself
+    virtual bool mode_allows_autotuning() const { return false; }
 
     // method for mode specific target altitude profiles
-    virtual bool update_target_altitude() { return false; }
+    virtual void update_target_altitude();
 
     // handle a guided target request from GCS
     virtual bool handle_guided_request(Location target_loc) { return false; }
@@ -129,6 +133,9 @@ protected:
     // subclasses override this to perform any required cleanup when exiting the mode
     virtual void _exit() { return; }
 
+    // mode specific pre-arm checks
+    virtual bool _pre_arm_checks(size_t buflen, char *buffer) const;
+
 #if HAL_QUADPLANE_ENABLED
     // References for convenience, used by QModes
     AC_PosControl*& pos_control;
@@ -137,11 +144,13 @@ protected:
     QuadPlane& quadplane;
     QuadPlane::PosControlState &poscontrol;
 #endif
+    AP_AHRS& ahrs;
 };
 
 
 class ModeAcro : public Mode
 {
+friend class ModeQAcro;
 public:
 
     Mode::Number mode_number() const override { return Mode::Number::ACRO; }
@@ -151,7 +160,25 @@ public:
     // methods that affect movement of the vehicle in this mode
     void update() override;
 
+    void run() override;
+
+    void stabilize();
+
+    void stabilize_quaternion();
+
 protected:
+
+    // ACRO controller state
+    struct {
+        bool locked_roll;
+        bool locked_pitch;
+        float locked_roll_err;
+        int32_t locked_pitch_cd;
+        Quaternion q;
+        bool roll_active_last;
+        bool pitch_active_last;
+        bool yaw_active_last;
+    } acro_state;
 
     bool _enter() override;
 };
@@ -176,11 +203,14 @@ public:
     bool does_auto_navigation() const override;
 
     bool does_auto_throttle() const override;
+    
+    bool mode_allows_autotuning() const override { return true; }
 
 protected:
 
     bool _enter() override;
     void _exit() override;
+    bool _pre_arm_checks(size_t buflen, char *buffer) const override;
 };
 
 
@@ -194,11 +224,12 @@ public:
 
     // methods that affect movement of the vehicle in this mode
     void update() override;
+    
+    bool mode_allows_autotuning() const override { return true; }
 
 protected:
 
     bool _enter() override;
-    void _exit() override;
 };
 
 class ModeGuided : public Mode
@@ -225,9 +256,17 @@ public:
     // handle a guided target request from GCS
     bool handle_guided_request(Location target_loc) override;
 
+    void set_radius_and_direction(const float radius, const bool direction_is_ccw);
+
+    void update_target_altitude() override;
+
 protected:
 
     bool _enter() override;
+    bool _pre_arm_checks(size_t buflen, char *buffer) const override { return true; }
+
+private:
+    float active_radius_m;
 };
 
 class ModeCircle: public Mode
@@ -271,8 +310,12 @@ public:
     bool does_auto_navigation() const override { return true; }
 
     bool does_auto_throttle() const override { return true; }
-    
+
     bool allows_terrain_disable() const override { return true; }
+
+    void update_target_altitude() override;
+    
+    bool mode_allows_autotuning() const override { return true; }
 
 protected:
 
@@ -337,11 +380,12 @@ public:
 protected:
 
     bool _enter() override;
+    bool _pre_arm_checks(size_t buflen, char *buffer) const override { return false; }
 
 private:
 
     // Switch to QRTL if enabled and within radius
-    bool switch_QRTL(bool check_loiter_target = true);
+    bool switch_QRTL();
 };
 
 class ModeStabilize : public Mode
@@ -366,6 +410,9 @@ public:
 
     // methods that affect movement of the vehicle in this mode
     void update() override;
+
+    void run() override;
+
 };
 
 class ModeInitializing : public Mode
@@ -381,11 +428,13 @@ public:
     // methods that affect movement of the vehicle in this mode
     void update() override { }
 
-    bool allows_arming() const override { return false; }
-
     bool allows_throttle_nudging() const override { return true; }
 
     bool does_auto_throttle() const override { return true; }
+
+protected:
+    bool _pre_arm_checks(size_t buflen, char *buffer) const override { return false; }
+
 };
 
 class ModeFBWA : public Mode
@@ -398,6 +447,8 @@ public:
 
     // methods that affect movement of the vehicle in this mode
     void update() override;
+    
+    bool mode_allows_autotuning() const override { return true; }
 
 };
 
@@ -417,6 +468,10 @@ public:
     void update() override;
 
     bool does_auto_throttle() const override { return true; }
+    
+    bool mode_allows_autotuning() const override { return true; }
+
+    void update_target_altitude() override {};
 
 protected:
 
@@ -443,6 +498,8 @@ public:
     bool get_target_heading_cd(int32_t &target_heading) const;
 
     bool does_auto_throttle() const override { return true; }
+
+    void update_target_altitude() override {};
 
 protected:
 
@@ -566,11 +623,11 @@ public:
 
     void run() override;
 
-    bool allows_arming() const override { return false; }
-
 protected:
 
     bool _enter() override;
+    bool _pre_arm_checks(size_t buflen, char *buffer) const override { return false; }
+
 };
 
 class ModeQRTL : public Mode
@@ -588,17 +645,18 @@ public:
 
     void run() override;
 
-    bool allows_arming() const override { return false; }
-
     bool does_auto_throttle() const override { return true; }
 
-    bool update_target_altitude() override;
+    void update_target_altitude() override;
 
     bool allows_throttle_nudging() const override;
+
+    float get_VTOL_return_radius() const;
 
 protected:
 
     bool _enter() override;
+    bool _pre_arm_checks(size_t buflen, char *buffer) const override { return false; }
 
 private:
 
@@ -613,8 +671,8 @@ class ModeQAcro : public Mode
 public:
 
     Number mode_number() const override { return Number::QACRO; }
-    const char *name() const override { return "QACO"; }
-    const char *name4() const override { return "QACRO"; }
+    const char *name() const override { return "QACRO"; }
+    const char *name4() const override { return "QACO"; }
 
     bool is_vtol_mode() const override { return true; }
     bool is_vtol_man_throttle() const override { return true; }
@@ -679,10 +737,12 @@ public:
     // var_info for holding parameter information
     static const struct AP_Param::GroupInfo var_info[];
 
-protected:
     AP_Int16 target_alt;
-    AP_Int16 target_dist;
     AP_Int16 level_alt;
+    AP_Float ground_pitch;
+
+protected:
+    AP_Int16 target_dist;
     AP_Int8 level_pitch;
 
     bool takeoff_started;

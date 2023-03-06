@@ -13,6 +13,7 @@
 #include <AP_AHRS/AP_AHRS.h>
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Logger/AP_Logger.h>
+#include <GCS_MAVLink/GCS.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -543,13 +544,13 @@ uint8_t AC_Fence::check()
 {
     uint8_t ret = 0;
 
+    // clear any breach from a non-enabled fence
+    clear_breach(~_enabled_fences);
+
     // return immediately if disabled
     if ((!_enabled && !_auto_enabled) || !_enabled_fences) {
         return 0;
     }
-
-    // clear any breach from a non-enabled fence
-    clear_breach(~_enabled_fences);
 
     // check if pilot is attempting to recover manually
     if (_manual_recovery_start_ms != 0) {

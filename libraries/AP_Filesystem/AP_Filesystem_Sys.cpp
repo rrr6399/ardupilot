@@ -19,6 +19,9 @@
  */
 #include "AP_Filesystem.h"
 #include "AP_Filesystem_Sys.h"
+
+#if AP_FILESYSTEM_SYS_ENABLED
+
 #include <AP_Math/AP_Math.h>
 #include <AP_CANManager/AP_CANManager.h>
 #include <AP_Scheduler/AP_Scheduler.h>
@@ -95,7 +98,7 @@ int AP_Filesystem_Sys::open(const char *fname, int flags, bool allow_absolute_pa
     if (strcmp(fname, "threads.txt") == 0) {
         hal.util->thread_info(*r.str);
     }
-#if HAL_SCHEDULER_ENABLED
+#if AP_SCHEDULER_ENABLED
     if (strcmp(fname, "tasks.txt") == 0) {
         AP::scheduler().task_info(*r.str);
     }
@@ -281,3 +284,5 @@ int AP_Filesystem_Sys::stat(const char *pathname, struct stat *stbuf)
     }
     return 0;
 }
+
+#endif  // AP_FILESYSTEM_SYS_ENABLED

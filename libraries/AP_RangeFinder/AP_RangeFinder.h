@@ -62,8 +62,7 @@ public:
     RangeFinder();
 
     /* Do not allow copies */
-    RangeFinder(const RangeFinder &other) = delete;
-    RangeFinder &operator=(const RangeFinder&) = delete;
+    CLASS_NO_COPY(RangeFinder);
 
     // RangeFinder driver types
     enum class Type {
@@ -103,6 +102,7 @@ public:
         USD1_CAN = 33,
         Benewake_CAN = 34,
         TeraRanger_Serial = 35,
+        Lua_Scripting = 36,
         SIM = 100,
     };
 
@@ -219,12 +219,9 @@ private:
     RangeFinder_State state[RANGEFINDER_MAX_INSTANCES];
     AP_RangeFinder_Backend *drivers[RANGEFINDER_MAX_INSTANCES];
     uint8_t num_instances;
-    bool init_done;
     HAL_Semaphore detect_sem;
     float estimated_terrain_height;
     Vector3f pos_offset_zero;   // allows returning position offsets of zero for invalid requests
-
-    void convert_params(void);
 
     void detect_instance(uint8_t instance, uint8_t& serial_instance);
 

@@ -87,7 +87,7 @@ const AP_Scheduler::Task Sub::scheduler_tasks[] = {
 #if HAL_MOUNT_ENABLED
     SCHED_TASK_CLASS(AP_Mount,            &sub.camera_mount, update,              50,  75,  45),
 #endif
-#if CAMERA == ENABLED
+#if AP_CAMERA_ENABLED
     SCHED_TASK_CLASS(AP_Camera,           &sub.camera,       update,              50,  75,  48),
 #endif
     SCHED_TASK(ten_hz_logging_loop,   10,    350,  51),
@@ -95,11 +95,11 @@ const AP_Scheduler::Task Sub::scheduler_tasks[] = {
     SCHED_TASK_CLASS(AP_Logger,           &sub.logger,       periodic_tasks,     400, 300,  57),
     SCHED_TASK_CLASS(AP_InertialSensor,   &sub.ins,          periodic,           400,  50,  60),
     SCHED_TASK_CLASS(AP_Scheduler,        &sub.scheduler,    update_logging,     0.1,  75,  63),
-#if RPM_ENABLED == ENABLED
+#if AP_RPM_ENABLED
     SCHED_TASK_CLASS(AP_RPM,              &sub.rpm_sensor,   update,              10, 200,  66),
 #endif
     SCHED_TASK(terrain_update,        10,    100,  72),
-#if GRIPPER_ENABLED == ENABLED
+#if AP_GRIPPER_ENABLED
     SCHED_TASK_CLASS(AP_Gripper,          &sub.g2.gripper,   update,              10,  75,  75),
 #endif
 #ifdef USERHOOK_FASTLOOP
@@ -132,9 +132,14 @@ constexpr int8_t Sub::_failsafe_priorities[5];
 
 void Sub::run_rate_controller()
 {
+    const float last_loop_time_s = AP::scheduler().get_last_loop_time_s();
+    motors.set_dt(last_loop_time_s);
+    attitude_control.set_dt(last_loop_time_s);
+    pos_control.set_dt(last_loop_time_s);
+
     //don't run rate controller in manual or motordetection modes
     if (control_mode != MANUAL && control_mode != MOTOR_DETECT) {
-        // run low level rate controllers that only require IMU data
+        // run low level rate controllers that only require IMU data and set loop time
         attitude_control.rate_controller_run();
     }
 }

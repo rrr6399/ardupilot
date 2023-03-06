@@ -25,12 +25,14 @@ class Board(object):
             'Sub',
         ]
 
+
 def in_blacklist(blacklist, b):
     '''return true if board b is in the blacklist, including wildcards'''
     for bl in blacklist:
         if fnmatch.fnmatch(b, bl):
             return True
     return False
+
 
 class BoardList(object):
 
@@ -134,8 +136,12 @@ class BoardList(object):
 
             # bdshot
             "fmuv3-bdshot",
-            "OMNIBUSF7V2-bdshot",
-            "Pixhawk1-1M-bdshot",
+
+            # renamed to KakuteH7Mini-Nand
+            "KakuteH7Miniv2",
+
+            # renamed to AtomRCF405NAVI
+            "AtomRCF405"
 
             # other
             "crazyflie2",
@@ -144,7 +150,9 @@ class BoardList(object):
             "MazzyStarDrone",
             "omnibusf4pro-one",
             "skyviper-f412-rev1",
+            "SkystarsH7HD",
             "*-ODID",
+            "*-ODID-heli",
         ]
 
         ret = filter(lambda x : not in_blacklist(blacklist, x), ret)
@@ -170,7 +178,6 @@ class BoardList(object):
             "f103-HWESC",
             "f103-Trigger",
             "G4-ESC",
-            "HereID",
             "HerePro",
         ]
         ret = []

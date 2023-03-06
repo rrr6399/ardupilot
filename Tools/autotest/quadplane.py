@@ -88,7 +88,7 @@ class AutoTestQuadPlane(AutoTest):
     def set_autodisarm_delay(self, delay):
         self.set_parameter("LAND_DISARMDELAY", delay)
 
-    def test_airmode(self):
+    def AirMode(self):
         """Check that plane.air_mode turns on and off as required"""
         self.progress("########## Testing AirMode operation")
         self.set_parameter("AHRS_EKF_TYPE", 10)
@@ -255,10 +255,10 @@ class AutoTestQuadPlane(AutoTest):
             self.disarm_vehicle(force=True)
             self.wait_ready_to_arm()
 
-    def test_motor_mask(self):
+    def TestMotorMask(self):
         """Check operation of output_motor_mask"""
         """copter tailsitters will add condition: or (int(self.get_parameter('Q_TAILSIT_MOTMX')) & 1)"""
-        if not(int(self.get_parameter('Q_TILT_MASK')) & 1):
+        if not (int(self.get_parameter('Q_TILT_MASK')) & 1):
             self.progress("output_motor_mask not in use")
             return
         self.progress("Testing output_motor_mask")
@@ -266,7 +266,7 @@ class AutoTestQuadPlane(AutoTest):
 
         """Default channel for Motor1 is 5"""
         self.progress('Assert that SERVO5 is Motor1')
-        assert(33 == self.get_parameter('SERVO5_FUNCTION'))
+        assert 33 == self.get_parameter('SERVO5_FUNCTION')
 
         modes = ('MANUAL', 'FBWA', 'QHOVER')
         for mode in modes:
@@ -282,79 +282,22 @@ class AutoTestQuadPlane(AutoTest):
             self.disarm_vehicle()
             self.wait_ready_to_arm()
 
-    def fly_mission(self, filename, fence=None, height_accuracy=-1, include_terrain_timeout=False):
+    def fly_mission(self, filename, fence=None, height_accuracy=-1):
         """Fly a mission from a file."""
         self.progress("Flying mission %s" % filename)
-        self.load_mission(filename)
-        if fence is not None:
-            self.load_fence(fence)
+        num_wp = self.load_mission(filename)
         if self.mavproxy is not None:
             self.mavproxy.send('wp list\n')
-        self.install_terrain_handlers_context()
-        self.wait_ready_to_arm()
-        self.arm_vehicle()
+        if fence is not None:
+            self.load_fence(fence)
+            if self.mavproxy is not None:
+                self.mavproxy.send('fence list\n')
+        # self.install_terrain_handlers_context()
         self.change_mode('AUTO')
-        self.wait_waypoint(1, 19, max_dist=60, timeout=1200)
-
-        self.wait_disarmed(timeout=120) # give quadplane a long time to land
-        # wait for blood sample here
-        self.set_current_waypoint(20)
         self.wait_ready_to_arm()
         self.arm_vehicle()
-        self.wait_waypoint(20, 34, max_dist=60, timeout=1200)
-
+        self.wait_waypoint(1, num_wp-1)
         self.wait_disarmed(timeout=120) # give quadplane a long time to land
-        self.progress("Mission OK")
-
-    def enum_state_name(self, enum_name, state, pretrim=None):
-        e = mavutil.mavlink.enums[enum_name]
-        e_value = e[state]
-        name = e_value.name
-        if pretrim is not None:
-            if not pretrim.startswith(pretrim):
-                raise NotAchievedException("Expected %s to pretrim" % (pretrim))
-            name = name.replace(pretrim, "")
-        return name
-
-    def vtol_state_name(self, state):
-        return self.enum_state_name("MAV_VTOL_STATE", state, pretrim="MAV_VTOL_STATE_")
-
-    def landed_state_name(self, state):
-        return self.enum_state_name("MAV_LANDED_STATE", state, pretrim="MAV_LANDED_STATE_")
-
-    def assert_extended_sys_state(self, vtol_state, landed_state):
-        m = self.assert_receive_message('EXTENDED_SYS_STATE', timeout=1)
-        if m.vtol_state != vtol_state:
-            raise ValueError("Bad MAV_VTOL_STATE.  Want=%s got=%s" %
-                             (self.vtol_state_name(vtol_state),
-                              self.vtol_state_name(m.vtol_state)))
-        if m.landed_state != landed_state:
-            raise ValueError("Bad MAV_LANDED_STATE.  Want=%s got=%s" %
-                             (self.landed_state_name(landed_state),
-                              self.landed_state_name(m.landed_state)))
-
-    def wait_extended_sys_state(self, vtol_state, landed_state, timeout=10):
-        tstart = self.get_sim_time()
-        while True:
-            if self.get_sim_time() - tstart > timeout:
-                raise NotAchievedException("Did not achieve vol/landed states")
-            self.progress("Waiting for MAV_VTOL_STATE=%s MAV_LANDED_STATE=%s" %
-                          (self.vtol_state_name(vtol_state),
-                           self.landed_state_name(landed_state)))
-            m = self.assert_receive_message('EXTENDED_SYS_STATE', verbose=True)
-            if m.landed_state != landed_state:
-                self.progress("Wrong MAV_LANDED_STATE (want=%s got=%s)" %
-                              (self.landed_state_name(landed_state),
-                               self.landed_state_name(m.landed_state)))
-                continue
-            if m.vtol_state != vtol_state:
-                self.progress("Wrong MAV_VTOL_STATE (want=%s got=%s)" %
-                              (self.vtol_state_name(vtol_state),
-                               self.vtol_state_name(m.vtol_state)))
-                continue
-
-            self.progress("vtol and landed states match")
-            return
 
     def EXTENDED_SYS_STATE_SLT(self):
         self.set_message_rate_hz(mavutil.mavlink.MAVLINK_MSG_ID_EXTENDED_SYS_STATE, 10)
@@ -406,6 +349,7 @@ class AutoTestQuadPlane(AutoTest):
         self.mav.motors_disarmed_wait()
 
     def EXTENDED_SYS_STATE(self):
+        '''Check extended sys state works'''
         self.EXTENDED_SYS_STATE_SLT()
 
     def fly_qautotune(self):
@@ -566,7 +510,7 @@ class AutoTestQuadPlane(AutoTest):
 
         return freq
 
-    def fly_gyro_fft(self):
+    def GyroFFT(self):
         """Use dynamic harmonic notch to control motor noise."""
         # basic gyro sample rate test
         self.progress("Flying with gyro FFT - Gyro sample rate")
@@ -677,11 +621,13 @@ class AutoTestQuadPlane(AutoTest):
         if ex is not None:
             raise ex
 
-    def test_pid_tuning(self):
+    def PIDTuning(self):
+        '''Test PID Tuning'''
         self.change_mode("FBWA") # we don't update PIDs in MANUAL
-        super(AutoTestQuadPlane, self).test_pid_tuning()
+        super(AutoTestQuadPlane, self).PIDTuning()
 
-    def test_parameter_checks(self):
+    def ParameterChecks(self):
+        '''basic parameter checks'''
         self.test_parameter_checks_poscontrol("Q_P")
 
     def rc_defaults(self):
@@ -701,6 +647,7 @@ class AutoTestQuadPlane(AutoTest):
         }
 
     def BootInAUTO(self):
+        '''Test behaviour when booting in auto'''
         self.load_mission("mission.txt")
         self.set_parameters({
         })
@@ -722,7 +669,8 @@ class AutoTestQuadPlane(AutoTest):
         self.change_mode('QLAND')
         self.wait_disarmed(timeout=60)
 
-    def test_pilot_yaw(self):
+    def PilotYaw(self):
+        '''Test pilot yaw in various modes'''
         self.takeoff(10, mode="QLOITER")
         self.set_parameter("STICK_MIXING", 0)
         self.set_rc(4, 1700)
@@ -734,7 +682,8 @@ class AutoTestQuadPlane(AutoTest):
         self.set_rc(4, 1500)
         self.do_RTL()
 
-    def weathervane_test(self):
+    def Weathervane(self):
+        '''test nose-into-wind functionality'''
         # We test nose into wind code paths and yaw direction in copter autotest,
         # so we shall test the side into wind yaw direction and plane code paths here.
         self.set_parameters({"SIM_WIND_SPD": 10,
@@ -759,7 +708,8 @@ class AutoTestQuadPlane(AutoTest):
         '''In lockup Plane should copy RC inputs to RC outputs'''
         self.plane_CPUFailsafe()
 
-    def test_qassist(self):
+    def QAssist(self):
+        '''QuadPlane Assist tests'''
         # find a motor peak
         self.takeoff(10, mode="QHOVER")
         self.set_rc(3, 1800)
@@ -812,7 +762,139 @@ class AutoTestQuadPlane(AutoTest):
         self.change_mode("RTL")
         self.wait_disarmed(timeout=300)
 
-    def tailsitter(self):
+    def LoiterAltQLand(self):
+        '''test loitering and qland with terrain involved'''
+        self.LoiterAltQLand_Terrain(
+            home="LakeGeorgeLookout",
+            ofs_n=0,
+            ofs_e=300,
+        )
+#        self.LoiterAltQLand_Terrain(
+#            home="KalaupapaCliffs",
+#            ofs_n=500,
+#            ofs_e=500,
+#        )
+        self.LoiterAltQLand_Relative()
+
+    def LoiterAltQLand_Relative(self):
+        '''test failsafe where vehicle loiters in fixed-wing mode to a
+        specific altitude then changes mode to QLAND'''
+        self.set_parameters({
+            'BATT_MONITOR': 4,  # LoiterAltQLand
+            'BATT_FS_LOW_ACT': 6,  # LoiterAltQLand
+        })
+        self.reboot_sitl()
+        takeoff_alt = 5
+        self.takeoff(takeoff_alt, mode='QLOITER')
+        loc = self.mav.location()
+        self.location_offset_ne(loc, 500, 500)
+        new_alt = 100
+        initial_altitude = self.get_altitude(relative=False, timeout=2)
+        self.run_cmd_int(
+            mavutil.mavlink.MAV_CMD_DO_REPOSITION,
+            0,
+            1,  # reposition flags; 1 means "change to guided"
+            0,
+            0,
+            int(loc.lat * 1e7),
+            int(loc.lng * 1e7),
+            new_alt,    # alt
+            frame=mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+        )
+        self.wait_altitude(
+            new_alt-1,
+            new_alt+1,
+            timeout=60,
+            relative=True,
+            minimum_duration=10)
+        self.wait_location(loc, timeout=120, accuracy=100)
+        self.progress("Triggering failsafe")
+        self.set_parameter('BATT_LOW_VOLT', 50)
+        self.wait_mode(25)  # LoiterAltQLand
+        self.drain_mav()
+        m = self.assert_receive_message('POSITION_TARGET_GLOBAL_INT', very_verbose=True)
+        q_rtl_alt = self.get_parameter('Q_RTL_ALT')
+        expected_alt = initial_altitude - takeoff_alt + q_rtl_alt
+
+        if abs(m.alt - expected_alt) > 20:
+            raise NotAchievedException("Unexpected altitude; expected=%f got=%f" %
+                                       (expected_alt, m.alt))
+        self.assert_mode('LOITERALTQLAND')
+        self.wait_mode('QLAND')
+        alt = self.get_altitude(relative=True)
+        if abs(alt - q_rtl_alt) > 2:
+            raise NotAchievedException("qland too late; want=%f got=%f" %
+                                       (alt, q_rtl_alt))
+
+        self.wait_disarmed(timeout=300)
+
+    def LoiterAltQLand_Terrain(self,
+                               home=None,
+                               ofs_n=None,
+                               ofs_e=None,
+                               reposition_alt=100):
+        '''test failsafe where vehicle loiters in fixed-wing mode to a
+        specific altitude then changes mode to QLAND'''
+        self.context_push()
+        self.install_terrain_handlers_context()
+        self.set_parameters({
+            'BATT_MONITOR': 4,  # LoiterAltQLand
+            'BATT_FS_LOW_ACT': 6,  # LoiterAltQLand
+            'TERRAIN_FOLLOW': 1,  # enabled in all modes
+        })
+        self.customise_SITL_commandline(
+            ["--home", home]
+        )
+        takeoff_alt = 5
+        self.takeoff(takeoff_alt, mode='QLOITER')
+        loc = self.mav.location()
+        self.location_offset_ne(loc, ofs_n, ofs_e)
+        initial_altitude = self.get_altitude(relative=False, timeout=2)
+        self.run_cmd_int(
+            mavutil.mavlink.MAV_CMD_DO_REPOSITION,
+            0,
+            1,  # reposition flags; 1 means "change to guided"
+            0,
+            0,
+            int(loc.lat * 1e7),
+            int(loc.lng * 1e7),
+            reposition_alt,    # alt
+            frame=mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+        )
+        self.wait_altitude(
+            reposition_alt-1,
+            reposition_alt+1,
+            timeout=60,
+            relative=True,
+            minimum_duration=10)
+
+        self.wait_location(loc, timeout=500, accuracy=100)
+
+        self.progress("Triggering failsafe")
+        self.set_parameter('BATT_LOW_VOLT', 50)
+        self.wait_mode(25)  # LoiterAltQLand
+        terrain_alt = self.get_terrain_height(verbose=True)
+        self.drain_mav()
+        m = self.assert_receive_message('POSITION_TARGET_GLOBAL_INT', very_verbose=True)
+        q_rtl_alt = self.get_parameter('Q_RTL_ALT')
+        expected_alt = terrain_alt + q_rtl_alt
+
+        if abs(m.alt - expected_alt) > 20:
+            raise NotAchievedException("Unexpected altitude; expected=%f got=%f" %
+                                       (expected_alt, m.alt))
+        self.assert_mode('LOITERALTQLAND')
+        self.wait_mode('QLAND')
+        alt = initial_altitude + self.get_altitude(relative=True)
+        if abs(alt - expected_alt) > 10:
+            raise NotAchievedException("qland too late; want=%f got=%f" %
+                                       (expected_alt, alt))
+
+        self.wait_disarmed(timeout=300)
+        self.zero_throttle()
+        self.reset_SITL_commandline()
+        self.context_pop()
+
+    def Tailsitter(self):
         '''tailsitter test'''
         self.set_parameter('Q_FRAME_CLASS', 10)
         self.set_parameter('Q_ENABLE', 1)
@@ -835,16 +917,19 @@ class AutoTestQuadPlane(AutoTest):
         self.disarm_vehicle()
 
     def ICEngine(self):
+        '''Test ICE Engine support'''
         rc_engine_start_chan = 11
         self.set_parameters({
-            'SERVO13_FUNCTION': 67,  # ignition
-            'SERVO14_FUNCTION': 69,  # starter
-            'ICE_ENABLE': 1,
             'ICE_START_CHAN': rc_engine_start_chan,
-            'ICE_RPM_CHAN': 1,
-            'RPM1_TYPE': 10,
         })
-        self.reboot_sitl()
+        model = "quadplane-ice"
+
+        self.customise_SITL_commandline(
+            [],
+            model=model,
+            defaults_filepath=self.model_defaults_filepath(model),
+            wipe=False)
+
         self.wait_ready_to_arm()
         self.wait_rpm(1, 0, 0, minimum_duration=1)
         self.arm_vehicle()
@@ -869,16 +954,31 @@ class AutoTestQuadPlane(AutoTest):
         self.disarm_vehicle(force=True)
         self.reboot_sitl()
 
+        self.start_subtest("Testing throttle out in manual mode")
+        self.change_mode('MANUAL')
+        self.set_rc(3, 1700)
+        self.wait_servo_channel_value(3, 2000)
+        self.set_parameter("ICE_OPTIONS", 4)
+        # remember that throttle is reversed!
+        self.wait_servo_channel_value(3, 1300)
+        self.change_mode('FBWA')
+        self.wait_servo_channel_value(3, 2000)
+
     def ICEngineMission(self):
+        '''Test ICE Engine Mission support'''
         rc_engine_start_chan = 11
         self.set_parameters({
-            'SERVO13_FUNCTION': 67,  # ignition
-            'SERVO14_FUNCTION': 69,  # starter
-            'ICE_ENABLE': 1,
             'ICE_START_CHAN': rc_engine_start_chan,
-            'ICE_RPM_CHAN': 1,
-            'RPM1_TYPE': 10,
         })
+        model = "quadplane-ice"
+
+        self.customise_SITL_commandline(
+            [],
+            model=model,
+            defaults_filepath=self.model_defaults_filepath(model),
+            wipe=False)
+
+        self.reboot_sitl()
         self.load_mission("mission.txt")
         self.wait_ready_to_arm()
         self.set_rc(rc_engine_start_chan, 2000)
@@ -886,7 +986,28 @@ class AutoTestQuadPlane(AutoTest):
         self.change_mode('AUTO')
         self.wait_disarmed(timeout=300)
 
+    def Ship(self):
+        '''Ensure we can take off from simulated ship'''
+        self.context_push()
+        self.set_parameters({
+            'SIM_SHIP_ENABLE': 1,
+            'SIM_SHIP_SPEED': 1,  # the default of 3 will break this test
+        })
+        self.change_mode('QLOITER')
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+        self.set_rc(3, 1700)
+        # self.delay_sim_time(1)
+        # self.send_debug_trap()
+        # output here is a bit weird as we also receive altitude from
+        # the simulated ship....
+        self.wait_altitude(20, 30, relative=True)
+        self.disarm_vehicle(force=True)
+        self.context_pop()
+        self.reboot_sitl()
+
     def MidAirDisarmDisallowed(self):
+        '''Check disarm behaviour in Q-mode'''
         self.start_subtest("Basic arm in qloiter")
         self.set_parameter("FLIGHT_OPTIONS", 0)
         self.change_mode('QLOITER')
@@ -937,72 +1058,181 @@ class AutoTestQuadPlane(AutoTest):
         self.set_message_rate_hz(mavutil.mavlink.MAVLINK_MSG_ID_EXTENDED_SYS_STATE, -1)
         self.disarm_vehicle()
 
+    def MAV_CMD_NAV_LOITER_TO_ALT(self, target_system=1, target_component=1):
+        '''ensure consecutive loiter to alts work'''
+        self.load_mission('mission.txt')
+        self.change_mode('AUTO')
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+        self.wait_current_waypoint(4, timeout=240)
+        self.assert_altitude(120, accuracy=5, relative=True)
+        self.delay_sim_time(30)
+        self.assert_altitude(120, accuracy=5, relative=True)
+        self.set_current_waypoint(5)
+        self.wait_altitude(altitude_min=65, altitude_max=75, relative=True)
+        if self.current_waypoint() != 5:
+            raise NotAchievedException("Should pass 90m before passing waypoint 5")
+        self.wait_disarmed(timeout=300)
+
+    def Mission(self):
+        '''fly the OBC 2016 mission in Dalby'''
+        self.load_mission("Dalby-OBC2016.txt")
+        self.load_fence("Dalby-OBC2016-fence.txt")
+        if self.mavproxy is not None:
+            self.mavproxy.send('wp list\n')
+        self.install_terrain_handlers_context()
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+        self.change_mode('AUTO')
+        self.wait_waypoint(1, 19, max_dist=60, timeout=1200)
+
+        self.wait_disarmed(timeout=120) # give quadplane a long time to land
+        # wait for blood sample here
+        self.set_current_waypoint(20)
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+        self.wait_waypoint(20, 34, max_dist=60, timeout=1200)
+
+        self.wait_disarmed(timeout=120) # give quadplane a long time to land
+        self.progress("Mission OK")
+
+    def VTOLLandSpiral(self):
+        '''check spiral-to-alt option for landing'''
+        self.fly_mission('mission.txt')
+        self.set_parameter('WP_LOITER_RAD', -self.get_parameter('WP_LOITER_RAD'))
+        self.set_current_waypoint(0, check_afterwards=False)
+        self.fly_mission('mission.txt')
+
+    def VTOLQuicktune(self):
+        '''VTOL Quicktune'''
+        applet_script = "VTOL-quicktune.lua"
+
+        self.install_applet_script(applet_script)
+
+        self.set_parameters({
+            "SCR_ENABLE": 1,
+            "SIM_SPEEDUP": 20, # need to give some cycles to lua
+            "RC7_OPTION": 300,
+        })
+
+        self.reboot_sitl()
+
+        self.context_push()
+        self.context_collect('STATUSTEXT')
+        self.set_parameters({
+            "QUIK_ENABLE" : 1,
+            "QUIK_DOUBLE_TIME" : 5, # run faster for autotest
+            })
+
+        self.scripting_restart()
+        self.wait_text("Quicktune for quadplane loaded", check_context=True)
+
+        self.wait_ready_to_arm()
+        self.change_mode("QLOITER")
+        self.arm_vehicle()
+        self.takeoff(20, 'QLOITER')
+
+        # use rc switch to start tune
+        self.set_rc(7, 1500)
+
+        self.wait_text("Tuning: starting tune", check_context=True)
+        for axis in ['RLL', 'PIT', 'YAW']:
+            self.wait_text("Starting %s tune" % axis, check_context=True)
+            self.wait_text("Tuning: %s_D done" % axis, check_context=True, timeout=120)
+            self.wait_text("Tuning: %s_P done" % axis, check_context=True, timeout=120)
+            self.wait_text("Tuning: %s done" % axis, check_context=True, timeout=120)
+        self.wait_text("Tuning: YAW done", check_context=True, timeout=120)
+
+        # to test aux function method, use aux fn for save
+        self.run_auxfunc(300, 2)
+        self.wait_text("Tuning: saved", check_context=True)
+        self.change_mode("QLAND")
+
+        self.wait_disarmed(timeout=120)
+        self.set_parameter("QUIK_ENABLE", 0)
+        self.context_pop()
+        self.remove_installed_script(applet_script)
+        self.reboot_sitl()
+
+    def RCDisableAirspeedUse(self):
+        '''check disabling airspeed using RC switch'''
+        self.set_parameter("RC9_OPTION", 106)
+        self.delay_sim_time(5)
+        self.set_rc(9, 1000)
+        self.wait_sensor_state(
+            mavutil.mavlink.MAV_SYS_STATUS_SENSOR_DIFFERENTIAL_PRESSURE,
+            True,
+            True,
+            True)
+        self.set_rc(9, 2000)
+        self.wait_sensor_state(
+            mavutil.mavlink.MAV_SYS_STATUS_SENSOR_DIFFERENTIAL_PRESSURE,
+            True,
+            False,
+            True)
+        self.set_rc(9, 1000)
+        self.wait_sensor_state(
+            mavutil.mavlink.MAV_SYS_STATUS_SENSOR_DIFFERENTIAL_PRESSURE,
+            True,
+            True,
+            True)
+
+        self.progress("Disabling airspeed sensor")
+        self.context_push()
+        self.set_rc(9, 2000)
+        self.set_parameters({
+            "COMPASS_ENABLE": 0,
+            "EK2_ENABLE": 0,
+            "AHRS_EKF_TYPE": 3,
+            "COMPASS_USE": 0,
+            "COMPASS_USE2": 0,
+            "COMPASS_USE3": 0,
+            "ARMING_CHECK": 589818,  # from a logfile, disables compass
+        })
+
+        self.reboot_sitl()
+
+        self.context_collect('STATUSTEXT')
+        self.wait_prearm_sys_status_healthy(timeout=120)
+        self.change_mode('QLOITER')
+        self.arm_vehicle()
+        self.set_rc(3, 2000)
+        self.wait_altitude(10, 30, relative=True)
+        self.change_mode('FBWA')
+        self.wait_statustext('Transition done')
+        # the vehicle stays in DCM until there's velocity - make sure
+        # we did go to EK3 evenutally, 'though:
+        self.wait_statustext('EKF3 active', check_context=True)
+
+        self.disarm_vehicle(force=True)
+        self.context_pop()
+        self.reboot_sitl()
+
     def tests(self):
         '''return list of all tests'''
 
         ret = super(AutoTestQuadPlane, self).tests()
         ret.extend([
-            ("TestAirMode", "Test airmode", self.test_airmode),
-
-            ("TestMotorMask", "Test output_motor_mask", self.test_motor_mask),
-
-            ("PilotYaw",
-             "Test pilot yaw in various modes",
-             self.test_pilot_yaw),
-
-            ("ParameterChecks",
-             "Test Arming Parameter Checks",
-             self.test_parameter_checks),
-
-            ("TestLogDownload",
-             "Test Onboard Log Download",
-             self.test_log_download),
-
-            ("EXTENDED_SYS_STATE",
-             "Check extended sys state works",
-             self.EXTENDED_SYS_STATE),
-
-            ("Mission", "Dalby Mission",
-             lambda: self.fly_mission(
-                 "Dalby-OBC2016.txt",
-                 "Dalby-OBC2016-fence.txt",
-                 include_terrain_timeout=True
-             )
-             ),
-
-            ("Weathervane",
-             "Test Weathervane Functionality",
-             self.weathervane_test),
-
-            ("QAssist",
-             "QuadPlane Assist tests",
-             self.test_qassist),
-
-            ("GyroFFT", "Fly Gyro FFT",
-             self.fly_gyro_fft),
-
-            ("Tailsitter",
-             "Test tailsitter support",
-             self.tailsitter),
-
-            ("ICEngine",
-             "Test ICE Engine support",
-             self.ICEngine),
-
-            ("ICEngineMission",
-             "Test ICE Engine Mission support",
-             self.ICEngineMission),
-
-            ("MidAirDisarmDisallowed",
-             "Check disarm behaviour in Q-mode",
-             self.MidAirDisarmDisallowed),
-
-            ("BootInAUTO",
-             "Test behaviour when booting in auto",
-             self.BootInAUTO),
-
-            ("LogUpload",
-             "Log upload",
-             self.log_upload),
+            self.AirMode,
+            self.TestMotorMask,
+            self.PilotYaw,
+            self.ParameterChecks,
+            self.LogDownload,
+            self.EXTENDED_SYS_STATE,
+            self.Mission,
+            self.Weathervane,
+            self.QAssist,
+            self.GyroFFT,
+            self.Tailsitter,
+            self.ICEngine,
+            self.ICEngineMission,
+            self.MidAirDisarmDisallowed,
+            self.BootInAUTO,
+            self.Ship,
+            self.MAV_CMD_NAV_LOITER_TO_ALT,
+            self.LoiterAltQLand,
+            self.VTOLLandSpiral,
+            self.VTOLQuicktune,
+            self.RCDisableAirspeedUse,
         ])
         return ret

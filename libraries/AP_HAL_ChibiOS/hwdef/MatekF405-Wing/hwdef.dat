@@ -135,8 +135,9 @@ define HAL_BUZZER_OFF 0
 ###                 DEVICES                   ###
 #################################################
 
-# MPU6000 on SPI
+# one IMU on SPI1
 SPIDEV mpu6000 SPI1 DEVID1 MPU_CS MODE3  1*MHZ  4*MHZ
+SPIDEV icm42688  SPI1 DEVID1 MPU_CS   MODE3  2*MHZ 16*MHZ
 
 # OSD on SPI
 SPIDEV osd SPI2 DEVID2 OSD_CS MODE0 10*MHZ 10*MHZ
@@ -144,12 +145,16 @@ SPIDEV osd SPI2 DEVID2 OSD_CS MODE0 10*MHZ 10*MHZ
 # SD Card on SPI
 SPIDEV sdcard SPI3 DEVID3 SDCARD_CS MODE0 400*KHZ 25*MHZ
 
-# one IMU
+# one IMU, multiple possible choice
 IMU Invensense SPI:mpu6000 ROTATION_YAW_180
+IMU Invensensev3 SPI:icm42688 ROTATION_YAW_180
 
 # one baro, multiple possible choices for different board variants
 BARO BMP280 I2C:0:0x76
 BARO DPS310 I2C:0:0x76
+define AP_BARO_BACKEND_DEFAULT_ENABLED 0
+define AP_BARO_BMP280_ENABLED 1
+define AP_BARO_DPS280_ENABLED 1
 
 define HAL_OS_FATFS_IO 1
 define HAL_BOARD_LOG_DIRECTORY "/APM/LOGS"
@@ -188,13 +193,22 @@ define HAL_SPRAYER_ENABLED 0
 
 # reduce max size of embedded params for apj_tool.py
 define AP_PARAM_MAX_EMBEDDED_PARAM 1024
-define HAL_WITH_DSP FALSE
+define HAL_GYROFFT_ENABLED 0
 
 # save some flash
-define HAL_GENERATOR_ENABLED 0
-define AC_OAPATHPLANNER_ENABLED 0
-define PRECISION_LANDING 0
-define HAL_BARO_WIND_COMP_ENABLED 0
-define GRIPPER_ENABLED 0
-define AP_OPTICALFLOW_ENABLED 0
-define AP_ICENGINE_ENABLED 0
+include ../include/save_some_flash.inc
+define AP_GRIPPER_ENABLED 0
+define AP_BATTMON_SYNTHETIC_CURRENT_ENABLED 0
+define AP_BATTMON_SMBUS_ENABLE 0
+define HAL_PARACHUTE_ENABLED 0
+define HAL_SPRAYER_ENABLED 0
+define HAL_RUNCAM_ENABLED 0
+define HAL_HOTT_TELEM_ENABLED 0
+define HAL_NMEA_OUTPUT_ENABLED 0
+define HAL_BUTTON_ENABLED 0
+define AP_NOTIFY_OREOLED_ENABLED 0
+define HAL_PICCOLO_CAN_ENABLE 0
+
+# only include ublox GPS driver
+include ../include/minimal_GPS.inc
+

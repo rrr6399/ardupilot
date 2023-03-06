@@ -20,7 +20,7 @@ void Sub::init_ardupilot()
 #endif
 
     // init cargo gripper
-#if GRIPPER_ENABLED == ENABLED
+#if AP_GRIPPER_ENABLED
     g2.gripper.init();
 #endif
 
@@ -48,7 +48,11 @@ void Sub::init_ardupilot()
 #elif CONFIG_HAL_BOARD != HAL_BOARD_LINUX
     AP_Param::set_default_by_name("BARO_EXT_BUS", 1);
 #endif
-    celsius.init(barometer.external_bus());
+
+#if AP_TEMPERATURE_SENSOR_ENABLED
+    // In order to preserve Sub's previous AP_TemperatureSensor Behavior we set the Default I2C Bus Here
+    AP_Param::set_default_by_name("TEMP1_BUS", barometer.external_bus());
+#endif
 
     // setup telem slots with serial ports
     gcs().setup_uarts();
@@ -99,6 +103,11 @@ void Sub::init_ardupilot()
     camera_mount.set_mode(MAV_MOUNT_MODE_RC_TARGETING);
 #endif
 
+#if AP_CAMERA_ENABLED
+    // initialise camera
+    camera.init();
+#endif
+
 #ifdef USERHOOK_INIT
     USERHOOK_INIT
 #endif
@@ -137,7 +146,7 @@ void Sub::init_ardupilot()
 #endif
 
     // initialise AP_RPM library
-#if RPM_ENABLED == ENABLED
+#if AP_RPM_ENABLED
     rpm_sensor.init();
 #endif
 
@@ -271,8 +280,11 @@ bool Sub::should_log(uint32_t mask)
 #include <AP_ADSB/AP_ADSB.h>
 
 // dummy method to avoid linking AFS
+#if AP_ADVANCEDFAILSAFE_ENABLED
 bool AP_AdvancedFailsafe::gcs_terminate(bool should_terminate, const char *reason) { return false; }
 AP_AdvancedFailsafe *AP::advancedfailsafe() { return nullptr; }
+#endif
+
 #if HAL_ADSB_ENABLED
 // dummy method to avoid linking AP_Avoidance
 AP_Avoidance *AP::ap_avoidance() { return nullptr; }

@@ -22,19 +22,22 @@
 #include <stdint.h>
 #include <AP_HAL/AP_HAL_Boards.h>
 
-#include "AP_Filesystem_Available.h"
+#include "AP_Filesystem_config.h"
 
 #ifndef MAX_NAME_LEN
 #define MAX_NAME_LEN 255
+#endif
+
+#if (CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS) || (CONFIG_HAL_BOARD == HAL_BOARD_ESP32)
+#define DT_REG 0
+#define DT_DIR 1
+#define DT_LNK 10
 #endif
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
 #if HAVE_FILESYSTEM_SUPPORT
 #include "AP_Filesystem_FATFS.h"
 #endif
-#define DT_REG 0
-#define DT_DIR 1
-#define DT_LNK 10
 
 struct dirent {
    char    d_name[MAX_NAME_LEN]; /* filename */
@@ -90,6 +93,7 @@ public:
     int stat(const char *pathname, struct stat *stbuf);
     int unlink(const char *pathname);
     int mkdir(const char *pathname);
+    int rename(const char *oldpath, const char *newpath);
 
     DirHandle *opendir(const char *pathname);
     struct dirent *readdir(DirHandle *dirp);
@@ -113,9 +117,12 @@ public:
     // returns null-terminated string; cr or lf terminates line
     bool fgets(char *buf, uint8_t buflen, int fd);
 
-    // format filesystem
+    // format filesystem.  This is async, monitor get_format_status for progress
     bool format(void);
-    
+
+    // retrieve status of format process:
+    AP_Filesystem_Backend::FormatStatus get_format_status() const;
+
     /*
       load a full file. Use delete to free the data
      */

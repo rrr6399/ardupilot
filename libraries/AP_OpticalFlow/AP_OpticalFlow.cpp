@@ -93,6 +93,15 @@ const AP_Param::GroupInfo AP_OpticalFlow::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("_ADDR", 5,  AP_OpticalFlow, _address,   0),
 
+    // @Param: _HGT_OVR
+    // @DisplayName: Height override of sensor above ground
+    // @Description: This is used in rover vehicles, where the sensor is a fixed height above the ground
+    // @Units: m
+    // @Range: 0 2
+    // @Increment: 0.01
+    // @User: Advanced
+    AP_GROUPINFO_FRAME("_HGT_OVR", 6,  AP_OpticalFlow, _height_override,   0.0f, AP_PARAM_FRAME_ROVER),
+
     AP_GROUPEND
 };
 
@@ -160,7 +169,7 @@ void AP_OpticalFlow::init(uint32_t log_bit)
 #endif
         break;
     case Type::SITL:
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+#if AP_OPTICALFLOW_SITL_ENABLED
         backend = new AP_OpticalFlow_SITL(*this);
 #endif
         break;
@@ -259,7 +268,8 @@ void AP_OpticalFlow::update_state(const OpticalFlow_state &state)
                                 _state.flowRate,
                                 _state.bodyRate,
                                 _last_update_ms,
-                                get_pos_offset());
+                                get_pos_offset(),
+                                get_height_override());
     Log_Write_Optflow();
 }
 

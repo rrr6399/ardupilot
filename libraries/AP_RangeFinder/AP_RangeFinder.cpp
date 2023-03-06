@@ -51,9 +51,11 @@
 #include "AP_RangeFinder_MSP.h"
 #include "AP_RangeFinder_USD1_CAN.h"
 #include "AP_RangeFinder_Benewake_CAN.h"
+#include "AP_RangeFinder_Lua.h"
 
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include <AP_Logger/AP_Logger.h>
+#include <AP_SerialManager/AP_SerialManager.h>
 #include <AP_Vehicle/AP_Vehicle_Type.h>
 
 extern const AP_HAL::HAL &hal;
@@ -66,7 +68,7 @@ const AP_Param::GroupInfo RangeFinder::var_info[] = {
 	AP_SUBGROUPINFO(params[0], "1_", 25, RangeFinder, AP_RangeFinder_Params),
 
     // @Group: 1_
-    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp
+    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp,AP_RangeFinder_USD1_CAN.cpp
     AP_SUBGROUPVARPTR(drivers[0], "1_",  57, RangeFinder, backend_var_info[0]),
 
 #if RANGEFINDER_MAX_INSTANCES > 1
@@ -75,7 +77,7 @@ const AP_Param::GroupInfo RangeFinder::var_info[] = {
     AP_SUBGROUPINFO(params[1], "2_", 27, RangeFinder, AP_RangeFinder_Params),
 
     // @Group: 2_
-    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp
+    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp,AP_RangeFinder_USD1_CAN.cpp
     AP_SUBGROUPVARPTR(drivers[1], "2_",  58, RangeFinder, backend_var_info[1]),
 #endif
 
@@ -85,7 +87,7 @@ const AP_Param::GroupInfo RangeFinder::var_info[] = {
     AP_SUBGROUPINFO(params[2], "3_", 29, RangeFinder, AP_RangeFinder_Params),
 
     // @Group: 3_
-    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp
+    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp,AP_RangeFinder_USD1_CAN.cpp
     AP_SUBGROUPVARPTR(drivers[2], "3_",  59, RangeFinder, backend_var_info[2]),
 #endif
 
@@ -95,7 +97,7 @@ const AP_Param::GroupInfo RangeFinder::var_info[] = {
     AP_SUBGROUPINFO(params[3], "4_", 31, RangeFinder, AP_RangeFinder_Params),
 
     // @Group: 4_
-    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp
+    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp,AP_RangeFinder_USD1_CAN.cpp
     AP_SUBGROUPVARPTR(drivers[3], "4_",  60, RangeFinder, backend_var_info[3]),
 #endif
 
@@ -105,7 +107,7 @@ const AP_Param::GroupInfo RangeFinder::var_info[] = {
     AP_SUBGROUPINFO(params[4], "5_", 33, RangeFinder, AP_RangeFinder_Params),
 
     // @Group: 5_
-    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp
+    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp,AP_RangeFinder_USD1_CAN.cpp
     AP_SUBGROUPVARPTR(drivers[4], "5_",  34, RangeFinder, backend_var_info[4]),
 #endif
 
@@ -115,7 +117,7 @@ const AP_Param::GroupInfo RangeFinder::var_info[] = {
     AP_SUBGROUPINFO(params[5], "6_", 35, RangeFinder, AP_RangeFinder_Params),
 
     // @Group: 6_
-    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp
+    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp,AP_RangeFinder_USD1_CAN.cpp
     AP_SUBGROUPVARPTR(drivers[5], "6_",  36, RangeFinder, backend_var_info[5]),
 #endif
 
@@ -125,7 +127,7 @@ const AP_Param::GroupInfo RangeFinder::var_info[] = {
     AP_SUBGROUPINFO(params[6], "7_", 37, RangeFinder, AP_RangeFinder_Params),
 
     // @Group: 7_
-    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp
+    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp,AP_RangeFinder_USD1_CAN.cpp
     AP_SUBGROUPVARPTR(drivers[6], "7_",  38, RangeFinder, backend_var_info[6]),
 #endif
 
@@ -135,7 +137,7 @@ const AP_Param::GroupInfo RangeFinder::var_info[] = {
     AP_SUBGROUPINFO(params[7], "8_", 39, RangeFinder, AP_RangeFinder_Params),
 
     // @Group: 8_
-    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp
+    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp,AP_RangeFinder_USD1_CAN.cpp
     AP_SUBGROUPVARPTR(drivers[7], "8_",  40, RangeFinder, backend_var_info[7]),
 #endif
 
@@ -145,7 +147,7 @@ const AP_Param::GroupInfo RangeFinder::var_info[] = {
     AP_SUBGROUPINFO(params[8], "9_", 41, RangeFinder, AP_RangeFinder_Params),
 
     // @Group: 9_
-    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp
+    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp,AP_RangeFinder_USD1_CAN.cpp
     AP_SUBGROUPVARPTR(drivers[8], "9_",  42, RangeFinder, backend_var_info[8]),
 #endif
 
@@ -155,10 +157,10 @@ const AP_Param::GroupInfo RangeFinder::var_info[] = {
     AP_SUBGROUPINFO(params[9], "A_", 43, RangeFinder, AP_RangeFinder_Params),
 
     // @Group: A_
-    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp
+    // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp,AP_RangeFinder_USD1_CAN.cpp
     AP_SUBGROUPVARPTR(drivers[9], "A_",  44, RangeFinder, backend_var_info[9]),
 #endif
-    
+
     AP_GROUPEND
 };
 
@@ -176,88 +178,6 @@ RangeFinder::RangeFinder()
     _singleton = this;
 }
 
-void RangeFinder::convert_params(void) {
-    if (params[0].type.configured()) {
-        // _params[0]._type will always be configured after conversion is done the first time
-        // or the user has set a type in a defaults.parm file or via apj tool
-        return;
-    }
-
-    struct ConversionTable {
-        uint8_t old_element;
-        uint8_t new_index;
-        uint8_t instance;
-    };
-
-    const struct ConversionTable conversionTable[] = {
-        // PARAMETER_CONVERSION - Added: Feb-2019
-            // rangefinder 1
-            {0, 0, 0}, //0, TYPE 1
-            {1, 1, 0}, //1, PIN 1
-            {2, 2, 0}, //2, SCALING 1
-            {3, 3, 0}, //3, OFFSET 1
-            {4, 4, 0}, //4, FUNCTION 1
-            {5, 5, 0}, //5, MIN_CM 1
-            {6, 6, 0}, //6, MAX_CM 1
-            {7, 7, 0}, //7, STOP_PIN 1
-            {9, 8, 0}, //9, RMETRIC 1
-            {10, 9, 0}, //10, PWRRNG 1 (previously existed only once for all sensors)
-            {11, 10, 0}, //11, GNDCLEAR 1
-            {23, 11, 0}, //23, ADDR 1
-            {49, 12, 0}, //49, POS 1
-            {53, 13, 0}, //53, ORIENT 1
-
-            // rangefinder 2
-            {12, 0, 1}, //12, TYPE 2
-            {13, 1, 1}, //13, PIN 2
-            {14, 2, 1}, //14, SCALING 2
-            {15, 3, 1}, //15, OFFSET 2
-            {16, 4, 1}, //16, FUNCTION 2
-            {17, 5, 1}, //17, MIN_CM 2
-            {18, 6, 1}, //18, MAX_CM 2
-            {19, 7, 1}, //19, STOP_PIN 2
-            {21, 8, 1}, //21, RMETRIC 2
-            {10, 9, 1}, //10, PWRRNG 1 (previously existed only once for all sensors)
-            {22, 10, 1}, //22, GNDCLEAR 2
-            {24, 11, 1}, //24, ADDR 2
-            {50, 12, 1}, //50, POS 2
-            {54, 13, 1}, //54, ORIENT 2
-    };
-
-    char param_name[17] = {0};
-    AP_Param::ConversionInfo info;
-    info.new_name = param_name;
-
-#if APM_BUILD_TYPE(APM_BUILD_ArduPlane)
-    info.old_key = 71;
-#elif APM_BUILD_COPTER_OR_HELI
-    info.old_key = 53;
-#elif APM_BUILD_TYPE(APM_BUILD_ArduSub)
-    info.old_key = 35;
-#elif APM_BUILD_TYPE(APM_BUILD_Rover)
-    info.old_key = 197;
-#else
-    params[0].type.save(true);
-    return; // no conversion is supported on this platform
-#endif
-
-    for (uint8_t i = 0; i < ARRAY_SIZE(conversionTable); i++) {
-        uint8_t param_instance = conversionTable[i].instance + 1;
-        uint8_t destination_index = conversionTable[i].new_index;
-
-        info.old_group_element = conversionTable[i].old_element;
-        info.type = (ap_var_type)AP_RangeFinder_Params::var_info[destination_index].type;
-
-        hal.util->snprintf(param_name, sizeof(param_name), "RNGFND%X_%s", param_instance, AP_RangeFinder_Params::var_info[destination_index].name);
-        param_name[sizeof(param_name)-1] = '\0';
-
-        AP_Param::convert_old_parameter(&info, 1.0f, 0);
-    }
-
-    // force _params[0]._type into storage to flag that conversion has been done
-    params[0].type.save(true);
-}
-
 /*
   initialise the RangeFinder class. We do detection of attached range
   finders here. For now we won't allow for hot-plugging of
@@ -265,13 +185,10 @@ void RangeFinder::convert_params(void) {
  */
 void RangeFinder::init(enum Rotation orientation_default)
 {
-    if (init_done) {
-        // init called a 2nd time?
+    if (num_instances != 0) {
+        // don't re-init if we've found some sensors already
         return;
     }
-    init_done = true;
-
-    convert_params();
 
     // set orientation defaults
     for (uint8_t i=0; i<RANGEFINDER_MAX_INSTANCES; i++) {
@@ -380,9 +297,11 @@ void RangeFinder::detect_instance(uint8_t instance, uint8_t& serial_instance)
 #if AP_RANGEFINDER_LWI2C_ENABLED
         if (params[instance].address) {
             // the LW20 needs a long time to boot up, so we delay 1.5s here
+#ifndef HAL_BUILD_AP_PERIPH
             if (!hal.util->was_watchdog_armed()) {
                 hal.scheduler->delay(1500);
             }
+#endif
 #ifdef HAL_RANGEFINDER_LIGHTWARE_I2C_BUS
             _add_backend(AP_RangeFinder_LightWareI2C::detect(state[instance], params[instance],
                                                              hal.i2c_mgr->get_device(HAL_RANGEFINDER_LIGHTWARE_I2C_BUS, params[instance].address)),
@@ -607,8 +526,15 @@ void RangeFinder::detect_instance(uint8_t instance, uint8_t& serial_instance)
     case Type::Benewake_CAN:
 #if AP_RANGEFINDER_BENEWAKE_CAN_ENABLED
         _add_backend(new AP_RangeFinder_Benewake_CAN(state[instance], params[instance]), instance);
-        break;
 #endif
+        break;
+
+    case Type::Lua_Scripting:
+#if AP_SCRIPTING_ENABLED
+        _add_backend(new AP_RangeFinder_Lua(state[instance], params[instance]), instance);
+#endif
+        break;
+
     case Type::NONE:
         break;
     }
@@ -854,6 +780,11 @@ bool RangeFinder::prearm_healthy(char *failure_msg, const uint8_t failure_msg_le
                 hal.util->snprintf(failure_msg, failure_msg_len, "RNGFND%u_PIN not set", unsigned(i + 1));
                 return false;
             }
+            if (drivers[i]->allocated_type() == Type::ANALOG) {
+                // Analog backend does not use GPIO pin
+                break;
+            }
+
             // ensure that the pin we're configured to use is available
             if (!hal.gpio->valid_pin(params[i].pin)) {
                 uint8_t servo_ch;

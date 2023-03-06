@@ -38,6 +38,7 @@ public:
         ICM40605,
         IIM42652,
         ICM42670,
+        ICM45686
     };
 
     // acclerometers on Invensense sensors will return values up to 32G
@@ -54,7 +55,9 @@ private:
 
     void set_filter_and_scaling(void);
     void set_filter_and_scaling_icm42670(void);
+    void set_filter_and_scaling_icm456xy(void);
     void fifo_reset();
+    uint16_t calculate_fast_sampling_backend_rate(uint16_t base_odr, uint16_t max_odr) const;
 
     /* Read samples from FIFO */
     void read_fifo();
@@ -65,7 +68,9 @@ private:
 
     uint8_t register_read_bank(uint8_t bank, uint8_t reg);
     void register_write_bank(uint8_t bank, uint8_t reg, uint8_t val);
-    
+    uint8_t register_read_bank_icm456xy(uint16_t bank_addr, uint16_t reg);
+    void register_write_bank_icm456xy(uint16_t bank_addr, uint16_t reg, uint8_t val);
+
     bool accumulate_samples(const struct FIFOData *data, uint8_t n_samples);
 
     // instance numbers of accel and gyro data
@@ -81,7 +86,17 @@ private:
     
     const enum Rotation rotation;
 
-    float accel_scale;
+    /*
+      gyro as 16.4 LSB/DPS at scale factor of +/- 2000dps (FS_SEL==0)
+    */
+    static constexpr float GYRO_SCALE_2000DPS = (0.0174532f / 16.4f);
+    /*
+      gyro as 8.2 LSB/DPS at scale factor of +/- 4000dps (FS_SEL==0)
+    */
+    static constexpr float GYRO_SCALE_4000DPS = (0.0174532f / 8.2f);
+
+    float accel_scale = (GRAVITY_MSS / 2048);
+    float gyro_scale = GYRO_SCALE_2000DPS;
 
     // are we doing more than 1kHz sampling?
     bool fast_sampling;

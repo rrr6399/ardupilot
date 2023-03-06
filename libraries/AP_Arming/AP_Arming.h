@@ -3,7 +3,6 @@
 #include <AP_HAL/AP_HAL_Boards.h>
 #include <AP_HAL/Semaphores.h>
 #include <AP_Param/AP_Param.h>
-#include <GCS_MAVLink/GCS_MAVLink.h>
 
 class AP_Arming {
 public:
@@ -86,10 +85,11 @@ public:
     void init(void);
 
     // these functions should not be used by Copter which holds the armed state in the motors library
-    Required arming_required();
+    Required arming_required() const;
     virtual bool arm(AP_Arming::Method method, bool do_arming_checks=true);
     virtual bool disarm(AP_Arming::Method method, bool do_disarm_checks=true);
-    bool is_armed();
+    bool is_armed() const;
+    bool is_armed_and_safety_off() const;
 
     // get bitmask of enabled checks
     uint32_t get_enabled_checks() const;
@@ -125,6 +125,10 @@ public:
     // vehicle has been disarmed at least once.
     Method last_disarm_method() const { return _last_disarm_method; }
 
+    // method that was last used for arm; invalid unless the
+    // vehicle has been disarmed at least once.
+    Method last_arm_method() const { return _last_arm_method; }
+    
     // enum for ARMING_OPTIONS parameter
     enum class Option : int32_t {
         DISABLE_PREARM_DISPLAY   = (1U << 0),
@@ -201,6 +205,8 @@ protected:
     bool generator_checks(bool report) const;
 
     bool opendroneid_checks(bool display_failure);
+    
+    bool serial_protocol_checks(bool display_failure);
 
     virtual bool system_checks(bool report);
 
@@ -245,6 +251,7 @@ private:
         MIS_ITEM_CHECK_TAKEOFF       = (1 << 3),
         MIS_ITEM_CHECK_VTOL_TAKEOFF  = (1 << 4),
         MIS_ITEM_CHECK_RALLY         = (1 << 5),
+        MIS_ITEM_CHECK_RETURN_TO_LAUNCH = (1 << 6),
         MIS_ITEM_CHECK_MAX
     };
 
@@ -262,9 +269,10 @@ private:
     bool aux_auth_error;        // true if too many auxiliary authorisers
     HAL_Semaphore aux_auth_sem; // semaphore for accessing the aux_auth_state and aux_auth_fail_msg
 
-    // method that was last used for disarm; invalid unless the
+    // method that was last used for arm/disarm; invalid unless the
     // vehicle has been disarmed at least once.
     Method _last_disarm_method = Method::UNKNOWN;
+    Method _last_arm_method = Method::UNKNOWN;
 
     uint32_t last_prearm_display_ms;  // last time we send statustexts for prearm failures
     bool running_arming_checks;  // true if the arming checks currently being performed are being done because the vehicle is trying to arm the vehicle

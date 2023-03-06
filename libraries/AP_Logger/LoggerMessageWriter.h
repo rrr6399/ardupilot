@@ -35,7 +35,8 @@ private:
         VER,  // i.e. the "VER" message
         SYSTEM_ID,
         PARAM_SPACE_USED,
-        RC_PROTOCOL
+        RC_PROTOCOL,
+        RC_OUTPUT,
     };
     Stage stage;
 };
@@ -47,7 +48,7 @@ public:
     void process() override;
 
 private:
-    enum Stage {
+    enum class Stage {
         WRITE_NEW_MISSION_MESSAGE = 0,
         WRITE_MISSION_ITEMS,
         DONE
@@ -64,7 +65,7 @@ public:
     void process() override;
 
 private:
-    enum Stage {
+    enum class Stage {
         WRITE_NEW_RALLY_MESSAGE = 0,
         WRITE_ALL_RALLY_POINTS,
         DONE
@@ -73,6 +74,25 @@ private:
     uint16_t _rally_number_to_send;
     Stage stage = Stage::WRITE_NEW_RALLY_MESSAGE;
 };
+
+#if HAL_LOGGER_FENCE_ENABLED
+class LoggerMessageWriter_Write_Polyfence : public LoggerMessageWriter {
+public:
+
+    void reset() override;
+    void process() override;
+
+private:
+    enum class Stage {
+        WRITE_NEW_FENCE_MESSAGE = 0,
+        WRITE_FENCE_ITEMS,
+        DONE
+    };
+
+    uint16_t _fence_number_to_send;
+    Stage stage;
+};
+#endif // HAL_LOGGER_FENCE_ENABLED
 
 class LoggerMessageWriter_DFLogStart : public LoggerMessageWriter {
 public:
@@ -83,6 +103,9 @@ public:
 #endif
 #if HAL_RALLY_ENABLED
         , _writeallrallypoints()
+#endif
+#if HAL_LOGGER_FENCE_ENABLED
+        , _writeallpolyfence()
 #endif
         {
         }
@@ -95,6 +118,9 @@ public:
 #endif
 #if HAL_RALLY_ENABLED
         _writeallrallypoints.set_logger_backend(backend);
+#endif
+#if HAL_LOGGER_FENCE_ENABLED
+        _writeallpolyfence.set_logger_backend(backend);
 #endif
     }
 
@@ -113,10 +139,16 @@ public:
 #if HAL_RALLY_ENABLED
     bool writeallrallypoints();
 #endif
+#if HAL_LOGGER_FENCE_ENABLED
+    bool writeallfence();
+#endif
 
 private:
 
-    enum Stage {
+    // check for using too much time
+    static bool check_process_limit(uint32_t start_us);
+
+    enum class Stage {
         FORMATS = 0,
         UNITS,
         MULTIPLIERS,
@@ -150,5 +182,8 @@ private:
 #endif
 #if HAL_RALLY_ENABLED
     LoggerMessageWriter_WriteAllRallyPoints _writeallrallypoints;
+#endif
+#if HAL_LOGGER_FENCE_ENABLED
+    LoggerMessageWriter_Write_Polyfence _writeallpolyfence;
 #endif
 };

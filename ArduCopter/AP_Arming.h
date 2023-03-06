@@ -16,8 +16,7 @@ public:
     }
 
     /* Do not allow copies */
-    AP_Arming_Copter(const AP_Arming_Copter &other) = delete;
-    AP_Arming_Copter &operator=(const AP_Arming_Copter&) = delete;
+    CLASS_NO_COPY(AP_Arming_Copter);
 
     bool rc_calibration_checks(bool display_failure) override;
 
@@ -42,7 +41,6 @@ protected:
 
     // NOTE! the following check functions *DO NOT* call into AP_Arming!
     bool parameter_checks(bool display_failure);
-    bool motor_checks(bool display_failure);
     bool oa_checks(bool display_failure);
     bool mandatory_gps_checks(bool display_failure);
     bool gcs_failsafe_check(bool display_failure);

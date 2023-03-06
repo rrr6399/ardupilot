@@ -262,12 +262,14 @@ void AP_ExternalAHRS_LORD::post_imu() const
         AP::ins().handle_external(ins);
     }
 
+#if AP_COMPASS_EXTERNALAHRS_ENABLED
     {
         AP_ExternalAHRS::mag_data_message_t mag {
             field: imu_data.mag
         };
         AP::compass().handle_external(mag);
     }
+#endif
 
 #if AP_BARO_EXTERNALAHRS_ENABLED
     {
@@ -292,7 +294,7 @@ void AP_ExternalAHRS_LORD::handle_gnss(const LORD_Packet &packet)
         switch ((GNSSPacketField) packet.payload[i+1]) {
         // GPS Time
         case GNSSPacketField::GPS_TIME: {
-            gnss_data.tow_ms = extract_double(packet.payload, i+2) * 1000; // Convert seconds to ms
+            gnss_data.tow_ms = double_to_uint32(extract_double(packet.payload, i+2) * 1000); // Convert seconds to ms
             gnss_data.week = be16toh_ptr(&packet.payload[i+10]);
             break;
         }
@@ -439,6 +441,12 @@ int8_t AP_ExternalAHRS_LORD::get_port(void) const
     }
     return port_num;
 };
+
+// Get model/type name
+const char* AP_ExternalAHRS_LORD::get_name() const
+{
+    return "LORD";
+}
 
 bool AP_ExternalAHRS_LORD::healthy(void) const
 {
