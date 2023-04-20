@@ -27,9 +27,9 @@
 #include "AP_ADSB_uAvionix_UCP.h"
 #include "AP_ADSB_Sagetech.h"
 #include "AP_ADSB_Sagetech_MXS.h"
-#include <AP_Vehicle/AP_Vehicle.h>
 #include <GCS_MAVLink/GCS.h>
 #include <AP_Logger/AP_Logger.h>
+#include <AP_Vehicle/AP_Vehicle_Type.h>
 
 
 #define VEHICLE_TIMEOUT_MS              5000   // if no updates in this time, drop it from the list
@@ -160,6 +160,7 @@ const AP_Param::GroupInfo AP_ADSB::var_info[] = {
 
     // @Param: OPTIONS
     // @DisplayName: ADS-B Options
+    // @Description: Options for emergency failsafe codes and device capabilities
     // @Bitmask: 0:Ping200X Send GPS,1:Squawk 7400 on RC failsafe,2:Squawk 7400 on GCS failsafe,3:Sagetech MXS use External Config
     // @User: Advanced
     AP_GROUPINFO("OPTIONS",  15, AP_ADSB, _options, 0),
@@ -179,7 +180,7 @@ AP_ADSB::AP_ADSB()
     _singleton = this;
 
 #ifdef ADSB_STATIC_CALLSIGN
-    strncpy(&out_state.cfg.callsign, ADSB_STATIC_CALLSIGN, sizeof(out_state.cfg.callsign));
+    strncpy(out_state.cfg.callsign, ADSB_STATIC_CALLSIGN, sizeof(out_state.cfg.callsign));
 #endif
 }
 
@@ -190,7 +191,7 @@ void AP_ADSB::init(void)
 {
     if (in_state.vehicle_list == nullptr) {
         // sanity check param
-        in_state.list_size_param = constrain_int16(in_state.list_size_param, 1, INT16_MAX);
+        in_state.list_size_param.set(constrain_int16(in_state.list_size_param, 1, INT16_MAX));
 
         in_state.vehicle_list = new adsb_vehicle_t[in_state.list_size_param];
 
@@ -350,7 +351,7 @@ void AP_ADSB::update(void)
         // param changed, check that it's a valid octal
         if (!is_valid_callsign(out_state.cfg.squawk_octal_param)) {
             // invalid, reset it to default
-            out_state.cfg.squawk_octal_param = ADSB_SQUAWK_OCTAL_DEFAULT;
+            out_state.cfg.squawk_octal_param.set(ADSB_SQUAWK_OCTAL_DEFAULT);
         }
         out_state.cfg.squawk_octal = (uint16_t)out_state.cfg.squawk_octal_param;
     }
@@ -616,16 +617,16 @@ void AP_ADSB::handle_out_cfg(const mavlink_uavionix_adsb_out_cfg_t &packet)
     out_state.cfg.was_set_externally = true;
 
     out_state.cfg.ICAO_id = packet.ICAO;
-    out_state.cfg.ICAO_id_param = out_state.cfg.ICAO_id_param_prev = packet.ICAO & 0x00FFFFFFFF;
+    out_state.cfg.ICAO_id_param.set(out_state.cfg.ICAO_id_param_prev = packet.ICAO & 0x00FFFFFFFF);
 
     // May contain a non-null value at the end so accept it as-is with memcpy instead of strcpy
     memcpy(out_state.cfg.callsign, packet.callsign, sizeof(out_state.cfg.callsign));
 
-    out_state.cfg.emitterType = packet.emitterType;
-    out_state.cfg.lengthWidth = packet.aircraftSize;
-    out_state.cfg.gpsOffsetLat = packet.gpsOffsetLat;
-    out_state.cfg.gpsOffsetLon = packet.gpsOffsetLon;
-    out_state.cfg.rfSelect = packet.rfSelect;
+    out_state.cfg.emitterType.set(packet.emitterType);
+    out_state.cfg.lengthWidth.set(packet.aircraftSize);
+    out_state.cfg.gpsOffsetLat.set(packet.gpsOffsetLat);
+    out_state.cfg.gpsOffsetLon.set(packet.gpsOffsetLon);
+    out_state.cfg.rfSelect.set(packet.rfSelect);
     out_state.cfg.stall_speed_cm = packet.stallSpeed;
 
     // guard against string with non-null end char
@@ -679,7 +680,7 @@ void AP_ADSB::handle_transceiver_report(const mavlink_channel_t chan, const mavl
 void AP_ADSB::send_adsb_out_status(const mavlink_channel_t chan) const
 {
     for (uint8_t i=0; i < ADSB_MAX_INSTANCES; i++) {
-        if (_type[i] == (int8_t)(AP_ADSB::Type::uAvionix_UCP) || (int8_t)(AP_ADSB::Type::Sagetech_MXS)) {
+        if (_type[i] == (int8_t)(AP_ADSB::Type::uAvionix_UCP) || _type[i] == (int8_t)(AP_ADSB::Type::Sagetech_MXS)) {
             mavlink_msg_uavionix_adsb_out_status_send_struct(chan, &out_state.tx_status);
             return;
         }

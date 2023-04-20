@@ -13,15 +13,18 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "AP_EFI_config.h"
+
+#if AP_EFI_NWPWU_ENABLED
+
 #include <AP_HAL/AP_HAL.h>
 
 #include <AP_Common/AP_Common.h>
 #include <AP_HAL/utility/sparse-endian.h>
 #include <AP_Math/AP_Math.h>
+#include <GCS_MAVLink/GCS.h>
 
 #include "AP_EFI_NWPMU.h"
-
-#if HAL_EFI_NWPWU_ENABLED
 
 extern const AP_HAL::HAL& hal;
 
@@ -29,7 +32,7 @@ AP_EFI_NWPMU::AP_EFI_NWPMU(AP_EFI &_frontend) :
     CANSensor("NWPMU"),
     AP_EFI_Backend(_frontend)
 {
-    register_driver(AP_CANManager::Driver_Type_EFI_NWPMU);
+    register_driver(AP_CAN::Protocol::EFI_NWPMU);
 }
 
 void AP_EFI_NWPMU::handle_frame(AP_HAL::CANFrame &frame)
@@ -45,7 +48,7 @@ void AP_EFI_NWPMU::handle_frame(AP_HAL::CANFrame &frame)
         memcpy(&data, frame.data, sizeof(data));
         internal_state.engine_speed_rpm = data.rpm;
         internal_state.throttle_position_percent = data.tps * 0.1f;
-        internal_state.cylinder_status[0].ignition_timing_deg = data.ignition_angle * 0.1f;
+        internal_state.cylinder_status.ignition_timing_deg = data.ignition_angle * 0.1f;
         break;
     }
 
@@ -65,7 +68,7 @@ void AP_EFI_NWPMU::handle_frame(AP_HAL::CANFrame &frame)
         default:
             break;
         }
-        internal_state.cylinder_status[0].lambda_coefficient = data.lambda * 0.01f;
+        internal_state.cylinder_status.lambda_coefficient = data.lambda * 0.01f;
         break;
     }
 
@@ -87,11 +90,11 @@ void AP_EFI_NWPMU::handle_frame(AP_HAL::CANFrame &frame)
         switch((NWPMU_TEMPERATURE_TYPE)data.temp_type) {
         case NWPMU_TEMPERATURE_TYPE::C:
             internal_state.coolant_temperature = C_TO_KELVIN(data.coolant_temp * 0.1f);
-            internal_state.cylinder_status[0].cylinder_head_temperature = C_TO_KELVIN(data.coolant_temp * 0.1f);
+            internal_state.cylinder_status.cylinder_head_temperature = C_TO_KELVIN(data.coolant_temp * 0.1f);
             break;
         case NWPMU_TEMPERATURE_TYPE::F:
             internal_state.coolant_temperature = F_TO_KELVIN(data.coolant_temp * 0.1f);
-            internal_state.cylinder_status[0].cylinder_head_temperature = F_TO_KELVIN(data.coolant_temp * 0.1f);
+            internal_state.cylinder_status.cylinder_head_temperature = F_TO_KELVIN(data.coolant_temp * 0.1f);
             break;
         default:
             break;
@@ -130,4 +133,4 @@ void AP_EFI_NWPMU::update()
     copy_to_frontend();
 }
 
-#endif // HAL_EFI_NWPWU_ENABLED
+#endif // AP_EFI_NWPWU_ENABLED

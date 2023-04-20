@@ -20,10 +20,13 @@
 
 #include <AP_Common/AP_Common.h>
 #include <AP_HAL/AP_HAL.h>
+#include <AP_Math/AP_Math.h>
 #include <AP_RTC/AP_RTC.h>
-#include <AP_Vehicle/AP_Vehicle.h>
+#include <AP_Vehicle/AP_Vehicle_Type.h>
 #include <GCS_MAVLink/GCS.h>
 #include <AP_Filesystem/AP_Filesystem.h>
+#include <GCS_MAVLink/GCS.h>
+#include <GCS_MAVLink/GCS_MAVLink.h>
 
 #include <stdio.h>
 
@@ -73,7 +76,11 @@
 
 #ifndef HAL_BRD_OPTIONS_DEFAULT
 #if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS && !APM_BUILD_TYPE(APM_BUILD_UNKNOWN) && !APM_BUILD_TYPE(APM_BUILD_Replay)
+#ifdef HAL_DEBUG_BUILD
+#define HAL_BRD_OPTIONS_DEFAULT BOARD_OPTION_WATCHDOG | BOARD_OPTION_DEBUG_ENABLE
+#else
 #define HAL_BRD_OPTIONS_DEFAULT BOARD_OPTION_WATCHDOG
+#endif
 #else
 #define HAL_BRD_OPTIONS_DEFAULT 0
 #endif
@@ -155,13 +162,13 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
 #endif
 #endif
 
-    // @Param: SAFETYENABLE
-    // @DisplayName: Enable use of safety arming switch
+    // @Param: SAFETY_DEFLT
+    // @DisplayName: Sets default state of the safety switch
     // @Description: This controls the default state of the safety switch at startup. When set to 1 the safety switch will start in the safe state (flashing) at boot. When set to zero the safety switch will start in the unsafe state (solid) at startup. Note that if a safety switch is fitted the user can still control the safety state after startup using the switch. The safety state can also be controlled in software using a MAVLink message.
     // @Values: 0:Disabled,1:Enabled
     // @RebootRequired: True
     // @User: Standard
-    AP_GROUPINFO("SAFETYENABLE",   3, AP_BoardConfig, state.safety_enable, BOARD_SAFETY_ENABLE_DEFAULT),
+    AP_GROUPINFO("SAFETY_DEFLT",   3, AP_BoardConfig, state.safety_enable, BOARD_SAFETY_ENABLE_DEFAULT),
 
 #if AP_FEATURE_SBUS_OUT
     // @Param: SBUS_OUT
@@ -191,7 +198,7 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
 #if HAL_HAVE_IMU_HEATER
     // @Param: HEAT_TARG
     // @DisplayName: Board heater temperature target
-    // @Description: Board heater target temperature for boards with controllable heating units. DO NOT SET to -1 on the Cube. Set to -1 to disable the heater, please reboot after setting to -1.
+    // @Description: Board heater target temperature for boards with controllable heating units. Set to -1 to disable the heater, please reboot after setting to -1.
     // @Range: -1 80
     // @Units: degC
     // @User: Advanced
@@ -211,8 +218,8 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
 #if HAL_WITH_IO_MCU
     // @Param: IO_ENABLE
     // @DisplayName: Enable IO co-processor
-    // @Description: This allows for the IO co-processor on FMUv1 and FMUv2 to be disabled
-    // @Values: 0:Disabled,1:Enabled
+    // @Description: This allows for the IO co-processor on boards with an IOMCU to be disabled. Setting to 2 will enable the IOMCU but not attempt to update firmware on startup
+    // @Values: 0:Disabled,1:Enabled,2:EnableNoFWUpdate
     // @RebootRequired: True
     // @User: Advanced
     AP_GROUPINFO("IO_ENABLE", 10, AP_BoardConfig, state.io_enable, 1),
@@ -271,7 +278,7 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
 #ifdef HAL_GPIO_PWM_VOLT_PIN
     // @Param: PWM_VOLT_SEL
     // @DisplayName: Set PWM Out Voltage
-    // @Description: This sets the voltage max for PWM output pulses. 0 for 3.3V and 1 for 5V output.
+    // @Description: This sets the voltage max for PWM output pulses. 0 for 3.3V and 1 for 5V output. On boards with an IOMCU that support this parameter this option only affects the 8 main outputs, not the 6 auxilliary outputs. Using 5V output can help to reduce the impact of ESC noise interference corrupting signals to the ESCs.
     // @Values: 0:3.3V,1:5V
     // @User: Advanced
     AP_GROUPINFO("PWM_VOLT_SEL", 18, AP_BoardConfig, _pwm_volt_sel, 0),
@@ -337,6 +344,16 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
     AP_GROUPINFO("HEAT_LOWMGN", 23, AP_BoardConfig, heater.imu_arming_temperature_margin_low, HAL_IMU_TEMP_MARGIN_LOW_DEFAULT),
 #endif
 
+#if AP_SDCARD_STORAGE_ENABLED
+    // @Param: SD_MISSION
+    // @DisplayName:  SDCard Mission size
+    // @Description: This sets the amount of storage in kilobytes reserved on the microsd card in mission.stg for waypoint storage. Each waypoint uses 15 bytes.
+    // @Range: 0 64
+    // @RebootRequired: True
+    // @User: Advanced
+    AP_GROUPINFO("SD_MISSION", 24, AP_BoardConfig, sdcard_storage.mission_kb, 0),
+#endif
+    
     AP_GROUPEND
 };
 

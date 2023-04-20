@@ -17,6 +17,18 @@ const AP_Param::GroupInfo AP_Arming_Plane::var_info[] = {
     AP_GROUPEND
 };
 
+// expected to return true if the terrain database is required to have
+// all data loaded
+bool AP_Arming_Plane::terrain_database_required() const
+{
+#if AP_TERRAIN_AVAILABLE
+    if (plane.g.terrain_follow) {
+        return true;
+    }
+#endif
+    return AP_Arming::terrain_database_required();
+}
+
 /*
   additional arming checks for plane
 
@@ -66,6 +78,11 @@ bool AP_Arming_Plane::pre_arm_checks(bool display_failure)
         ret = false;
     }
 
+    if (plane.aparm.airspeed_min < MIN_AIRSPEED_MIN) {
+        check_failed(display_failure, "ARSPD_FBW_MIN too low (%i < %i)", plane.aparm.airspeed_min.get(), MIN_AIRSPEED_MIN);
+        ret = false;
+    }
+
     if (plane.channel_throttle->get_reverse() && 
         Plane::ThrFailsafe(plane.g.throttle_fs_enabled.get()) != Plane::ThrFailsafe::Disabled &&
         plane.g.throttle_fs_value < 
@@ -78,19 +95,9 @@ bool AP_Arming_Plane::pre_arm_checks(bool display_failure)
     ret &= quadplane_checks(display_failure);
 #endif
 
-    if (plane.control_mode == &plane.mode_auto && plane.mission.num_commands() <= 1) {
-        check_failed(display_failure, "No mission loaded");
-        ret = false;
-    }
-
     // check adsb avoidance failsafe
     if (plane.failsafe.adsb) {
         check_failed(display_failure, "ADSB threat detected");
-        ret = false;
-    }
-
-    if (SRV_Channels::get_emergency_stop()) {
-        check_failed(display_failure,"Motors Emergency Stopped");
         ret = false;
     }
 
@@ -107,7 +114,13 @@ bool AP_Arming_Plane::pre_arm_checks(bool display_failure)
         check_failed(display_failure,"In landing sequence");
         ret = false;
     }
-    
+
+    char failure_msg[50] {};
+    if (!plane.control_mode->pre_arm_checks(ARRAY_SIZE(failure_msg), failure_msg)) {
+        check_failed(display_failure, "%s %s", plane.control_mode->name(), failure_msg);
+        return false;
+    }
+
     return ret;
 }
 
@@ -130,8 +143,9 @@ bool AP_Arming_Plane::quadplane_checks(bool display_failure)
         ret = false;
     }
 
-    if (!plane.quadplane.motors->initialised_ok()) {
-        check_failed(display_failure, "Quadplane: check motor setup");
+    char failure_msg[50] {};
+    if (!plane.quadplane.motors->arming_checks(ARRAY_SIZE(failure_msg), failure_msg)) {
+        check_failed(display_failure, "Motors: %s", failure_msg);
         ret = false;
     }
 
@@ -159,7 +173,6 @@ bool AP_Arming_Plane::quadplane_checks(bool display_failure)
     }
 
     // ensure controllers are OK with us arming:
-    char failure_msg[50] = {};
     if (!plane.quadplane.pos_control->pre_arm_checks("PSC", failure_msg, ARRAY_SIZE(failure_msg))) {
         check_failed(ARMING_CHECK_PARAMETERS, display_failure, "Bad parameter: %s", failure_msg);
         ret = false;
@@ -168,32 +181,7 @@ bool AP_Arming_Plane::quadplane_checks(bool display_failure)
         check_failed(ARMING_CHECK_PARAMETERS, display_failure, "Bad parameter: %s", failure_msg);
         ret = false;
     }
-    if (!plane.quadplane.motors->check_mot_pwm_params()) {
-        check_failed(ARMING_CHECK_PARAMETERS, display_failure, "Check Q_M_PWM_MIN/MAX");
-        ret = false;
-    }
 
-    if ((plane.quadplane.options & QuadPlane::OPTION_ONLY_ARM_IN_QMODE_OR_AUTO) != 0) {
-        if (!plane.control_mode->is_vtol_mode() && (plane.control_mode != &plane.mode_auto) && (plane.control_mode != &plane.mode_guided)) {
-            check_failed(display_failure,"not in Q mode");
-            ret = false;
-        }
-        if ((plane.control_mode == &plane.mode_auto) && !plane.quadplane.is_vtol_takeoff(plane.mission.get_current_nav_cmd().id)) {
-            check_failed(display_failure,"not in VTOL takeoff");
-            ret = false;
-        }
-    }
-
-    if ((plane.control_mode == &plane.mode_auto) && !plane.mission.starts_with_takeoff_cmd()) {
-        check_failed(display_failure,"missing takeoff waypoint");
-        ret = false;
-    }
-
-    if (plane.control_mode == &plane.mode_rtl) {
-        check_failed(display_failure,"in RTL mode");
-        ret = false;
-    }
-    
     /*
       Q_ASSIST_SPEED really should be enabled for all quadplanes except tailsitters
      */
@@ -216,8 +204,7 @@ bool AP_Arming_Plane::ins_checks(bool display_failure)
     }
 
     // additional plane specific checks
-    if ((checks_to_perform & ARMING_CHECK_ALL) ||
-        (checks_to_perform & ARMING_CHECK_INS)) {
+    if (check_enabled(ARMING_CHECK_INS)) {
         char failure_msg[50] = {};
         if (!AP::ahrs().pre_arm_check(true, failure_msg, sizeof(failure_msg))) {
             check_failed(ARMING_CHECK_INS, display_failure, "AHRS: %s", failure_msg);
@@ -249,11 +236,6 @@ bool AP_Arming_Plane::arm_checks(AP_Arming::Method method)
         }
     }
 
-    if (!plane.control_mode->allows_arming()) {
-        check_failed(true, "Mode does not allow arming");
-        return false;
-    }
-
     //are arming checks disabled?
     if (checks_to_perform == 0) {
         return true;
@@ -279,7 +261,7 @@ void AP_Arming_Plane::change_arm_state(void)
 {
     update_soft_armed();
 #if HAL_QUADPLANE_ENABLED
-    plane.quadplane.set_armed(hal.util->get_soft_armed());
+    plane.quadplane.set_armed(is_armed_and_safety_off());
 #endif
 }
 
@@ -287,6 +269,18 @@ bool AP_Arming_Plane::arm(const AP_Arming::Method method, const bool do_arming_c
 {
     if (!AP_Arming::arm(method, do_arming_checks)) {
         return false;
+    }
+
+    if (plane.update_home()) {
+        // after update_home the home position could still be
+        // different from the current_loc if the EKF refused the
+        // resetHeightDatum call. If we are updating home then we want
+        // to force the home to be the current_loc so relative alt
+        // takeoffs work correctly
+        if (plane.ahrs.set_home(plane.current_loc)) {
+            // update current_loc
+            plane.update_current_loc();
+        }
     }
 
     change_arm_state();
@@ -368,7 +362,6 @@ void AP_Arming_Plane::update_soft_armed()
         _armed = true;
     }
 #endif
-    _armed = _armed && hal.util->safety_switch_state() != AP_HAL::Util::SAFETY_DISARMED;
 
     hal.util->set_soft_armed(_armed);
     AP::logger().set_vehicle_armed(hal.util->get_soft_armed());
@@ -392,5 +385,29 @@ bool AP_Arming_Plane::mission_checks(bool report)
         ret = false;
         check_failed(ARMING_CHECK_MISSION, report, "DO_LAND_START set and RTL_AUTOLAND disabled");
     }
+#if HAL_QUADPLANE_ENABLED
+    if (plane.quadplane.available()) {
+        const uint16_t num_commands = plane.mission.num_commands();
+        AP_Mission::Mission_Command prev_cmd {};
+        for (uint16_t i=1; i<num_commands; i++) {
+            AP_Mission::Mission_Command cmd;
+            if (!plane.mission.read_cmd_from_storage(i, cmd)) {
+                break;
+            }
+            if (plane.is_land_command(cmd.id) &&
+                prev_cmd.id == MAV_CMD_NAV_WAYPOINT) {
+                const float dist = cmd.content.location.get_distance(prev_cmd.content.location);
+                const float tecs_land_speed = plane.TECS_controller.get_land_airspeed();
+                const float landing_speed = is_positive(tecs_land_speed)?tecs_land_speed:plane.aparm.airspeed_cruise_cm*0.01;
+                const float min_dist = 0.75 * plane.quadplane.stopping_distance(sq(landing_speed));
+                if (dist < min_dist) {
+                    ret = false;
+                    check_failed(ARMING_CHECK_MISSION, report, "VTOL land too short, min %.0fm", min_dist);
+                }
+            }
+            prev_cmd = cmd;
+        }
+    }
+#endif
     return ret;
 }

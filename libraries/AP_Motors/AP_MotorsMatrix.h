@@ -15,8 +15,8 @@ class AP_MotorsMatrix : public AP_MotorsMulticopter {
 public:
 
     /// Constructor
-    AP_MotorsMatrix(uint16_t loop_rate, uint16_t speed_hz = AP_MOTORS_SPEED_DEFAULT) :
-        AP_MotorsMulticopter(loop_rate, speed_hz)
+    AP_MotorsMatrix(uint16_t speed_hz = AP_MOTORS_SPEED_DEFAULT) :
+        AP_MotorsMulticopter(speed_hz)
     {
         if (_singleton != nullptr) {
             AP_HAL::panic("AP_MotorsMatrix must be singleton");
@@ -101,6 +101,10 @@ public:
     };
     void add_motors_raw(const struct MotorDefRaw *motors, uint8_t num_motors);
 
+    // pull values direct, (examples only)
+    float get_thrust_rpyt_out(uint8_t i) const;
+    bool get_factors(uint8_t i, float &roll, float &pitch, float &yaw, float &throttle, uint8_t &testing_order) const;
+
 protected:
     // output - sends commands to the motors
     void                output_armed_stabilizing() override;
@@ -150,6 +154,20 @@ protected:
 
     const char*         _frame_class_string = ""; // string representation of frame class
     const char*         _frame_type_string = "";  //  string representation of frame type
+
 private:
+
+    // helper to return value scaled between boost and normal based on the value of _thrust_boost_ratio
+    float boost_ratio(float boost_value, float normal_value) const;
+
+    // setup motors matrix
+    bool setup_quad_matrix(motor_frame_type frame_type);
+    bool setup_hexa_matrix(motor_frame_type frame_type);
+    bool setup_octa_matrix(motor_frame_type frame_type);
+    bool setup_deca_matrix(motor_frame_type frame_type);
+    bool setup_dodecahexa_matrix(motor_frame_type frame_type);
+    bool setup_y6_matrix(motor_frame_type frame_type);
+    bool setup_octaquad_matrix(motor_frame_type frame_type);
+
     static AP_MotorsMatrix *_singleton;
 };

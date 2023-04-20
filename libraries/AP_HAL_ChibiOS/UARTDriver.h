@@ -33,8 +33,7 @@ public:
     UARTDriver(uint8_t serial_num);
 
     /* Do not allow copies */
-    UARTDriver(const UARTDriver &other) = delete;
-    UARTDriver &operator=(const UARTDriver&) = delete;
+    CLASS_NO_COPY(UARTDriver);
 
     void begin(uint32_t b) override;
     void begin_locked(uint32_t b, uint32_t write_key) override;
@@ -53,9 +52,9 @@ public:
     uint32_t available_locked(uint32_t key) override;
 
     uint32_t txspace() override;
-    int16_t read() override;
+    bool read(uint8_t &data) override WARN_IF_UNUSED;
     ssize_t read(uint8_t *buffer, uint16_t count) override;
-    int16_t read_locked(uint32_t key) override;
+    bool read_locked(uint32_t key, uint8_t &b) override WARN_IF_UNUSED;
     void _rx_timer_tick(void);
     void _tx_timer_tick(void);
 
@@ -134,12 +133,14 @@ public:
      */
     uint64_t receive_time_constraint_us(uint16_t nbytes) override;
 
-    uint32_t bw_in_kilobytes_per_second() const override {
+    uint32_t bw_in_bytes_per_second() const override {
         if (sdef.is_usb) {
-            return 200;
+            return 200*1024;
         }
-        return _baudrate/(9*1024);
+        return _baudrate/10;
     }
+
+    uint32_t get_baud_rate() const override { return _baudrate; }
 
 #if HAL_UART_STATS_ENABLED
     // request information on uart I/O for one uart

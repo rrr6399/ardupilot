@@ -7,7 +7,6 @@
 #define HAL_OS_SOCKETS 1
 #define HAL_STORAGE_SIZE            16384
 #define HAL_STORAGE_SIZE_AVAILABLE  HAL_STORAGE_SIZE
-#define HAL_DSHOT_ALARM 0
 
 // make sensor selection clearer
 #define PROBE_IMU_I2C(driver, bus, addr, args ...) ADD_BACKEND(AP_InertialSensor_ ## driver::probe(*this,GET_I2C_DEVICE(bus, addr),##args))
@@ -392,4 +391,15 @@
 
 #ifndef HAL_WITH_EKF_DOUBLE
 #define HAL_WITH_EKF_DOUBLE HAL_HAVE_HARDWARE_DOUBLE
+#endif
+
+#ifndef HAL_GYROFFT_ENABLED
+#define HAL_GYROFFT_ENABLED 0
+#endif
+
+#if CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_NONE
+// we can use virtual CAN on native builds
+#define HAL_LINUX_USE_VIRTUAL_CAN 1
+#else
+#define HAL_LINUX_USE_VIRTUAL_CAN 0
 #endif

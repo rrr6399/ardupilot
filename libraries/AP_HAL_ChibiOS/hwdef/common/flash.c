@@ -133,6 +133,9 @@ static const uint32_t flash_memmap[STM32_FLASH_NPAGES] = { KB(32), KB(32), KB(32
 #elif defined(STM32G4)
 #define STM32_FLASH_NPAGES (BOARD_FLASH_SIZE/2)
 #define STM32_FLASH_FIXED_PAGE_SIZE 2
+#elif defined(STM32L4PLUS)
+#define STM32_FLASH_NPAGES (BOARD_FLASH_SIZE/4)
+#define STM32_FLASH_FIXED_PAGE_SIZE 4 
 #elif defined(STM32L4)
 #define STM32_FLASH_NPAGES (BOARD_FLASH_SIZE/2)
 #define STM32_FLASH_FIXED_PAGE_SIZE 2
@@ -284,7 +287,7 @@ void stm32_flash_lock(void)
 #endif
 }
 
-#if defined(STM32H7) && defined(HAL_FLASH_PROTECTION)
+#if defined(STM32H7) && HAL_FLASH_PROTECTION
 static void stm32_flash_wait_opt_idle(void)
 {
     __DSB();
@@ -463,6 +466,15 @@ bool stm32_flash_erasepage(uint32_t page)
     // contain 8 bits we assume that for 512k single bank devices
     // there is an 8th bit
     FLASH->CR |= page<<FLASH_CR_PNB_Pos;
+    FLASH->CR |= FLASH_CR_STRT;
+#elif defined(STM32L4PLUS)
+    FLASH->CR |= FLASH_CR_PER;
+    if (page >= 256) {
+      FLASH->CR |= FLASH_CR_BKER;
+    }
+    FLASH->CR &= ~FLASH_CR_PNB;
+
+    FLASH->CR |= (page<256 ?page: (page -256))<<FLASH_CR_PNB_Pos;
     FLASH->CR |= FLASH_CR_STRT;
 #elif defined(STM32L4)
     FLASH->CR = FLASH_CR_PER;
@@ -753,7 +765,7 @@ failed:
 }
 #endif // STM32F1 or STM32F3
 
-#if defined(STM32G4) || defined(STM32L4)
+#if defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS)
 static bool stm32_flash_write_g4(uint32_t addr, const void *buf, uint32_t count)
 {
     uint32_t *b = (uint32_t *)buf;
@@ -838,7 +850,7 @@ bool stm32_flash_write(uint32_t addr, const void *buf, uint32_t count)
     return stm32_flash_write_f4f7(addr, buf, count);
 #elif defined(STM32H7)
     return stm32_flash_write_h7(addr, buf, count);
-#elif defined(STM32G4) || defined(STM32L4)
+#elif defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS) 
     return stm32_flash_write_g4(addr, buf, count);
 #else
 #error "Unsupported MCU"
@@ -863,7 +875,7 @@ void stm32_flash_protect_flash(bool bootloader, bool protect)
 {
     (void)bootloader;
     (void)protect;
-#if defined(STM32H7) && !defined(HAL_BOOTLOADER_BUILD) && defined(HAL_FLASH_PROTECTION)
+#if defined(STM32H7) && HAL_FLASH_PROTECTION
     uint32_t prg1 = FLASH->WPSN_CUR1;
     uint32_t prg2 = FLASH->WPSN_CUR2;
 #ifndef STORAGE_FLASH_PAGE
@@ -925,7 +937,7 @@ void stm32_flash_protect_flash(bool bootloader, bool protect)
  */
 void stm32_flash_unprotect_flash()
 {
-#if defined(STM32H7) && defined(HAL_FLASH_PROTECTION)
+#if defined(STM32H7) && HAL_FLASH_PROTECTION
     stm32_flash_opt_clear_errors();
     stm32_flash_clear_errors();
 

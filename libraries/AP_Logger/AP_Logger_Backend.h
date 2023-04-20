@@ -12,15 +12,16 @@ class LoggerMessageWriter_DFLogStart;
 class AP_Logger_RateLimiter
 {
 public:
-    AP_Logger_RateLimiter(const AP_Logger &_front, const AP_Float &_limit_hz);
+    AP_Logger_RateLimiter(const AP_Logger &_front, const AP_Float &_limit_hz, const AP_Float &_disarm_limit_hz);
 
     // return true if message passes the rate limit test
     bool should_log(uint8_t msgid, bool writev_streaming);
-    bool should_log_streaming(uint8_t msgid);
+    bool should_log_streaming(uint8_t msgid, float rate_hz);
 
 private:
     const AP_Logger &front;
     const AP_Float &rate_limit_hz;
+    const AP_Float &disarm_rate_limit_hz;
 
     // time in ms we last sent this message
     uint16_t last_send_ms[256];
@@ -122,6 +123,10 @@ public:
                           uint8_t sequence,
                           const class RallyLocation &rally_point);
     bool Write_Rally();
+#if HAL_LOGGER_FENCE_ENABLED
+    bool Write_FencePoint(uint8_t total, uint8_t sequence, const AC_PolyFenceItem &fence_point);
+    bool Write_Fence();
+#endif
     bool Write_Format(const struct LogStructure *structure);
     bool Write_Message(const char *message);
     bool Write_MessageF(const char *fmt, ...);

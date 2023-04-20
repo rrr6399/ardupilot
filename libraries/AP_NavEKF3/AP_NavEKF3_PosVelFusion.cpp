@@ -104,13 +104,15 @@ void NavEKF3_core::ResetPosition(resetDataSource posResetSource)
             stateStruct.position.xy() += gps_corrected.vel.xy()*0.001*tdiff;
             // set the variances using the position measurement noise parameter
             P[7][7] = P[8][8] = sq(MAX(gpsPosAccuracy,frontend->_gpsHorizPosNoise));
-        } else if ((imuSampleTime_ms - rngBcnLast3DmeasTime_ms < 250 && posResetSource == resetDataSource::DEFAULT) || posResetSource == resetDataSource::RNGBCN) {
+#if EK3_FEATURE_BEACON_FUSION
+        } else if ((imuSampleTime_ms - rngBcn.last3DmeasTime_ms < 250 && posResetSource == resetDataSource::DEFAULT) || posResetSource == resetDataSource::RNGBCN) {
             // use the range beacon data as a second preference
-            stateStruct.position.x = receiverPos.x;
-            stateStruct.position.y = receiverPos.y;
+            stateStruct.position.x = rngBcn.receiverPos.x;
+            stateStruct.position.y = rngBcn.receiverPos.y;
             // set the variances from the beacon alignment filter
-            P[7][7] = receiverPosCov[0][0];
-            P[8][8] = receiverPosCov[1][1];
+            P[7][7] = rngBcn.receiverPosCov[0][0];
+            P[8][8] = rngBcn.receiverPosCov[1][1];
+#endif
 #if EK3_FEATURE_EXTERNAL_NAV
         } else if ((imuSampleTime_ms - extNavDataDelayed.time_ms < 250 && posResetSource == resetDataSource::DEFAULT) || posResetSource == resetDataSource::EXTNAV) {
             // use external nav data as the third preference
@@ -514,7 +516,7 @@ void NavEKF3_core::SelectVelPosFusion()
 
     // we have GPS data to fuse and a request to align the yaw using the GPS course
     if (gpsYawResetRequest) {
-        realignYawGPS();
+        realignYawGPS(false);
     }
 
     // Select height data to be fused from the available baro, range finder and GPS sources
@@ -1087,7 +1089,7 @@ void NavEKF3_core::selectHeightForFusion()
         // determine if we are above or below the height switch region
         ftype rangeMaxUse = 1e-4 * (ftype)_rng->max_distance_cm_orient(ROTATION_PITCH_270) * (ftype)frontend->_useRngSwHgt;
         bool aboveUpperSwHgt = (terrainState - stateStruct.position.z) > rangeMaxUse;
-        bool belowLowerSwHgt = (terrainState - stateStruct.position.z) < 0.7f * rangeMaxUse;
+        bool belowLowerSwHgt = ((terrainState - stateStruct.position.z) < 0.7f * rangeMaxUse) && (imuSampleTime_ms - gndHgtValidTime_ms < 1000);
 
         // If the terrain height is consistent and we are moving slowly, then it can be
         // used as a height reference in combination with a range finder
@@ -1125,8 +1127,10 @@ void NavEKF3_core::selectHeightForFusion()
         activeHgtSource = AP_NavEKF_Source::SourceZ::BARO;
     } else if ((frontend->sources.getPosZSource() == AP_NavEKF_Source::SourceZ::GPS) && ((imuSampleTime_ms - lastTimeGpsReceived_ms) < 500) && validOrigin && gpsAccuracyGood) {
         activeHgtSource = AP_NavEKF_Source::SourceZ::GPS;
-    } else if ((frontend->sources.getPosZSource() == AP_NavEKF_Source::SourceZ::BEACON) && validOrigin && rngBcnGoodToAlign) {
+#if EK3_FEATURE_BEACON_FUSION
+    } else if ((frontend->sources.getPosZSource() == AP_NavEKF_Source::SourceZ::BEACON) && validOrigin && rngBcn.goodToAlign) {
         activeHgtSource = AP_NavEKF_Source::SourceZ::BEACON;
+#endif
 #if EK3_FEATURE_EXTERNAL_NAV
     } else if ((frontend->sources.getPosZSource() == AP_NavEKF_Source::SourceZ::EXTNAV) && extNavDataIsFresh) {
         activeHgtSource = AP_NavEKF_Source::SourceZ::EXTNAV;
@@ -1135,9 +1139,17 @@ void NavEKF3_core::selectHeightForFusion()
 
     // Use Baro alt as a fallback if we lose range finder, GPS, external nav or Beacon
     bool lostRngHgt = ((activeHgtSource == AP_NavEKF_Source::SourceZ::RANGEFINDER) && !rangeFinderDataIsFresh);
-    bool lostGpsHgt = ((activeHgtSource == AP_NavEKF_Source::SourceZ::GPS) && ((imuSampleTime_ms - lastTimeGpsReceived_ms) > 2000));
-    bool lostRngBcnHgt = ((activeHgtSource == AP_NavEKF_Source::SourceZ::BEACON) && ((imuSampleTime_ms - rngBcnDataDelayed.time_ms) > 2000));
-    bool fallback_to_baro = lostRngHgt || lostGpsHgt || lostRngBcnHgt;
+    bool lostGpsHgt = ((activeHgtSource == AP_NavEKF_Source::SourceZ::GPS) && ((imuSampleTime_ms - lastTimeGpsReceived_ms) > 2000 || !gpsAccuracyGoodForAltitude));
+#if EK3_FEATURE_BEACON_FUSION
+    bool lostRngBcnHgt = ((activeHgtSource == AP_NavEKF_Source::SourceZ::BEACON) && ((imuSampleTime_ms - rngBcn.dataDelayed.time_ms) > 2000));
+#endif
+    bool fallback_to_baro =
+        lostRngHgt
+        || lostGpsHgt
+#if EK3_FEATURE_BEACON_FUSION
+        || lostRngBcnHgt
+#endif
+        ;
 #if EK3_FEATURE_EXTERNAL_NAV
     bool lostExtNavHgt = ((activeHgtSource == AP_NavEKF_Source::SourceZ::EXTNAV) && !extNavDataIsFresh);
     fallback_to_baro |= lostExtNavHgt;

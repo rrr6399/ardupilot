@@ -363,9 +363,9 @@ bool SPIDevice::acquire_bus(bool set, bool skip_cs)
     } else {
         bus.dma_handle->lock();
         spiAcquireBus(spi_devices[device_desc.bus].driver);              /* Acquire ownership of the bus.    */
-        bus.spicfg.end_cb = nullptr;
         bus.spicfg.ssport = PAL_PORT(device_desc.pal_line);
         bus.spicfg.sspad = PAL_PAD(device_desc.pal_line);
+        bus.spicfg.end_cb = nullptr;
 #if defined(STM32H7)
         bus.spicfg.cfg1 = freq_flag;
         bus.spicfg.cfg2 = device_desc.mode;
@@ -500,7 +500,7 @@ void SPIDevice::test_clock_freq(void)
         uint32_t t0 = AP_HAL::micros();
         spiStartExchange(spi_devices[i].driver, len, buf1, buf2);
         chSysLock();
-        msg_t msg = osalThreadSuspendTimeoutS(&spi_devices[i].driver->thread, TIME_MS2I(100));
+        msg_t msg = osalThreadSuspendTimeoutS(&spi_devices[i].driver->thread, chTimeMS2I(100));
         chSysUnlock();
         if (msg == MSG_TIMEOUT) {
             spiAbort(spi_devices[i].driver);

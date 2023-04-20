@@ -156,16 +156,24 @@ def process_ap_libraries(self):
         if vehicle:
             self.use.append(_vehicle_tgen_name(l, vehicle))
 
+@before_method('process_source')
+@feature('cxxstlib')
+def dynamic_post(self):
+    if not getattr(self, 'dynamic_source', None):
+        return
+    self.source = Utils.to_list(self.source)
+    self.source.extend(self.bld.bldnode.ant_glob(self.dynamic_source))
+
 class ap_library_check_headers(Task.Task):
     color = 'PINK'
     before  = 'cxx c'
     dispatched_headers = set()
     whitelist = (
         'libraries/AP_Vehicle/AP_Vehicle_Type.h',
-        'libraries/AP_Camera/AP_RunCam.h',
         'libraries/AP_Common/AP_FWVersionDefine.h',
         'libraries/AP_Scripting/lua_generated_bindings.h',
         'libraries/AP_NavEKF3/AP_NavEKF3_feature.h',
+        'libraries/AP_LandingGear/AP_LandingGear_config.h',
     )
     whitelist = tuple(os.path.join(*p.split('/')) for p in whitelist)
 
@@ -231,6 +239,25 @@ class ap_library_check_headers(Task.Task):
     def keyword(self):
         return 'Checking included headers'
 
+def custom_flags_check(tgen):
+    '''
+     check for tasks marked as having custom cpp or c flags
+     a library can do this by setting AP_LIB_EXTRA_CXXFLAGS and AP_LIB_EXTRA_CFLAGS
+
+     For example add this is the configure section of the library, using AP_DDS as an example:
+
+        cfg.env.AP_LIB_EXTRA_CXXFLAGS['AP_DDS'] = ['-DSOME_CXX_FLAG']
+        cfg.env.AP_LIB_EXTRA_CFLAGS['AP_DDS'] = ['-DSOME_C_FLAG']
+    '''
+    if not tgen.name.startswith("objs/"):
+        return
+    libname = tgen.name[5:]
+    if libname in tgen.env.AP_LIB_EXTRA_CXXFLAGS:
+        tgen.env.CXXFLAGS.extend(tgen.env.AP_LIB_EXTRA_CXXFLAGS[libname])
+    if libname in tgen.env.AP_LIB_EXTRA_CFLAGS:
+        tgen.env.CFLAGS.extend(tgen.env.AP_LIB_EXTRA_CFLAGS[libname])
+
+
 def double_precision_check(tasks):
     '''check for tasks marked as double precision'''
 
@@ -276,6 +303,7 @@ def ap_library_register_for_check(self):
     if not hasattr(self, 'compiled_tasks'):
         return
 
+    custom_flags_check(self)
     double_precision_check(self.compiled_tasks)
     if self.env.ENABLE_ONVIF:
         gsoap_library_check(self.bld, self.compiled_tasks)
@@ -290,4 +318,6 @@ def ap_library_register_for_check(self):
 def configure(cfg):
     cfg.env.AP_LIBRARIES_OBJECTS_KW = dict()
     cfg.env.AP_LIB_EXTRA_SOURCES = dict()
+    cfg.env.AP_LIB_EXTRA_CXXFLAGS = dict()
+    cfg.env.AP_LIB_EXTRA_CFLAGS = dict()
     cfg.env.DOUBLE_PRECISION_SOURCES = dict()

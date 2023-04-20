@@ -209,7 +209,7 @@ uint32_t get_fattime()
     return fattime;
 }
 
-#if !defined(NO_FASTBOOT)
+#if AP_FASTBOOT_ENABLED
 
 // get RTC backup registers starting at given idx
 void get_rtc_backup(uint8_t idx, uint32_t *v, uint8_t n)
@@ -272,7 +272,7 @@ void set_fast_reboot(enum rtc_boot_magic v)
     }
 }
 
-#else // NO_FASTBOOT
+#else // AP_FASTBOOT_ENABLED is not set
 
 // set n RTC backup registers starting at given idx
 void set_rtc_backup(uint8_t idx, const uint32_t *v, uint8_t n)
@@ -289,7 +289,7 @@ void get_rtc_backup(uint8_t idx, uint32_t *v, uint8_t n)
     (void)v;
     (void)n;
 }
-#endif // NO_FASTBOOT
+#endif // AP_FASTBOOT_ENABLED
 
 /*
   enable peripheral power if needed This is done late to prevent
@@ -298,7 +298,7 @@ void get_rtc_backup(uint8_t idx, uint32_t *v, uint8_t n)
 */
 void peripheral_power_enable(void)
 {
-#if defined(HAL_GPIO_PIN_nVDD_5V_PERIPH_EN) || defined(HAL_GPIO_PIN_nVDD_5V_HIPOWER_EN) || defined(HAL_GPIO_PIN_VDD_3V3_SENSORS_EN)|| defined(HAL_GPIO_PIN_VDD_3V3_SENSORS2_EN) || defined(HAL_GPIO_PIN_VDD_3V3_SENSORS3_EN) || defined(HAL_GPIO_PIN_VDD_3V3_SENSORS4_EN) || defined(HAL_GPIO_PIN_nVDD_3V3_SD_CARD_EN) || defined(HAL_GPIO_PIN_VDD_3V3_SD_CARD_EN)
+#if defined(HAL_GPIO_PIN_nVDD_5V_PERIPH_EN) || defined(HAL_GPIO_PIN_VDD_5V_PERIPH_EN) || defined(HAL_GPIO_PIN_nVDD_5V_HIPOWER_EN) || defined(HAL_GPIO_PIN_VDD_3V3_SENSORS_EN)|| defined(HAL_GPIO_PIN_VDD_3V3_SENSORS2_EN) || defined(HAL_GPIO_PIN_VDD_3V3_SENSORS3_EN) || defined(HAL_GPIO_PIN_VDD_3V3_SENSORS4_EN) || defined(HAL_GPIO_PIN_nVDD_3V3_SD_CARD_EN) || defined(HAL_GPIO_PIN_VDD_3V3_SD_CARD_EN) || defined(HAL_GPIO_PIN_VDD_3V5_LTE_EN)
     // we don't know what state the bootloader had the CTS pin in, so
     // wait here with it pulled up from the PAL table for enough time
     // for the radio to be definately powered down
@@ -309,6 +309,9 @@ void peripheral_power_enable(void)
     }
 #ifdef HAL_GPIO_PIN_nVDD_5V_PERIPH_EN
     palWriteLine(HAL_GPIO_PIN_nVDD_5V_PERIPH_EN, 0);
+#endif
+#ifdef HAL_GPIO_PIN_VDD_5V_PERIPH_EN
+    palWriteLine(HAL_GPIO_PIN_VDD_5V_PERIPH_EN, 1);
 #endif
 #ifdef HAL_GPIO_PIN_nVDD_5V_HIPOWER_EN
     palWriteLine(HAL_GPIO_PIN_nVDD_5V_HIPOWER_EN, 0);
@@ -337,6 +340,9 @@ void peripheral_power_enable(void)
     // others need it active high
     palWriteLine(HAL_GPIO_PIN_VDD_3V3_SD_CARD_EN, 1);
 #endif
+#ifdef HAL_GPIO_PIN_VDD_3V5_LTE_EN
+    palWriteLine(HAL_GPIO_PIN_VDD_3V5_LTE_EN, 1);
+#endif
     for (i=0; i<20; i++) {
         // give 20ms for sensors to settle
         chThdSleep(chTimeMS2I(1));
@@ -344,7 +350,7 @@ void peripheral_power_enable(void)
 #endif
 }
 
-#if defined(STM32F7) || defined(STM32H7) || defined(STM32F4) || defined(STM32F3) || defined(STM32G4) || defined(STM32L4)
+#if defined(STM32F7) || defined(STM32H7) || defined(STM32F4) || defined(STM32F3) || defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS)
 /*
   read mode of a pin. This allows a pin config to be read, changed and
   then written back
@@ -452,7 +458,7 @@ void system_halt_hook(void)
 #ifdef HAL_GPIO_PIN_FAULT
     // optionally print the message on a fault pin
     while (true) {
-        fault_printf("PANIC:%s\n", ch.dbg.panic_msg);
+        fault_printf("PANIC:%s\n", currcore->dbg.panic_msg);
         fault_printf("RA0:0x%08x\n", __builtin_return_address(0));
     }
 #endif
@@ -558,3 +564,20 @@ unsigned int stm32_rand_generate_nonblocking(unsigned char* output, unsigned int
 }
 
 #endif // #if HAL_USE_HW_RNG && defined(RNG)
+
+/*
+  see if we should limit flash to 1M on devices with older revisions of STM32F427
+ */
+#ifdef STM32F427xx
+bool check_limit_flash_1M(void)
+{
+    const uint16_t revid = (*(uint32_t *)DBGMCU_BASE) >> 16;
+    static const uint16_t badrevs[4] = { 0x1000, 0x1001, 0x1003, 0x1007 };
+    for (uint8_t i=0; i<4; i++) {
+        if (revid == badrevs[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+#endif

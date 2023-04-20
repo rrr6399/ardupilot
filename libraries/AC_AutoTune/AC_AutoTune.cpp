@@ -2,7 +2,9 @@
 
 #include <AP_Logger/AP_Logger.h>
 #include <AP_Scheduler/AP_Scheduler.h>
+#include <AP_Notify/AP_Notify.h>
 #include <GCS_MAVLink/GCS.h>
+#include <AP_Vehicle/AP_Vehicle_Type.h>
 
 #define AUTOTUNE_PILOT_OVERRIDE_TIMEOUT_MS  500     // restart tuning if pilot has left sticks in middle for 2 seconds
 #if APM_BUILD_TYPE(APM_BUILD_ArduPlane)
@@ -151,6 +153,8 @@ const char *AC_AutoTune::type_string() const
         return "Angle P Down";
     case MAX_GAINS:
         return "Find Max Gains";
+    case TUNE_CHECK:
+        return "Check Tune Frequency Response";
     case TUNE_COMPLETE:
         return "Tune Complete";
     }
@@ -168,7 +172,9 @@ const char *AC_AutoTune::axis_string() const
     case PITCH:
         return "Pitch";
     case YAW:
-        return "Yaw";
+        return "Yaw(E)";
+    case YAW_D:
+        return "Yaw(D)";
     }
     return "";
 }
@@ -198,29 +204,32 @@ void AC_AutoTune::run()
     const bool zero_rp_input = is_zero(target_roll_cd) && is_zero(target_pitch_cd);
 
     const uint32_t now = AP_HAL::millis();
-    if (!zero_rp_input || !is_zero(target_yaw_rate_cds) || !is_zero(target_climb_rate_cms)) {
-        if (!pilot_override) {
-            pilot_override = true;
-            // set gains to their original values
-            load_gains(GAIN_ORIGINAL);
-            attitude_control->use_sqrt_controller(true);
-        }
-        // reset pilot override time
-        override_time = now;
-        if (!zero_rp_input) {
-            // only reset position on roll or pitch input
-            have_position = false;
-        }
-    } else if (pilot_override) {
-        // check if we should resume tuning after pilot's override
-        if (now - override_time > AUTOTUNE_PILOT_OVERRIDE_TIMEOUT_MS) {
-            pilot_override = false;             // turn off pilot override
-            // set gains to their intra-test values (which are very close to the original gains)
-            // load_gains(GAIN_INTRA_TEST); //I think we should be keeping the originals here to let the I term settle quickly
-            step = WAITING_FOR_LEVEL; // set tuning step back from beginning
-            step_start_time_ms = now;
-            level_start_time_ms = now;
-            desired_yaw_cd = ahrs_view->yaw_sensor;
+
+    if (mode != SUCCESS) {
+        if (!zero_rp_input || !is_zero(target_yaw_rate_cds) || !is_zero(target_climb_rate_cms)) {
+            if (!pilot_override) {
+                pilot_override = true;
+                // set gains to their original values
+                load_gains(GAIN_ORIGINAL);
+                attitude_control->use_sqrt_controller(true);
+            }
+            // reset pilot override time
+            override_time = now;
+            if (!zero_rp_input) {
+                // only reset position on roll or pitch input
+                have_position = false;
+            }
+        } else if (pilot_override) {
+            // check if we should resume tuning after pilot's override
+            if (now - override_time > AUTOTUNE_PILOT_OVERRIDE_TIMEOUT_MS) {
+                pilot_override = false;             // turn off pilot override
+                // set gains to their intra-test values (which are very close to the original gains)
+                // load_gains(GAIN_INTRA_TEST); //I think we should be keeping the originals here to let the I term settle quickly
+                step = WAITING_FOR_LEVEL; // set tuning step back from beginning
+                step_start_time_ms = now;
+                level_start_time_ms = now;
+                desired_yaw_cd = ahrs_view->yaw_sensor;
+            }
         }
     }
     if (pilot_override) {
@@ -356,6 +365,7 @@ void AC_AutoTune::control_attitude()
             start_angle = ahrs_view->pitch_sensor;
             break;
         case YAW:
+        case YAW_D:
             abort_angle = AUTOTUNE_TARGET_ANGLE_YAW_CD;
             start_rate = ToDeg(ahrs_view->get_gyro().z) * 100.0f;
             start_angle = ahrs_view->yaw_sensor;
@@ -432,6 +442,9 @@ void AC_AutoTune::control_attitude()
         case MAX_GAINS:
             updating_max_gains_all(axis);
             break;
+        case TUNE_CHECK:
+            counter = AUTOTUNE_SUCCESS_COUNT;
+            FALLTHROUGH;
         case TUNE_COMPLETE:
             break;
         }
@@ -467,6 +480,8 @@ void AC_AutoTune::control_attitude()
                         axis = PITCH;
                     } else if (yaw_enabled()) {
                         axis = YAW;
+                    } else if (yaw_d_enabled()) {
+                        axis = YAW_D;
                     } else {
                         complete = true;
                     }
@@ -475,12 +490,22 @@ void AC_AutoTune::control_attitude()
                     axes_completed |= AUTOTUNE_AXIS_BITMASK_PITCH;
                     if (yaw_enabled()) {
                         axis = YAW;
+                    } else if (yaw_d_enabled()) {
+                        axis = YAW_D;
                     } else {
                         complete = true;
                     }
                     break;
                 case YAW:
                     axes_completed |= AUTOTUNE_AXIS_BITMASK_YAW;
+                    if (yaw_d_enabled()) {
+                        axis = YAW_D;
+                    } else {
+                        complete = true;
+                    }
+                    break;
+                case YAW_D:
+                    axes_completed |= AUTOTUNE_AXIS_BITMASK_YAW_D;
                     complete = true;
                     break;
                 }
@@ -502,7 +527,7 @@ void AC_AutoTune::control_attitude()
         // reverse direction for multicopter twitch test
         positive_direction = twitch_reverse_direction();
 
-        if (axis == YAW) {
+        if (axis == YAW || axis == YAW_D) {
             attitude_control->input_euler_angle_roll_pitch_yaw(0.0f, 0.0f, ahrs_view->yaw_sensor, false);
         }
 
@@ -529,6 +554,8 @@ void AC_AutoTune::backup_gains_and_initialise()
         axis = PITCH;
     } else if (yaw_enabled()) {
         axis = YAW;
+    } else if (yaw_d_enabled()) {
+        axis = YAW_D;
     }
     // no axes are complete
     axes_completed = 0;
@@ -589,10 +616,11 @@ void AC_AutoTune::update_gcs(uint8_t message_id) const
         gcs().send_text(MAV_SEVERITY_NOTICE,"AutoTune: Pilot Testing");
         break;
     case AUTOTUNE_MESSAGE_SAVED_GAINS:
-        gcs().send_text(MAV_SEVERITY_NOTICE,"AutoTune: Saved gains for %s%s%s",
+        gcs().send_text(MAV_SEVERITY_NOTICE,"AutoTune: Saved gains for %s%s%s%s",
                         (axes_completed&AUTOTUNE_AXIS_BITMASK_ROLL)?"Roll ":"",
                         (axes_completed&AUTOTUNE_AXIS_BITMASK_PITCH)?"Pitch ":"",
-                        (axes_completed&AUTOTUNE_AXIS_BITMASK_YAW)?"Yaw":"");
+                        (axes_completed&AUTOTUNE_AXIS_BITMASK_YAW)?"Yaw(E)":"",
+                        (axes_completed&AUTOTUNE_AXIS_BITMASK_YAW_D)?"Yaw(D)":"");
         break;
     }
 }
@@ -611,6 +639,15 @@ bool AC_AutoTune::pitch_enabled() const
 bool AC_AutoTune::yaw_enabled() const
 {
     return get_axis_bitmask() & AUTOTUNE_AXIS_BITMASK_YAW;
+}
+
+bool AC_AutoTune::yaw_d_enabled() const
+{
+#if APM_BUILD_TYPE(APM_BUILD_Heli)
+    return false;
+#else
+    return get_axis_bitmask() & AUTOTUNE_AXIS_BITMASK_YAW_D;
+#endif
 }
 
 /*

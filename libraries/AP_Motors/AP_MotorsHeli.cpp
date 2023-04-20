@@ -167,7 +167,7 @@ void AP_MotorsHeli::init(motor_frame_class frame_class, motor_frame_type frame_t
     _servo_test_cycle_counter = _servo_test;
 
     // ensure inputs are not passed through to servos on start-up
-    _servo_mode = SERVO_CONTROL_MODE_AUTOMATED;
+    _servo_mode.set(SERVO_CONTROL_MODE_AUTOMATED);
 
     // initialise radio passthrough for collective to middle
     _throttle_radio_passthrough = 0.5f;
@@ -522,7 +522,7 @@ void AP_MotorsHeli::reset_swash_servo(SRV_Channel::Aux_servo_function_t function
 // update the throttle input filter
 void AP_MotorsHeli::update_throttle_filter()
 {
-    _throttle_filter.apply(_throttle_in, 1.0f/_loop_rate);
+    _throttle_filter.apply(_throttle_in,  _dt);
 
     // constrain filtered throttle
     if (_throttle_filter.get() < 0.0f) {
@@ -536,7 +536,7 @@ void AP_MotorsHeli::update_throttle_filter()
 // reset_flight_controls - resets all controls and scalars to flight status
 void AP_MotorsHeli::reset_flight_controls()
 {
-    _servo_mode = SERVO_CONTROL_MODE_AUTOMATED;
+    _servo_mode.set(SERVO_CONTROL_MODE_AUTOMATED);
     init_outputs();
     calculate_scalars();
 }
@@ -564,7 +564,7 @@ void AP_MotorsHeli::update_throttle_hover(float dt)
         }
 
         // we have chosen to constrain the hover collective to be within the range reachable by the third order expo polynomial.
-        _collective_hover = constrain_float(_collective_hover + (dt / (dt + AP_MOTORS_HELI_COLLECTIVE_HOVER_TC)) * (curr_collective - _collective_hover), AP_MOTORS_HELI_COLLECTIVE_HOVER_MIN, AP_MOTORS_HELI_COLLECTIVE_HOVER_MAX);
+        _collective_hover.set(constrain_float(_collective_hover + (dt / (dt + AP_MOTORS_HELI_COLLECTIVE_HOVER_TC)) * (curr_collective - _collective_hover), AP_MOTORS_HELI_COLLECTIVE_HOVER_MIN, AP_MOTORS_HELI_COLLECTIVE_HOVER_MAX));
     }
 }
 
@@ -603,3 +603,17 @@ void AP_MotorsHeli::update_turbine_start()
     }
 }
 
+bool AP_MotorsHeli::arming_checks(size_t buflen, char *buffer) const
+{
+    // run base class checks
+    if (!AP_Motors::arming_checks(buflen, buffer)) {
+        return false;
+    }
+
+    if (_heliflags.servo_test_running) {
+        hal.util->snprintf(buffer, buflen, "Servo Test is still running");
+        return false;
+    }
+
+    return true;
+}

@@ -18,7 +18,12 @@
  */
 #pragma once
 
+#include "AP_ICEngine_config.h"
+
+#if AP_ICENGINE_ENABLED
+
 #include <AP_Param/AP_Param.h>
+#include <Filter/LowPassFilter.h>
 
 class AP_ICEngine {
 public:
@@ -49,6 +54,11 @@ public:
 
     // update min throttle for idle governor
     void update_idle_governor(int8_t &min_throttle);
+
+    // do we have throttle while disarmed enabled?
+    bool allow_throttle_while_disarmed(void) const {
+        return enable && option_set(Options::THROTTLE_WHILE_DISARMED);
+    }
 
     static AP_ICEngine *get_singleton() { return _singleton; }
 
@@ -151,3 +161,5 @@ private:
 namespace AP {
     AP_ICEngine *ice();
 };
+
+#endif  // AP_ICENGINE_ENABLED

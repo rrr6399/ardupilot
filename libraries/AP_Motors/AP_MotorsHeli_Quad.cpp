@@ -60,13 +60,6 @@ bool AP_MotorsHeli_Quad::init_outputs()
     // set rotor servo range
     _main_rotor.init_servo();
 
-    // set signal value for main rotor external governor to know when to use autorotation bailout ramp up
-    if (_main_rotor._rsc_mode.get() == ROTOR_CONTROL_MODE_SETPOINT  ||  _main_rotor._rsc_mode.get() == ROTOR_CONTROL_MODE_PASSTHROUGH) {
-        _main_rotor.set_ext_gov_arot_bail(_main_rotor._ext_gov_arot_pct.get());
-    } else {
-        _main_rotor.set_ext_gov_arot_bail(0);
-    }
-
     set_initialised_ok(_frame_class == MOTOR_FRAME_HELI_QUAD);
 
     return true;
@@ -117,13 +110,12 @@ void AP_MotorsHeli_Quad::calculate_armed_scalars()
         _heliflags.save_rsc_mode = false;
     }
 
-    // set bailout ramp time
-    _main_rotor.use_bailout_ramp_time(_heliflags.enable_bailout);
-
-    // allow use of external governor autorotation bailout window on main rotor
-    if (_main_rotor._ext_gov_arot_pct.get() > 0  &&  (_main_rotor._rsc_mode.get() == ROTOR_CONTROL_MODE_SETPOINT  ||  _main_rotor._rsc_mode.get() == ROTOR_CONTROL_MODE_PASSTHROUGH)){
-        // RSC only needs to know that the vehicle is in an autorotation if using the bailout window on an external governor
+    if (_heliflags.in_autorotation) {
         _main_rotor.set_autorotation_flag(_heliflags.in_autorotation);
+        // set bailout ramp time
+        _main_rotor.use_bailout_ramp_time(_heliflags.enable_bailout);
+    }else {
+        _main_rotor.set_autorotation_flag(false);
     }
 }
 
@@ -132,13 +124,13 @@ void AP_MotorsHeli_Quad::calculate_scalars()
 {
     // range check collective min, max and mid
     if( _collective_min >= _collective_max ) {
-        _collective_min = AP_MOTORS_HELI_COLLECTIVE_MIN;
-        _collective_max = AP_MOTORS_HELI_COLLECTIVE_MAX;
+        _collective_min.set(AP_MOTORS_HELI_COLLECTIVE_MIN);
+        _collective_max.set(AP_MOTORS_HELI_COLLECTIVE_MAX);
     }
 
-    _collective_zero_thrust_deg = constrain_float(_collective_zero_thrust_deg, _collective_min_deg, _collective_max_deg);
+    _collective_zero_thrust_deg.set(constrain_float(_collective_zero_thrust_deg, _collective_min_deg, _collective_max_deg));
 
-    _collective_land_min_deg = constrain_float(_collective_land_min_deg, _collective_min_deg, _collective_max_deg);
+    _collective_land_min_deg.set(constrain_float(_collective_land_min_deg, _collective_min_deg, _collective_max_deg));
 
     if (!is_equal((float)_collective_max_deg, (float)_collective_min_deg)) {
         // calculate collective zero thrust point as a number from 0 to 1

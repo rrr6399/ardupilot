@@ -143,7 +143,7 @@ void AC_Autorotation::init_hs_controller()
     _healthy_rpm_counter = 0;
 
     // Protect against divide by zero
-    _param_head_speed_set_point = MAX(_param_head_speed_set_point,500);
+    _param_head_speed_set_point.set(MAX(_param_head_speed_set_point,500));
 }
 
 
@@ -204,16 +204,17 @@ void AC_Autorotation::set_collective(float collective_filter_cutoff) const
 //before using it in the controller
 float AC_Autorotation::get_rpm(bool update_counter)
 {
+    float current_rpm = 0.0f;
+
+#if AP_RPM_ENABLED
     // Get singleton for RPM library
     const AP_RPM *rpm = AP_RPM::get_singleton();
-
-    float current_rpm = 0.0f;
 
     //Get current rpm, checking to ensure no nullptr
     if (rpm != nullptr) {
         //Check requested rpm instance to ensure either 0 or 1.  Always defaults to 0.
         if ((_param_rpm_instance > 1) || (_param_rpm_instance < 0)) {
-            _param_rpm_instance = 0;
+            _param_rpm_instance.set(0);
         }
 
         //Get RPM value
@@ -228,6 +229,9 @@ float AC_Autorotation::get_rpm(bool update_counter)
     } else {
         _flags.bad_rpm = true;
     }
+#else
+    _flags.bad_rpm = true;
+#endif
 
     if (_flags.bad_rpm) {
         //count unhealthy rpm updates and reset healthy rpm counter

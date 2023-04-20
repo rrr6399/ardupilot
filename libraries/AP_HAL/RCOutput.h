@@ -222,6 +222,15 @@ public:
     // static to allow use in the ChibiOS thread stuff
     static bool is_dshot_protocol(const enum output_mode mode);
 
+    static bool is_led_protocol(const enum output_mode mode) {
+      switch (mode) {
+      case MODE_NEOPIXEL:
+      case MODE_PROFILED:
+        return true;
+      default:
+        return false;
+      }
+    }
 
     // BLHeli32: https://github.com/bitdump/BLHeli/blob/master/BLHeli_32%20ARM/BLHeli_32%20Firmware%20specs/Digital_Cmd_Spec.txt
     // BLHeli_S: https://github.com/bitdump/BLHeli/blob/master/BLHeli_S%20SiLabs/Dshotprog%20spec%20BLHeli_S.txt
@@ -337,6 +346,16 @@ public:
     virtual void timer_info(ExpandingString &str) {}
 
     /*
+      Can this driver handle gpio as well as RC
+    */
+    virtual bool supports_gpio() { return false; };
+
+    /*
+      Writes gpio state to a channel
+    */
+    virtual void write_gpio(uint8_t chan, bool active) {};
+
+    /*
      * calculate the prescaler required to achieve the desire bitrate
      */
     static uint32_t calculate_bitrate_prescaler(uint32_t timer_clock, uint32_t target_frequency, bool is_dshot);
@@ -365,12 +384,15 @@ public:
     static uint32_t DSHOT_BIT_1_TICKS;
 
     // See WS2812B spec for expected pulse widths
-    static constexpr uint32_t NEOP_BIT_WIDTH_TICKS = 20;
-    static constexpr uint32_t NEOP_BIT_0_TICKS = 7;
-    static constexpr uint32_t NEOP_BIT_1_TICKS = 14;
+    static constexpr uint32_t NEOP_BIT_WIDTH_TICKS = 8;
+    static constexpr uint32_t NEOP_BIT_0_TICKS = 3;
+    static constexpr uint32_t NEOP_BIT_1_TICKS = 6;
     // neopixel does not use pulse widths at all
     static constexpr uint32_t PROFI_BIT_0_TICKS = 7;
     static constexpr uint32_t PROFI_BIT_1_TICKS = 14;
+
+    // suitably long LED output period to support high LED counts
+    static constexpr uint32_t LED_OUTPUT_PERIOD_US = 10000;
 
 protected:
 

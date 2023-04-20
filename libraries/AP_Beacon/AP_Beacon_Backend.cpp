@@ -14,6 +14,9 @@
  */
 
 #include "AP_Beacon_Backend.h"
+
+#if AP_BEACON_ENABLED
+
 // debug
 #include <stdio.h>
 #include <AP_SerialManager/AP_SerialManager.h>
@@ -90,7 +93,7 @@ Vector3f AP_Beacon_Backend::correct_for_orient_yaw(const Vector3f &vector)
 
     // check for change in parameter value and update constants
     if (orient_yaw_deg != _frontend.orient_yaw) {
-        _frontend.orient_yaw = wrap_180(_frontend.orient_yaw.get());
+        _frontend.orient_yaw.set(wrap_180(_frontend.orient_yaw.get()));
 
         // calculate rotation constants
         orient_yaw_deg = _frontend.orient_yaw;
@@ -105,3 +108,5 @@ Vector3f AP_Beacon_Backend::correct_for_orient_yaw(const Vector3f &vector)
     vec_rotated.z = vector.z;
     return vec_rotated;
 }
+
+#endif  // AP_BEACON_ENABLED

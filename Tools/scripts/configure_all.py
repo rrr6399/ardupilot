@@ -17,6 +17,7 @@ parser.add_argument('--build', action='store_true', default=False, help='build a
 parser.add_argument('--build-target', default='copter', help='build target')
 parser.add_argument('--stop', action='store_true', default=False, help='stop on configure or build failure')
 parser.add_argument('--no-bl', action='store_true', default=False, help="don't check bootloader builds")
+parser.add_argument('--only-bl', action='store_true', default=False, help="only check bootloader builds")
 parser.add_argument('--Werror', action='store_true', default=False, help="build with -Werror")
 parser.add_argument('--pattern', default='*')
 parser.add_argument('--start', default=None, type=int, help='continue from specified build number')
@@ -67,7 +68,7 @@ def is_ap_periph(board):
     hwdef = os.path.join('libraries/AP_HAL_ChibiOS/hwdef/%s/hwdef.dat' % board)
     try:
         r = open(hwdef, 'r').read()
-        if r.find('periph/hwdef.dat') != -1 or r.find('AP_PERIPH') != -1:
+        if r.find('periph/hwdef.dat') != -1 or r.find('periph/hwdef.inc') != -1 or r.find('AP_PERIPH') != -1:
             print("%s is AP_Periph" % board)
             return True
     except Exception as ex:
@@ -83,7 +84,8 @@ for board in board_list:
     config_opts = ["--board", board]
     if args.Werror:
         config_opts += ["--Werror"]
-    run_program([args.python, "waf", "configure"] + config_opts, "configure: " + board)
+    if not args.only_bl:
+        run_program([args.python, "waf", "configure"] + config_opts, "configure: " + board)
     if args.copy_hwdef_incs_to_directory is not None:
         source = os.path.join("build", board, "hwdef.h")
         if board == "iomcu":

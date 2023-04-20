@@ -1,4 +1,3 @@
-#include "mode.h"
 #include "Rover.h"
 
 #define AUTO_GUIDED_SEND_TARGET_MS 1000
@@ -45,6 +44,12 @@ void ModeAuto::_exit()
 
 void ModeAuto::update()
 {
+    // check if mission exists (due to being cleared while disarmed in AUTO,
+    // if no mission, then stop...needs mode change out of AUTO, mission load,
+    // and change back to AUTO to run a mission at this point
+    if (!hal.util->get_soft_armed() && mission.num_commands() <= 1) {
+        start_stop();
+    }
     // start or update mission
     if (waiting_to_start) {
         // don't start the mission until we have an origin
@@ -274,7 +279,7 @@ void ModeAuto::start_RTL()
 }
 
 // lua scripts use this to retrieve the contents of the active command
-bool ModeAuto::nav_script_time(uint16_t &id, uint8_t &cmd, float &arg1, float &arg2)
+bool ModeAuto::nav_script_time(uint16_t &id, uint8_t &cmd, float &arg1, float &arg2, int16_t &arg3, int16_t &arg4)
 {
 #if AP_SCRIPTING_ENABLED
     if (_submode == AutoSubMode::Auto_NavScriptTime) {
@@ -282,6 +287,8 @@ bool ModeAuto::nav_script_time(uint16_t &id, uint8_t &cmd, float &arg1, float &a
         cmd = nav_scripting.command;
         arg1 = nav_scripting.arg1;
         arg2 = nav_scripting.arg2;
+        arg3 = nav_scripting.arg3;
+        arg4 = nav_scripting.arg4;
         return true;
     }
 #endif
@@ -481,13 +488,15 @@ bool ModeAuto::start_command(const AP_Mission::Mission_Command& cmd)
         break;
 
     case MAV_CMD_DO_FENCE_ENABLE:
+#if AP_FENCE_ENABLED
         if (cmd.p1 == 0) {  //disable
-            g2.fence.enable(false);
+            rover.fence.enable(false);
             gcs().send_text(MAV_SEVERITY_INFO, "Fence Disabled");
         } else {  //enable fence
-            g2.fence.enable(true);
+            rover.fence.enable(true);
             gcs().send_text(MAV_SEVERITY_INFO, "Fence Enabled");
         }
+#endif
         break;
 
     case MAV_CMD_DO_GUIDED_LIMITS:
@@ -587,7 +596,6 @@ bool ModeAuto::verify_command(const AP_Mission::Mission_Command& cmd)
     // do commands (always return true)
     case MAV_CMD_DO_CHANGE_SPEED:
     case MAV_CMD_DO_SET_HOME:
-    case MAV_CMD_DO_CONTROL_VIDEO:
     case MAV_CMD_DO_SET_CAM_TRIGG_DIST:
     case MAV_CMD_DO_SET_ROI:
     case MAV_CMD_DO_SET_REVERSE:
@@ -888,8 +896,10 @@ void ModeAuto::do_nav_script_time(const AP_Mission::Mission_Command& cmd)
         nav_scripting.start_ms = millis();
         nav_scripting.command = cmd.content.nav_script_time.command;
         nav_scripting.timeout_s = cmd.content.nav_script_time.timeout_s;
-        nav_scripting.arg1 = cmd.content.nav_script_time.arg1;
-        nav_scripting.arg2 = cmd.content.nav_script_time.arg2;
+        nav_scripting.arg1 = cmd.content.nav_script_time.arg1.get();
+        nav_scripting.arg2 = cmd.content.nav_script_time.arg2.get();
+        nav_scripting.arg3 = cmd.content.nav_script_time.arg3;
+        nav_scripting.arg4 = cmd.content.nav_script_time.arg4;
     } else {
         // for safety we set nav_scripting to done to protect against the mission getting stuck
         nav_scripting.done = true;

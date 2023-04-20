@@ -111,9 +111,8 @@ void AP_ExternalAHRS_LORD::build_packet()
     WITH_SEMAPHORE(sem);
     uint32_t nbytes = MIN(uart->available(), 2048u);
     while (nbytes--> 0) {
-        const int16_t b = uart->read();
-
-        if (b < 0) {
+        uint8_t b;
+        if (!uart->read(b)) {
             break;
         }
 
@@ -262,12 +261,14 @@ void AP_ExternalAHRS_LORD::post_imu() const
         AP::ins().handle_external(ins);
     }
 
+#if AP_COMPASS_EXTERNALAHRS_ENABLED
     {
         AP_ExternalAHRS::mag_data_message_t mag {
             field: imu_data.mag
         };
         AP::compass().handle_external(mag);
     }
+#endif
 
 #if AP_BARO_EXTERNALAHRS_ENABLED
     {
@@ -292,7 +293,7 @@ void AP_ExternalAHRS_LORD::handle_gnss(const LORD_Packet &packet)
         switch ((GNSSPacketField) packet.payload[i+1]) {
         // GPS Time
         case GNSSPacketField::GPS_TIME: {
-            gnss_data.tow_ms = extract_double(packet.payload, i+2) * 1000; // Convert seconds to ms
+            gnss_data.tow_ms = double_to_uint32(extract_double(packet.payload, i+2) * 1000); // Convert seconds to ms
             gnss_data.week = be16toh_ptr(&packet.payload[i+10]);
             break;
         }
@@ -440,6 +441,12 @@ int8_t AP_ExternalAHRS_LORD::get_port(void) const
     return port_num;
 };
 
+// Get model/type name
+const char* AP_ExternalAHRS_LORD::get_name() const
+{
+    return "LORD";
+}
+
 bool AP_ExternalAHRS_LORD::healthy(void) const
 {
     uint32_t now = AP_HAL::millis();
@@ -491,7 +498,7 @@ void AP_ExternalAHRS_LORD::get_filter_status(nav_filter_status &status) const
     }
 }
 
-void AP_ExternalAHRS_LORD::send_status_report(mavlink_channel_t chan) const
+void AP_ExternalAHRS_LORD::send_status_report(GCS_MAVLINK &link) const
 {
     // prepare flags
     uint16_t flags = 0;
@@ -536,7 +543,7 @@ void AP_ExternalAHRS_LORD::send_status_report(mavlink_channel_t chan) const
     const float pos_gate = 4; // represents hz value data is posted at
     const float hgt_gate = 4; // represents hz value data is posted at
     const float mag_var = 0; //we may need to change this to be like the other gates, set to 0 because mag is ignored by the ins filter in vectornav
-    mavlink_msg_ekf_status_report_send(chan, flags,
+    mavlink_msg_ekf_status_report_send(link.get_chan(), flags,
                                        gnss_data.speed_accuracy/vel_gate, gnss_data.horizontal_position_accuracy/pos_gate, gnss_data.vertical_position_accuracy/hgt_gate,
                                        mag_var, 0, 0);
 

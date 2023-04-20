@@ -5,10 +5,6 @@
 
 #include "AP_Mount_Backend.h"
 
-#ifndef HAL_MOUNT_ALEXMOS_ENABLED
-#define HAL_MOUNT_ALEXMOS_ENABLED HAL_MOUNT_ENABLED
-#endif
-
 #if HAL_MOUNT_ALEXMOS_ENABLED
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Param/AP_Param.h>
@@ -68,9 +64,7 @@ class AP_Mount_Alexmos : public AP_Mount_Backend
 {
 public:
     //constructor
-    AP_Mount_Alexmos(AP_Mount &frontend, AP_Mount::mount_state &state, uint8_t instance):
-        AP_Mount_Backend(frontend, state, instance)
-    {}
+    using AP_Mount_Backend::AP_Mount_Backend;
 
     // init - performs any required initialisation for this instance
     void init() override;
@@ -81,8 +75,10 @@ public:
     // has_pan_control - returns true if this mount can control its pan (required for multicopters)
     bool has_pan_control() const override;
 
-    // send_mount_status - called to allow mounts to send their status to GCS via MAVLink
-    void send_mount_status(mavlink_channel_t chan) override;
+protected:
+
+    // get attitude as a quaternion.  returns true on success
+    bool get_attitude_quaternion(Quaternion& att_quat) override;
 
 private:
 

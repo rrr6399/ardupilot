@@ -1,12 +1,13 @@
 #pragma once
 
+#include "AP_Proximity_config.h"
+
+#if AP_PROXIMITY_SITL_ENABLED
+
 #include "AP_Proximity.h"
 
-#if HAL_PROXIMITY_ENABLED
 #include "AP_Proximity_Backend.h"
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
 #include <SITL/SITL.h>
-#include <AC_Fence/AC_PolyFence_loader.h>
 #include <AP_Common/Location.h>
 
 class AP_Proximity_SITL : public AP_Proximity_Backend
@@ -14,7 +15,7 @@ class AP_Proximity_SITL : public AP_Proximity_Backend
 
 public:
     // constructor
-    AP_Proximity_SITL(AP_Proximity &_frontend, AP_Proximity::Proximity_State &_state);
+    AP_Proximity_SITL(AP_Proximity &_frontend, AP_Proximity::Proximity_State &_state, AP_Proximity_Params& _params);
 
     // update state
     void update(void) override;
@@ -35,6 +36,5 @@ private:
     bool get_distance_to_fence(float angle_deg, float &distance) const;
 
 };
-#endif // CONFIG_HAL_BOARD
 
-#endif // HAL_PROXIMITY_ENABLED
+#endif // AP_PROXIMITY_SITL_ENABLED

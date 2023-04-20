@@ -183,13 +183,12 @@ bool AP_Logger_Block::_WritePrioritisedBlock(const void *pBuffer, uint16_t size,
 // read from the page address and return the file number at that location
 uint16_t AP_Logger_Block::StartRead(uint32_t PageAdr)
 {
-    df_Read_PageAdr   = PageAdr;
-
     // copy flash page to buffer
     if (erase_started) {
+        df_Read_PageAdr = PageAdr;
         memset(buffer, 0xff, df_PageSize);
     } else {
-        PageToBuffer(df_Read_PageAdr);
+        PageToBuffer(PageAdr);
     }
     return ReadHeaders();
 }
@@ -239,14 +238,15 @@ bool AP_Logger_Block::ReadBlock(void *pBuffer, uint16_t size)
         df_Read_BufferIdx += n;
 
         if (df_Read_BufferIdx == df_PageSize) {
-            df_Read_PageAdr++;
-            if (df_Read_PageAdr > df_NumPages) {
-                df_Read_PageAdr = 1;
+            uint32_t new_page_addr = df_Read_PageAdr + 1;
+            if (new_page_addr > df_NumPages) {
+                new_page_addr = 1;
             }
             if (erase_started) {
                 memset(buffer, 0xff, df_PageSize);
+                df_Read_PageAdr = new_page_addr;
             } else {
-                PageToBuffer(df_Read_PageAdr);
+                PageToBuffer(new_page_addr);
             }
 
             // We are starting a new page - read FileNumber and FilePage
@@ -307,9 +307,12 @@ void AP_Logger_Block::periodic_1Hz()
 {
     AP_Logger_Backend::periodic_1Hz();
 
-    if (rate_limiter == nullptr && _front._params.blk_ratemax > 0) {
-        // setup rate limiting
-        rate_limiter = new AP_Logger_RateLimiter(_front, _front._params.blk_ratemax);
+    if (rate_limiter == nullptr &&
+        (_front._params.blk_ratemax > 0 ||
+         _front._params.disarm_ratemax > 0 ||
+         _front._log_pause)) {
+        // setup rate limiting if log rate max > 0Hz or log pause of streaming entries is requested
+        rate_limiter = new AP_Logger_RateLimiter(_front, _front._params.blk_ratemax, _front._params.disarm_ratemax);
     }
     
     if (!io_thread_alive()) {

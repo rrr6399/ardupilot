@@ -21,11 +21,7 @@
   Tom Pittenger, November 2015
 */
 
-#include <AP_HAL/AP_HAL_Boards.h>
-
-#ifndef HAL_ADSB_ENABLED
-#define HAL_ADSB_ENABLED !HAL_MINIMIZE_FEATURES && BOARD_FLASH_SIZE > 1024
-#endif
+#include "AP_ADSB_config.h"
 
 #if HAL_ADSB_ENABLED
 #include <AP_Common/AP_Common.h>
@@ -54,8 +50,7 @@ public:
     AP_ADSB();
 
     /* Do not allow copies */
-    AP_ADSB(const AP_ADSB &other) = delete;
-    AP_ADSB &operator=(const AP_ADSB&) = delete;
+    CLASS_NO_COPY(AP_ADSB);
 
     // get singleton instance
     static AP_ADSB *get_singleton(void) {
@@ -150,7 +145,7 @@ public:
     bool get_vehicle_by_ICAO(const uint32_t icao, adsb_vehicle_t &vehicle) const;
 
     uint32_t get_special_ICAO_target() const { return (uint32_t)_special_ICAO_target; };
-    void set_special_ICAO_target(const uint32_t new_icao_target) { _special_ICAO_target = (int32_t)new_icao_target; };
+    void set_special_ICAO_target(const uint32_t new_icao_target) { _special_ICAO_target.set((int32_t)new_icao_target); };
     bool is_special_vehicle(uint32_t icao) const { return _special_ICAO_target != 0 && (_special_ICAO_target == (int32_t)icao); }
 
     // confirm a value is a valid callsign

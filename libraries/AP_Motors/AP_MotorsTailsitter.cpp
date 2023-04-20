@@ -22,6 +22,7 @@
 #include <AP_Math/AP_Math.h>
 #include "AP_MotorsTailsitter.h"
 #include <GCS_MAVLink/GCS.h>
+#include <SRV_Channel/SRV_Channel.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -55,8 +56,8 @@ void AP_MotorsTailsitter::init(motor_frame_class frame_class, motor_frame_type f
 
 
 /// Constructor
-AP_MotorsTailsitter::AP_MotorsTailsitter(uint16_t loop_rate, uint16_t speed_hz) :
-    AP_MotorsMulticopter(loop_rate, speed_hz)
+AP_MotorsTailsitter::AP_MotorsTailsitter(uint16_t speed_hz) :
+    AP_MotorsMulticopter(speed_hz)
 {
     set_update_rate(speed_hz);
 }
@@ -94,9 +95,9 @@ void AP_MotorsTailsitter::output_to_motors()
         case SpoolState::SPOOLING_UP:
         case SpoolState::THROTTLE_UNLIMITED:
         case SpoolState::SPOOLING_DOWN:
-            set_actuator_with_slew(_actuator[0], thrust_to_actuator(_thrust_left));
-            set_actuator_with_slew(_actuator[1], thrust_to_actuator(_thrust_right));
-            set_actuator_with_slew(_actuator[2], thrust_to_actuator(_throttle));
+            set_actuator_with_slew(_actuator[0], thr_lin.thrust_to_actuator(_thrust_left));
+            set_actuator_with_slew(_actuator[1], thr_lin.thrust_to_actuator(_thrust_right));
+            set_actuator_with_slew(_actuator[2], thr_lin.thrust_to_actuator(_throttle));
             break;
     }
 
@@ -142,7 +143,7 @@ void AP_MotorsTailsitter::output_armed_stabilizing()
     float   thr_adj = 0.0f;             // the difference between the pilot's desired throttle and throttle_thrust_best_rpy
 
     // apply voltage and air pressure compensation
-    const float compensation_gain = get_compensation_gain();
+    const float compensation_gain = thr_lin.get_compensation_gain();
     roll_thrust = (_roll_in + _roll_in_ff) * compensation_gain;
     pitch_thrust = _pitch_in + _pitch_in_ff;
     yaw_thrust = _yaw_in + _yaw_in_ff;

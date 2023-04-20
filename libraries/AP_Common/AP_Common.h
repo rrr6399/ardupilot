@@ -44,7 +44,9 @@
 #define OPTIMIZE(level) __attribute__((optimize(level)))
 
 // sometimes we need to prevent inlining to prevent large stack usage
+#ifndef NOINLINE
 #define NOINLINE __attribute__((noinline))
+#endif
 
 // used to ignore results for functions marked as warn unused
 #define IGNORE_RETURN(x) do {if (x) {}} while(0)
@@ -88,6 +90,7 @@
   bool. Bitnumber starts at 0 for the first bit
  */
 #define BIT_IS_SET(value, bitnumber) (((value) & (1U<<(bitnumber))) != 0)
+#define BIT_IS_SET_64(value, bitnumber) (((value) & (uint64_t(1U)<<(bitnumber))) != 0)
 
 // get high or low bytes from 2 byte integer
 #define LOWBYTE(i) ((uint8_t)(i))
@@ -157,7 +160,7 @@ bool hex_to_uint8(uint8_t a, uint8_t &res);  // return the uint8 value of an asc
 /*
   strncpy without the warning for not leaving room for nul termination
  */
-void strncpy_noterm(char *dest, const char *src, size_t n);
+size_t strncpy_noterm(char *dest, const char *src, size_t n);
 
 // return the numeric value of an ascii hex character
 int16_t char_to_hex(char a);

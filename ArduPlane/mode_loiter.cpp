@@ -27,6 +27,14 @@ void ModeLoiter::update()
         plane.calc_nav_pitch();
         plane.calc_throttle();
     }
+
+#if AP_SCRIPTING_ENABLED
+    if (plane.nav_scripting_active()) {
+        // while a trick is running we reset altitude
+        plane.set_target_altitude_current();
+        plane.next_WP_loc.set_alt_cm(plane.target_altitude.amsl_cm, Location::AltFrame::ABSOLUTE);
+    }
+#endif
 }
 
 bool ModeLoiter::isHeadingLinedUp(const Location loiterCenterLoc, const Location targetLoc)
@@ -55,7 +63,7 @@ bool ModeLoiter::isHeadingLinedUp_cd(const int32_t bearing_cd)
     // Tolerance is initially 10 degrees and grows at 10 degrees for each loiter circle completed.
 
     // get current heading.
-    const int32_t heading_cd = (wrap_360(degrees(plane.ahrs.groundspeed_vector().angle())))*100;
+    const int32_t heading_cd = (wrap_360(degrees(ahrs.groundspeed_vector().angle())))*100;
 
     const int32_t heading_err_cd = wrap_180_cd(bearing_cd - heading_cd);
 
@@ -91,7 +99,21 @@ void ModeLoiter::navigate()
         plane.next_WP_loc.set_alt_cm(plane.target_altitude.amsl_cm, Location::AltFrame::ABSOLUTE);
     }
 
+#if AP_SCRIPTING_ENABLED
+    if (plane.nav_scripting_active()) {
+        // don't try to navigate while running trick
+        return;
+    }
+#endif
+
     // Zero indicates to use WP_LOITER_RAD
     plane.update_loiter(0);
 }
 
+void ModeLoiter::update_target_altitude()
+{
+    if (plane.stick_mixing_enabled() && (plane.g2.flight_options & FlightOptions::ENABLE_LOITER_ALT_CONTROL)) {
+        return;
+    }
+    Mode::update_target_altitude();
+}

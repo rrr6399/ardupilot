@@ -16,7 +16,7 @@
 
 #include <AP_Common/AP_Common.h>
 #include <AP_Param/AP_Param.h>
-#include <GCS_MAVLink/GCS_MAVLink.h>
+#include "AP_Notify_config.h"
 
 #include "NotifyDevice.h"
 
@@ -44,8 +44,7 @@ public:
     AP_Notify();
 
     /* Do not allow copies */
-    AP_Notify(const AP_Notify &other) = delete;
-    AP_Notify &operator=(const AP_Notify&) = delete;
+    CLASS_NO_COPY(AP_Notify);
 
     // get singleton instance
     static AP_Notify *get_singleton(void) {
@@ -62,15 +61,25 @@ public:
     enum Notify_LED_Type {
         Notify_LED_None                     = 0,        // not enabled
         Notify_LED_Board                    = (1 << 0), // Built in board LED's
+#if AP_NOTIFY_TOSHIBALED_ENABLED
         Notify_LED_ToshibaLED_I2C_Internal  = (1 << 1), // Internal ToshibaLED_I2C
         Notify_LED_ToshibaLED_I2C_External  = (1 << 2), // External ToshibaLED_I2C
+#endif
+#if AP_NOTIFY_PCA9685_ENABLED
         Notify_LED_PCA9685LED_I2C_External  = (1 << 3), // External PCA9685_I2C
+#endif
         Notify_LED_OreoLED                  = (1 << 4), // Oreo
-        Notify_LED_UAVCAN                   = (1 << 5), // UAVCAN RGB LED
+        Notify_LED_DroneCAN                   = (1 << 5), // UAVCAN RGB LED
+#if AP_NOTIFY_NCP5623_ENABLED
         Notify_LED_NCP5623_I2C_External     = (1 << 6), // External NCP5623
         Notify_LED_NCP5623_I2C_Internal     = (1 << 7), // Internal NCP5623
+#endif
+#if AP_NOTIFY_NEOPIXEL_ENABLED
         Notify_LED_NeoPixel                 = (1 << 8), // NeoPixel 5050 AdaFruit 1655 SK6812  Worldsemi WS2812B
+#endif
+#if AP_NOTIFY_PROFILED_ENABLED
         Notify_LED_ProfiLED                 = (1 << 9), // ProfiLED
+#endif
         Notify_LED_Scripting                = (1 << 10),// Colour accessor for scripting
         Notify_LED_DShot                    = (1 << 11),// Use dshot commands to set ESC LEDs
         Notify_LED_ProfiLED_SPI             = (1 << 12), // ProfiLED
@@ -114,6 +123,7 @@ public:
         bool powering_off;        // true when the vehicle is powering off
         bool video_recording;     // true when the vehicle is recording video
         bool temp_cal_running;    // true if a temperature calibration is running
+        bool gyro_calibrated;     // true if calibrated gyro/acc
     };
 
     /// notify_events_type - bitmask of active events.
@@ -152,8 +162,10 @@ public:
     /// update - allow updates of leds that cannot be updated during a timed interrupt
     void update(void);
 
+#if AP_NOTIFY_MAVLINK_LED_CONTROL_SUPPORT_ENABLED
     // handle a LED_CONTROL message
     static void handle_led_control(const mavlink_message_t &msg);
+#endif
 
     // handle RGB from Scripting or AP_Periph
     static void handle_rgb(uint8_t r, uint8_t g, uint8_t b, uint8_t rate_hz = 0);
@@ -161,8 +173,10 @@ public:
     // handle RGB from Scripting
     static void handle_rgb_id(uint8_t r, uint8_t g, uint8_t b, uint8_t id);
 
+#if AP_NOTIFY_MAVLINK_PLAY_TUNE_SUPPORT_ENABLED
     // handle a PLAY_TUNE message
     static void handle_play_tune(const mavlink_message_t &msg);
+#endif
 
     // play a tune string
     static void play_tune(const char *tune);

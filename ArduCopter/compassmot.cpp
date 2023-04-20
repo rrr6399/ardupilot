@@ -102,7 +102,7 @@ MAV_RESULT Copter::mavlink_compassmot(const GCS_MAVLINK &gcs_chan)
     }
 
     // disable throttle failsafe
-    g.failsafe_throttle = FS_THR_DISABLED;
+    g.failsafe_throttle.set(FS_THR_DISABLED);
 
     // disable motor compensation
     compass.motor_compensation_type(AP_COMPASS_MOT_COMP_DISABLED);
@@ -123,7 +123,7 @@ MAV_RESULT Copter::mavlink_compassmot(const GCS_MAVLINK &gcs_chan)
     EXPECT_DELAY_MS(5000);
 
     // enable motors and pass through throttle
-    enable_motor_output();
+    motors->output_min();  // output lowest possible value to motors
     motors->armed(true);
     hal.util->set_soft_armed(true);
 

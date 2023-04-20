@@ -36,7 +36,7 @@ const AP_Param::GroupInfo HarmonicNotchFilterParams::var_info[] = {
 
     // @Param: FREQ
     // @DisplayName: Harmonic Notch Filter base frequency
-    // @Description: Harmonic Notch Filter base center frequency in Hz. This should be set at most half the backend gyro rate (which is typically 1Khz). For helicopters using RPM sensor to dynamically set the notch frequency, use this parameter to provide a lower limit to the dynamic notch filter.  Recommend setting it to half the operating rotor speed in Hz.
+    // @Description: Harmonic Notch Filter base center frequency in Hz. This is the center frequency for static notches, the center frequency for Throttle based notches at the reference thrust value, and the minimum limit of center frequency variation for all other notch types. This should always be set lower than half the backend gyro rate (which is typically 1Khz). 
     // @Range: 10 495
     // @Units: Hz
     // @User: Advanced
@@ -160,6 +160,37 @@ void HarmonicNotchFilter<T>::allocate_filters(uint8_t num_notches, uint8_t harmo
 }
 
 /*
+  expand the number of filters at runtime, allowing for RPM sources such as lua scripts
+ */
+template <class T>
+void HarmonicNotchFilter<T>::expand_filter_count(uint8_t num_notches)
+{
+    uint8_t num_filters = _num_harmonics * num_notches * _composite_notches;
+    if (num_filters <= _num_filters) {
+        // enough already
+        return;
+    }
+    if (_alloc_has_failed) {
+        // we've failed to allocate before, don't try again
+        return;
+    }
+    /*
+      note that we rely on the semaphore in
+      AP_InertialSensor_Backend.cpp to make this thread safe
+     */
+    auto filters = new NotchFilter<T>[num_filters];
+    if (filters == nullptr) {
+        _alloc_has_failed = true;
+        return;
+    }
+    memcpy(filters, _filters, sizeof(filters[0])*_num_filters);
+    auto _old_filters = _filters;
+    _filters = filters;
+    _num_filters = num_filters;
+    delete[] _old_filters;
+}
+
+/*
   update the underlying filters' center frequency using the current attenuation and quality
   this function is cheaper than init() because A & Q do not need to be recalculated
  */
@@ -215,6 +246,11 @@ void HarmonicNotchFilter<T>::update(uint8_t num_centers, const float center_freq
 
     // adjust the frequencies to be in the allowable range
     const float nyquist_limit = _sample_freq_hz * 0.48f;
+
+    if (num_centers > _num_filters) {
+        // alloc realloc of filters
+        expand_filter_count(num_centers);
+    }
 
     _num_enabled_filters = 0;
 
@@ -302,6 +338,7 @@ void HarmonicNotchFilterParams::save_params()
     _attenuation_dB.save();
     _harmonics.save();
     _reference.save();
+    _freq_min_ratio.save();
 }
 
 /* 

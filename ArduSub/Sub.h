@@ -37,7 +37,6 @@
 #include <AP_Declination/AP_Declination.h>     // ArduPilot Mega Declination Helper Library
 
 // Application dependencies
-#include <AP_SerialManager/AP_SerialManager.h>   // Serial manager library
 #include <AP_GPS/AP_GPS.h>             // ArduPilot GPS library
 #include <AP_Logger/AP_Logger.h>          // ArduPilot Mega Flash Memory Library
 #include <AP_Baro/AP_Baro.h>
@@ -56,14 +55,12 @@
 #include <AC_WPNav/AC_WPNav.h>           // Waypoint navigation library
 #include <AC_WPNav/AC_Loiter.h>
 #include <AC_WPNav/AC_Circle.h>          // circle navigation library
-#include <AC_Fence/AC_Fence.h>           // Fence library
 #include <AP_Scheduler/AP_Scheduler.h>       // main loop scheduler
 #include <AP_Scheduler/PerfInfo.h>       // loop perf monitoring
 #include <AP_BattMonitor/AP_BattMonitor.h>     // Battery monitor library
 #include <AP_Terrain/AP_Terrain.h>
 #include <AP_JSButton/AP_JSButton.h>   // Joystick/gamepad button function assignment
 #include <AP_LeakDetector/AP_LeakDetector.h> // Leak detector
-#include <AP_TemperatureSensor/TSYS01.h>
 #include <AP_Proximity/AP_Proximity.h>
 
 // Local modules
@@ -82,11 +79,14 @@
 #include <AP_RCMapper/AP_RCMapper.h>        // RC input mapping library
 #endif
 
-#if RPM_ENABLED == ENABLED
+#include <AP_RPM/AP_RPM_config.h>
+
+#if AP_RPM_ENABLED
 #include <AP_RPM/AP_RPM.h>
 #endif
 
-#if GRIPPER_ENABLED == ENABLED
+#include <AP_Gripper/AP_Gripper_config.h>
+#if AP_GRIPPER_ENABLED
 #include <AP_Gripper/AP_Gripper.h>             // gripper stuff
 #endif
 
@@ -94,13 +94,7 @@
 #include <AC_Avoidance/AC_Avoid.h>           // Stop at fence library
 #endif
 
-#if AC_RALLY == ENABLED
-#include <AP_Rally/AP_Rally.h>           // Rally point library
-#endif
-
-#if CAMERA == ENABLED
 #include <AP_Camera/AP_Camera.h>          // Photo or video camera
-#endif
 
 #if AP_SCRIPTING_ENABLED
 #include <AP_Scripting/AP_Scripting.h>
@@ -124,7 +118,7 @@ protected:
 private:
 
     // key aircraft parameters passed to multiple libraries
-    AP_Vehicle::MultiCopter aparm;
+    AP_MultiCopter aparm;
 
     // Global parameters are all contained within the 'g' class.
     Parameters g;
@@ -142,8 +136,6 @@ private:
 
     AP_LeakDetector leak_detector;
 
-    TSYS01 celsius;
-
     struct {
         bool enabled:1;
         bool alt_healthy:1; // true if we can trust the altitude from the rangefinder
@@ -152,7 +144,7 @@ private:
         LowPassFilterFloat alt_cm_filt; // altitude filter
     } rangefinder_state = { false, false, 0, 0 };
 
-#if RPM_ENABLED == ENABLED
+#if AP_RPM_ENABLED
     AP_RPM rpm_sensor;
 #endif
 
@@ -164,7 +156,7 @@ private:
 
     // Optical flow sensor
 #if AP_OPTICALFLOW_ENABLED
-    OpticalFlow optflow;
+    AP_OpticalFlow optflow;
 #endif
 
     // system time in milliseconds of last recorded yaw reset from ekf
@@ -335,7 +327,7 @@ private:
     AC_Circle circle_nav;
 
     // Camera
-#if CAMERA == ENABLED
+#if AP_CAMERA_ENABLED
     AP_Camera camera{MASK_LOG_CAMERA};
 #endif
 
@@ -344,17 +336,12 @@ private:
     AP_Mount camera_mount;
 #endif
 
-    // AC_Fence library to reduce fly-aways
-#if AC_FENCE == ENABLED
-    AC_Fence fence;
-#endif
-
 #if AVOIDANCE_ENABLED == ENABLED
     AC_Avoid avoid;
 #endif
 
     // Rally library
-#if AC_RALLY == ENABLED
+#if HAL_RALLY_ENABLED
     AP_Rally rally;
 #endif
 
@@ -439,7 +426,7 @@ private:
     void auto_wp_start(const Vector3f& destination);
     void auto_wp_start(const Location& dest_loc);
     void auto_wp_run();
-    void auto_circle_movetoedge_start(const Location &circle_center, float radius_m);
+    void auto_circle_movetoedge_start(const Location &circle_center, float radius_m, bool ccw_turn);
     void auto_circle_start();
     void auto_circle_run();
     void auto_nav_guided_start();

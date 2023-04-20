@@ -19,6 +19,7 @@
 
 #include <cmath>
 #include <stdarg.h>
+#include <stdint.h>
 
 // Libraries
 #include <AP_Common/AP_Common.h>
@@ -37,18 +38,23 @@
 #include <AP_Logger/AP_Logger.h>
 #include <AP_OSD/AP_OSD.h>
 #include <AR_Motors/AP_MotorsUGV.h>
+#include <AP_Mission/AP_Mission.h>
+#include <AP_Mission/AP_Mission_ChangeDetector.h>
+#include <AR_WPNav/AR_WPNav_OA.h>
+#include <AP_OpticalFlow/AP_OpticalFlow.h>
+#include <AC_PrecLand/AC_PrecLand_config.h>
+
+// Configuration
+#include "defines.h"
+#include "config.h"
 
 #if AP_SCRIPTING_ENABLED
 #include <AP_Scripting/AP_Scripting.h>
 #endif
 
 // Local modules
-#include "mode.h"
 #include "AP_Arming.h"
 #include "sailboat.h"
-// Configuration
-#include "config.h"
-#include "defines.h"
 #if ADVANCED_FAILSAFE == ENABLED
 #include "afs_rover.h"
 #endif
@@ -56,7 +62,12 @@
 #include "GCS_Mavlink.h"
 #include "GCS_Rover.h"
 #include "AP_Rally.h"
+#if AC_PRECLAND_ENABLED
+#include <AC_PrecLand/AC_PrecLand.h>
+#endif
 #include "RC_Channel.h"                  // RC Channel Library
+
+#include "mode.h"
 
 class Rover : public AP_Vehicle {
 public:
@@ -81,6 +92,9 @@ public:
     friend class ModeSmartRTL;
     friend class ModeFollow;
     friend class ModeSimple;
+#if MODE_DOCK_ENABLED == ENABLED
+    friend class ModeDock;
+#endif
 
     friend class RC_Channel_Rover;
     friend class RC_Channels_Rover;
@@ -117,20 +131,24 @@ private:
     AP_Int8 *modes;
     const uint8_t num_modes = 6;
 
+#if AP_RPM_ENABLED
     // AP_RPM Module
     AP_RPM rpm_sensor;
+#endif
 
     // Arming/Disarming management class
     AP_Arming_Rover arming;
 
 #if AP_OPTICALFLOW_ENABLED
-    OpticalFlow optflow;
+    AP_OpticalFlow optflow;
 #endif
 
 #if OSD_ENABLED || OSD_PARAM_ENABLED
     AP_OSD osd;
 #endif
-
+#if AC_PRECLAND_ENABLED
+    AC_PrecLand precland;
+#endif
     // GCS handling
     GCS_Rover _gcs;  // avoid using this; use gcs()
     GCS_Rover &gcs() { return _gcs; }
@@ -139,10 +157,10 @@ private:
     RC_Channels_Rover &rc() { return g2.rc_channels; }
 
     // The rover's current location
-    struct Location current_loc;
+    Location current_loc;
 
     // Camera
-#if CAMERA == ENABLED
+#if AP_CAMERA_ENABLED
     AP_Camera camera{MASK_LOG_CAMERA};
 #endif
 
@@ -219,6 +237,9 @@ private:
     ModeSmartRTL mode_smartrtl;
     ModeFollow mode_follow;
     ModeSimple mode_simple;
+#if MODE_DOCK_ENABLED == ENABLED
+    ModeDock mode_dock;
+#endif
 
     // cruise throttle and speed learning
     typedef struct {
@@ -241,7 +262,7 @@ private:
     bool set_desired_speed(float speed) override;
     bool get_control_output(AP_Vehicle::ControlOutput control_output, float &control_value) override;
     bool nav_scripting_enable(uint8_t mode) override;
-    bool nav_script_time(uint16_t &id, uint8_t &cmd, float &arg1, float &arg2) override;
+    bool nav_script_time(uint16_t &id, uint8_t &cmd, float &arg1, float &arg2, int16_t &arg3, int16_t &arg4) override;
     void nav_script_time_done(uint16_t id) override;
 #endif // AP_SCRIPTING_ENABLED
     void stats_update();
@@ -309,6 +330,10 @@ private:
     // Parameters.cpp
     void load_parameters(void) override;
 
+    // precision_landing.cpp
+    void init_precland();
+    void update_precland();
+
     // radio.cpp
     void set_control_channels(void) override;
     void init_rc_in();
@@ -337,6 +362,10 @@ private:
     bool set_mode(Mode &new_mode, ModeReason reason);
     bool set_mode(const uint8_t new_mode, ModeReason reason) override;
     uint8_t get_mode() const override { return (uint8_t)control_mode->mode_number(); }
+    bool current_mode_requires_mission() const override {
+        return control_mode == &mode_auto;
+    }
+
     void startup_INS_ground(void);
     void notify_mode(const Mode *new_mode);
     uint8_t check_digital_pin(uint8_t pin);

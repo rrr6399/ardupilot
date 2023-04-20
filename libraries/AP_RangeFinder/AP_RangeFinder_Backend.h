@@ -34,6 +34,13 @@ public:
     virtual void init_serial(uint8_t serial_instance) {};
 
     virtual void handle_msg(const mavlink_message_t &msg) { return; }
+
+#if AP_SCRIPTING_ENABLED
+    // Returns false if scripting backing hasn't been setup
+    // Get distance from lua script
+    virtual bool handle_script_msg(float dist_m) { return false; }
+#endif
+
 #if HAL_MSP_RANGEFINDER_ENABLED
     virtual void handle_msp(const MSP::msp_rangefinder_data_message_t &pkt) { return; }
 #endif
@@ -68,6 +75,10 @@ public:
     // 0 is no return value, 100 is perfect.  false means signal
     // quality is not available
     virtual bool get_signal_quality_pct(uint8_t &quality_pct) const { return false; }
+
+    // return the actual type of the rangefinder, as opposed to the
+    // parameter value which may be changed at runtime.
+    RangeFinder::Type allocated_type() const { return _backend_type; }
 
 protected:
 

@@ -54,7 +54,7 @@ void AP_BoardConfig::board_init_safety()
  */
 void AP_BoardConfig::board_init_debug()
 {
-#ifndef HAL_BUILD_AP_PERIPH
+#if !defined(HAL_BUILD_AP_PERIPH) && !defined(HAL_DEBUG_BUILD)
     if ((_options & BOARD_OPTION_DEBUG_ENABLE) == 0) {
 #ifdef HAL_GPIO_PIN_JTCK_SWCLK
         palSetLineMode(HAL_GPIO_PIN_JTCK_SWCLK, PAL_MODE_INPUT);
@@ -63,7 +63,7 @@ void AP_BoardConfig::board_init_debug()
         palSetLineMode(HAL_GPIO_PIN_JTMS_SWDIO, PAL_MODE_INPUT);
 #endif
     }
-#endif // HAL_BUILD_AP_PERIPH
+#endif // HAL_BUILD_AP_PERIPH && HAL_DEBUG_BUILD
 }
 
 
@@ -75,23 +75,11 @@ void AP_BoardConfig::board_setup_drivers(void)
 {
     if (state.board_type == PX4_BOARD_OLDDRIVERS) {
         printf("Old drivers no longer supported\n");
-        state.board_type = PX4_BOARD_AUTO;
+        state.board_type.set(PX4_BOARD_AUTO);
     }
 
     // run board auto-detection
     board_autodetect();
-
-#if HAL_HAVE_IMU_HEATER
-    if (state.board_type == PX4_BOARD_PH2SLIM ||
-        state.board_type == PX4_BOARD_PIXHAWK2) {
-        heater.imu_target_temperature.set_default(45);
-        if (heater.imu_target_temperature.get() < 0) {
-            // don't allow a value of -1 on the cube, or it could cook
-            // the IMU
-            heater.imu_target_temperature.set(45);
-        }
-    }
-#endif
 
     px4_configured_board = (enum px4_board_type)state.board_type.get();
 
@@ -269,9 +257,12 @@ bool AP_BoardConfig::check_ms5611(const char* devname) {
 #define INV2_WHOAMI_ICM20649 0xE1
 
 #define INV3REG_WHOAMI        0x75
+#define INV3REG_456_WHOAMI        0x72
 
 #define INV3_WHOAMI_ICM42688  0x47
+#define INV3_WHOAMI_ICM42670  0x67
 
+#define INV3_WHOAMI_ICM45686  0xE9
 /*
   validation of the board type
  */
@@ -489,19 +480,27 @@ void AP_BoardConfig::board_setup()
 
 
 #ifdef HAL_CHIBIOS_ARCH_FMUV6
+
+#define BMI088REG_CHIPID 0x00
+#define CHIPID_BMI088_G 0x0F
+
 /*
   detect which FMUV6 variant we are running on
  */
 void AP_BoardConfig::detect_fmuv6_variant()
 {
-    if ((spi_check_register_inv2("icm20649", INV2REG_WHOAMI, INV2_WHOAMI_ICM20649) &&
-         spi_check_register("icm42688", INV3REG_WHOAMI, INV3_WHOAMI_ICM42688))) {
+    if (((spi_check_register_inv2("icm20649", INV2REG_WHOAMI, INV2_WHOAMI_ICM20649) ||
+          spi_check_register("bmi088_g", BMI088REG_CHIPID, CHIPID_BMI088_G)) && // alternative config
+         spi_check_register("icm42688", INV3REG_WHOAMI, INV3_WHOAMI_ICM42688) &&
+         spi_check_register("icm42670", INV3REG_WHOAMI, INV3_WHOAMI_ICM42670))) {
         state.board_type.set_and_notify(FMUV6_BOARD_HOLYBRO_6X);
         DEV_PRINTF("Detected Holybro 6X\n");
     } else if ((spi_check_register_inv2("icm20649_2", INV2REG_WHOAMI, INV2_WHOAMI_ICM20649) &&
-                spi_check_register("icm42688", INV3REG_WHOAMI, INV3_WHOAMI_ICM42688))) {
+                spi_check_register("icm42688", INV3REG_WHOAMI, INV3_WHOAMI_ICM42688) &&
+                spi_check_register("bmi088_g", BMI088REG_CHIPID, CHIPID_BMI088_G))) {
         state.board_type.set_and_notify(FMUV6_BOARD_CUAV_6X);
         DEV_PRINTF("Detected CUAV 6X\n");
+        AP_Param::load_defaults_file("@ROMFS/param/CUAV_V6X_defaults.parm", false);
     }
 
 }

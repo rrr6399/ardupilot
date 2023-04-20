@@ -220,6 +220,7 @@ void NavEKF3_core::Log_Write_Quaternion(uint64_t time_us) const
     AP::logger().WriteBlock(&pktq1, sizeof(pktq1));
 }
 
+#if EK3_FEATURE_BEACON_FUSION
 // logs beacon information, one beacon per call
 void NavEKF3_core::Log_Write_Beacon(uint64_t time_us)
 {
@@ -228,20 +229,20 @@ void NavEKF3_core::Log_Write_Beacon(uint64_t time_us)
         return;
     }
 
-    if (!statesInitialised || N_beacons == 0 || rngBcnFusionReport == nullptr) {
+    if (!statesInitialised || rngBcn.N == 0 || rngBcn.fusionReport == nullptr) {
         return;
     }
 
     // Ensure that beacons are not skipped due to calling this function at a rate lower than the updates
-    if (rngBcnFuseDataReportIndex >= N_beacons) {
-        rngBcnFuseDataReportIndex = 0;
+    if (rngBcn.fuseDataReportIndex >= rngBcn.N) {
+        rngBcn.fuseDataReportIndex = 0;
     }
 
-    const rngBcnFusionReport_t &report = rngBcnFusionReport[rngBcnFuseDataReportIndex];
+    const auto &report = rngBcn.fusionReport[rngBcn.fuseDataReportIndex];
 
     // write range beacon fusion debug packet if the range value is non-zero
     if (report.rng <= 0.0f) {
-        rngBcnFuseDataReportIndex++;
+        rngBcn.fuseDataReportIndex++;
         return;
     }
 
@@ -249,7 +250,7 @@ void NavEKF3_core::Log_Write_Beacon(uint64_t time_us)
         LOG_PACKET_HEADER_INIT(LOG_XKF0_MSG),
         time_us : time_us,
         core    : DAL_CORE(core_index),
-        ID : rngBcnFuseDataReportIndex,
+        ID : rngBcn.fuseDataReportIndex,
         rng : (int16_t)(100*report.rng),
         innov : (int16_t)(100*report.innov),
         sqrtInnovVar : (uint16_t)(100*sqrtF(report.innovVar)),
@@ -257,15 +258,16 @@ void NavEKF3_core::Log_Write_Beacon(uint64_t time_us)
         beaconPosN : (int16_t)(100*report.beaconPosNED.x),
         beaconPosE : (int16_t)(100*report.beaconPosNED.y),
         beaconPosD : (int16_t)(100*report.beaconPosNED.z),
-        offsetHigh : (int16_t)(100*bcnPosDownOffsetMax),
-        offsetLow : (int16_t)(100*bcnPosDownOffsetMin),
-        posN : (int16_t)(100*receiverPos.x),
-        posE : (int16_t)(100*receiverPos.y),
-        posD : (int16_t)(100*receiverPos.z)
+        offsetHigh : (int16_t)(100*rngBcn.posDownOffsetMax),
+        offsetLow : (int16_t)(100*rngBcn.posDownOffsetMin),
+        posN : (int16_t)(100*rngBcn.receiverPos.x),
+        posE : (int16_t)(100*rngBcn.receiverPos.y),
+        posD : (int16_t)(100*rngBcn.receiverPos.z)
     };
     AP::logger().WriteBlock(&pkt10, sizeof(pkt10));
-    rngBcnFuseDataReportIndex++;
+    rngBcn.fuseDataReportIndex++;
 }
+#endif  // EK3_FEATURE_BEACON_FUSION
 
 #if EK3_FEATURE_BODY_ODOM
 void NavEKF3_core::Log_Write_BodyOdom(uint64_t time_us)
@@ -365,20 +367,33 @@ void NavEKF3::Log_Write()
 
 void NavEKF3_core::Log_Write(uint64_t time_us)
 {
+    const auto level = frontend->_log_level;
+    if (level == NavEKF3::LogLevel::NONE) {  // no logging from EK3_LOG_LEVEL param
+        return;
+    }
+    Log_Write_XKF4(time_us);
+    if (level == NavEKF3::LogLevel::XKF4) {  // only log XKF4 scaled innovations
+        return;
+    }
+    Log_Write_GSF(time_us);
+    if (level == NavEKF3::LogLevel::XKF4_GSF) {  // only log XKF4 scaled innovations and GSF, otherwise log everything
+        return;
+    }
     // note that several of these functions exit-early if they're not
     // attempting to log the primary core.
     Log_Write_XKF1(time_us);
     Log_Write_XKF2(time_us);
     Log_Write_XKF3(time_us);
-    Log_Write_XKF4(time_us);
     Log_Write_XKF5(time_us);
 
     Log_Write_XKFS(time_us);
     Log_Write_Quaternion(time_us);
-    Log_Write_GSF(time_us);
 
+
+#if EK3_FEATURE_BEACON_FUSION
     // write range beacon fusion debug packet if the range value is non-zero
     Log_Write_Beacon(time_us);
+#endif
 
 #if EK3_FEATURE_BODY_ODOM
     // write debug data for body frame odometry fusion

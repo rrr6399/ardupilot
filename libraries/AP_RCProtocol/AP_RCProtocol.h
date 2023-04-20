@@ -15,19 +15,14 @@
  * Code by Andrew Tridgell and Siddharth Bharat Purohit
  */
 #pragma once
+
+#include "AP_RCProtocol_config.h"
+
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Common/AP_Common.h>
 
 #define MAX_RCIN_CHANNELS 18
 #define MIN_RCIN_CHANNELS  5
-
-#ifndef AP_RCPROTOCOL_FASTSBUS_ENABLED
-  #ifdef IOMCU_FW
-    #define AP_RCPROTOCOL_FASTSBUS_ENABLED 0
-  #else
-    #define AP_RCPROTOCOL_FASTSBUS_ENABLED 1
-  #endif
-#endif
 
 class AP_RCProtocol_Backend;
 
@@ -44,12 +39,18 @@ public:
         SBUS_NI    =  3,
         DSM        =  4,
         SUMD       =  5,
+#if AP_RCPROTOCOL_SRXL_ENABLED
         SRXL       =  6,
+#endif
         SRXL2      =  7,
         CRSF       =  8,
         ST24       =  9,
+#if AP_RCPROTOCOL_FPORT_ENABLED
         FPORT      = 10,
+#endif
+#if AP_RCPROTOCOL_FPORT2_ENABLED
         FPORT2     = 11,
+#endif
 #if AP_RCPROTOCOL_FASTSBUS_ENABLED
         FASTSBUS   = 12,
 #endif
@@ -88,14 +89,20 @@ public:
         case SBUS:
         case SBUS_NI:
         case PPM:
+#if AP_RCPROTOCOL_FPORT_ENABLED
         case FPORT:
+#endif
+#if AP_RCPROTOCOL_FPORT2_ENABLED
         case FPORT2:
+#endif
+        case CRSF:
             return true;
         case IBUS:
         case SUMD:
+#if AP_RCPROTOCOL_SRXL_ENABLED
         case SRXL:
+#endif
         case SRXL2:
-        case CRSF:
         case ST24:
         case NONE:
             return false;
@@ -124,6 +131,7 @@ public:
 
     // add a UART for RCIN
     void add_uart(AP_HAL::UARTDriver* uart);
+    bool has_uart() const { return added.uart != nullptr; }
 
 #ifdef IOMCU_FW
     // set allowed RC protocols

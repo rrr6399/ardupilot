@@ -153,15 +153,15 @@ MAV_RESULT Copter::mavlink_motor_test_start(const GCS_MAVLINK &gcs_chan, uint8_t
             EXPECT_DELAY_MS(3000);
             // enable and arm motors
             if (!motors->armed()) {
-                enable_motor_output();
+                motors->output_min();  // output lowest possible value to motors
                 motors->armed(true);
                 hal.util->set_soft_armed(true);
             }
 
             // disable throttle and gps failsafe
-            g.failsafe_throttle = FS_THR_DISABLED;
-            g.failsafe_gcs = FS_GCS_DISABLED;
-            g.fs_ekf_action = 0;
+            g.failsafe_throttle.set(FS_THR_DISABLED);
+            g.failsafe_gcs.set(FS_GCS_DISABLED);
+            g.fs_ekf_action.set(0);
 
             // turn on notify leds
             AP_Notify::flags.esc_calibration = true;

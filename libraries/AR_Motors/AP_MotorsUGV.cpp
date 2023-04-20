@@ -135,7 +135,7 @@ void AP_MotorsUGV::init(uint8_t frtype)
     setup_safety_output();
 
     // setup for omni vehicles
-    if (_frame_type != FRAME_TYPE_UNDEFINED) {
+    if (is_omni()) {
         setup_omni();
     }
 }
@@ -266,11 +266,7 @@ float AP_MotorsUGV::get_slew_limited_throttle(float throttle, float dt) const
  */
 bool AP_MotorsUGV::have_skid_steering() const
 {
-    if (SRV_Channels::function_assigned(SRV_Channel::k_throttleLeft) &&
-        SRV_Channels::function_assigned(SRV_Channel::k_throttleRight)) {
-        return true;
-    }
-    return false;
+    return (SRV_Channels::function_assigned(SRV_Channel::k_throttleLeft) && SRV_Channels::function_assigned(SRV_Channel::k_throttleRight)) || is_omni();
 }
 
 // true if the vehicle has a mainsail
@@ -454,16 +450,6 @@ bool AP_MotorsUGV::output_test_pwm(motor_test_order motor_seq, float pwm)
 //  returns true if checks pass, false if they fail.  report should be true to send text messages to GCS
 bool AP_MotorsUGV::pre_arm_check(bool report) const
 {
-    // check if both regular and skid steering functions have been defined
-    if (SRV_Channels::function_assigned(SRV_Channel::k_throttleLeft) &&
-        SRV_Channels::function_assigned(SRV_Channel::k_throttleRight) &&
-        SRV_Channels::function_assigned(SRV_Channel::k_throttle) &&
-        SRV_Channels::function_assigned(SRV_Channel::k_steering)) {
-        if (report) {
-            gcs().send_text(MAV_SEVERITY_CRITICAL, "PreArm: regular AND skid steering configured");
-        }
-        return false;
-    }
     // check if only one of skid-steering output has been configured
     if (SRV_Channels::function_assigned(SRV_Channel::k_throttleLeft) != SRV_Channels::function_assigned(SRV_Channel::k_throttleRight)) {
         if (report) {
@@ -494,9 +480,9 @@ bool AP_MotorsUGV::pre_arm_check(bool report) const
 // sanity check parameters
 void AP_MotorsUGV::sanity_check_parameters()
 {
-    _throttle_min = constrain_int16(_throttle_min, 0, 20);
-    _throttle_max = constrain_int16(_throttle_max, 30, 100);
-    _vector_angle_max = constrain_float(_vector_angle_max, 0.0f, 90.0f);
+    _throttle_min.set(constrain_int16(_throttle_min, 0, 20));
+    _throttle_max.set(constrain_int16(_throttle_max, 30, 100));
+    _vector_angle_max.set(constrain_float(_vector_angle_max, 0.0f, 90.0f));
 }
 
 // setup pwm output type
@@ -789,8 +775,8 @@ void AP_MotorsUGV::output_skid_steering(bool armed, float steering, float thrott
 // output for omni frames
 void AP_MotorsUGV::output_omni(bool armed, float steering, float throttle, float lateral)
 {
-    // exit immediately if the frame type is set to UNDEFINED
-    if (_frame_type == FRAME_TYPE_UNDEFINED) {
+    // exit immediately if the vehicle is not omni
+    if (!is_omni()) {
         return;
     }
 

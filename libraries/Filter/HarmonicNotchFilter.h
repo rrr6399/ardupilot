@@ -31,6 +31,8 @@ public:
     ~HarmonicNotchFilter();
     // allocate a bank of notch filters for this harmonic notch filter
     void allocate_filters(uint8_t num_notches, uint8_t harmonics, uint8_t composite_notches);
+    // expand filter bank with new filters
+    void expand_filter_count(uint8_t num_notches);
     // initialize the underlying filters using the provided filter parameters
     void init(float sample_freq_hz, float center_freq_hz, float bandwidth_hz, float attenuation_dB);
     // update the underlying filters' center frequencies using center_freq_hz as the fundamental
@@ -64,6 +66,9 @@ private:
     // number of enabled filters
     uint8_t _num_enabled_filters;
     bool _initialised;
+
+    // have we failed to expand filters?
+    bool _alloc_has_failed;
 };
 
 // Harmonic notch update mode
@@ -96,11 +101,13 @@ public:
     void set_bandwidth_hz(float bandwidth_hz) { _bandwidth_hz.set(bandwidth_hz); }
     // harmonics enabled on the harmonic notch
     uint8_t harmonics(void) const { return _harmonics; }
+    // set the harmonics value
+    void set_harmonics(uint8_t hmncs) { _harmonics.set(hmncs); }
     // has the user set the harmonics value
     void set_default_harmonics(uint8_t hmncs) { _harmonics.set_default(hmncs); }
     // reference value of the harmonic notch
     float reference(void) const { return _reference; }
-    void set_reference(float ref) { _reference = ref; }
+    void set_reference(float ref) { _reference.set(ref); }
     // notch options
     bool hasOption(Options option) const { return _options & uint16_t(option); }
     // notch dynamic tracking mode
@@ -111,6 +118,7 @@ public:
     float freq_min_ratio(void) const {
         return _freq_min_ratio;
     }
+    void set_freq_min_ratio(float ratio) { _freq_min_ratio.set(ratio); }
 
     // save parameters
     void save_params();

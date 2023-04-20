@@ -20,6 +20,8 @@ parser.add_argument(
 parser.add_argument(
     '--bootloader', action='store_true', default=False, help='configure for bootloader')
 parser.add_argument(
+    '--signed-fw', action='store_true', default=False, help='configure for signed FW')
+parser.add_argument(
     'hwdef', type=str, nargs='+', default=None, help='hardware definition file')
 parser.add_argument(
     '--params', type=str, default=None, help='user default params path')
@@ -760,6 +762,9 @@ def get_flash_pages_sizes():
         return [ 128 ] * (get_config('FLASH_SIZE_KB', type=int)//128)
     elif mcu_series.startswith('STM32F100') or mcu_series.startswith('STM32F103'):
         return [ 1 ] * get_config('FLASH_SIZE_KB', type=int)
+    elif mcu_series.startswith('STM32L4') and mcu_type.startswith('STM32L4R'):
+        # STM32L4PLUS
+        return [ 4 ] * (get_config('FLASH_SIZE_KB', type=int)//4)
     elif (mcu_series.startswith('STM32F105') or
           mcu_series.startswith('STM32F3') or
           mcu_series.startswith('STM32G4') or
@@ -783,6 +788,20 @@ def get_flash_page_offset_kb(sector):
         offset += pages[i]
     return offset
 
+def load_file_with_include(fname):
+    '''load a file as an array of lines, processing any include lines'''
+    lines = open(fname,'r').readlines()
+    ret = []
+    for line in lines:
+        if line.startswith("include"):
+            a = shlex.split(line)
+            if len(a) > 1 and a[0] == "include":
+                fname2 = os.path.relpath(os.path.join(os.path.dirname(fname), a[1]))
+                ret.extend(load_file_with_include(fname2))
+                continue
+        ret.append(line)
+    return ret
+
 def get_storage_flash_page():
     '''get STORAGE_FLASH_PAGE either from this hwdef or from hwdef.dat
        in the same directory if this is a bootloader
@@ -794,7 +813,7 @@ def get_storage_flash_page():
         hwdefdat = args.hwdef[0].replace("-bl", "")
         if os.path.exists(hwdefdat):
             ret = None
-            lines = open(hwdefdat,'r').readlines()
+            lines = load_file_with_include(hwdefdat)
             for line in lines:
                 result = re.match(r'STORAGE_FLASH_PAGE\s*([0-9]+)', line)
                 if result:
@@ -824,7 +843,7 @@ def write_mcu_config(f):
     f.write('// MCU type (ChibiOS define)\n')
     f.write('#define %s_MCUCONF\n' % get_config('MCU'))
     mcu_subtype = get_config('MCU', 1)
-    if mcu_subtype.endswith('xx'):
+    if mcu_subtype[-1:] == 'x' or mcu_subtype[-2:-1] == 'x':
         f.write('#define %s_MCUCONF\n\n' % mcu_subtype[:-2])
     f.write('#define %s\n\n' % mcu_subtype)
     f.write('// crystal frequency\n')
@@ -926,6 +945,9 @@ def write_mcu_config(f):
             if result:
                 intdefines[result.group(1)] = int(result.group(2))
 
+    if intdefines.get('HAL_USE_USB_MSD',0) == 1:
+        build_flags.append('USE_USB_MSD=yes')
+
     if have_type_prefix('CAN') and not using_chibios_can:
         enable_can(f)
     flash_size = get_config('FLASH_SIZE_KB', type=int)
@@ -947,30 +969,35 @@ def write_mcu_config(f):
     env_vars['EXT_FLASH_SIZE_MB'] = get_config('EXT_FLASH_SIZE_MB', default=0, type=int)
 
     if env_vars['EXT_FLASH_SIZE_MB'] and not args.bootloader:
-        f.write('#define CRT1_AREAS_NUMBER 3\n')
+        f.write('#define CRT0_AREAS_NUMBER 3\n')
         f.write('#define CRT1_RAMFUNC_ENABLE TRUE\n') # this will enable loading program sections to RAM
         f.write('#define __FASTRAMFUNC__ __attribute__ ((__section__(".fastramfunc")))\n')
         f.write('#define __RAMFUNC__ __attribute__ ((__section__(".ramfunc")))\n')
         f.write('#define PORT_IRQ_ATTRIBUTES __FASTRAMFUNC__\n')
     else:
-        f.write('#define CRT1_AREAS_NUMBER 1\n')
+        f.write('#define CRT0_AREAS_NUMBER 1\n')
         f.write('#define CRT1_RAMFUNC_ENABLE FALSE\n')
 
     storage_flash_page = get_storage_flash_page()
+    flash_reserve_end = get_config('FLASH_RESERVE_END_KB', default=0, type=int)
     if storage_flash_page is not None:
         if not args.bootloader:
             f.write('#define STORAGE_FLASH_PAGE %u\n' % storage_flash_page)
             validate_flash_storage_size()
-        else:
+        elif get_config('FLASH_RESERVE_END_KB', type=int, required = False) is None:
             # ensure the flash page leaves room for bootloader
             offset = get_flash_page_offset_kb(storage_flash_page)
+            bl_offset = get_config('FLASH_BOOTLOADER_LOAD_KB', type=int)
+            # storage at end of flash - leave room
+            if offset > bl_offset:
+                flash_reserve_end = flash_size - offset
 
     if flash_size >= 2048 and not args.bootloader:
         # lets pick a flash sector for Crash log
-        f.write('#define HAL_CRASHDUMP_ENABLE 1\n')
+        f.write('#define AP_CRASHDUMP_ENABLED 1\n')
         env_vars['ENABLE_CRASHDUMP'] = 1
     else:
-        f.write('#define HAL_CRASHDUMP_ENABLE 0\n')
+        f.write('#define AP_CRASHDUMP_ENABLED 0\n')
         env_vars['ENABLE_CRASHDUMP'] = 0
 
     if args.bootloader:
@@ -980,7 +1007,7 @@ def write_mcu_config(f):
                 'EXT_FLASH_RESERVE_START_KB', default=0, type=int)*1024))
             f.write('#define BOOT_FROM_EXT_FLASH 1\n')
         f.write('#define FLASH_BOOTLOADER_LOAD_KB %u\n' % get_config('FLASH_BOOTLOADER_LOAD_KB', type=int))
-        f.write('#define FLASH_RESERVE_END_KB %u\n' % get_config('FLASH_RESERVE_END_KB', default=0, type=int))
+        f.write('#define FLASH_RESERVE_END_KB %u\n' % flash_reserve_end)
         f.write('#define APP_START_OFFSET_KB %u\n' % get_config('APP_START_OFFSET_KB', default=0, type=int))
     f.write('\n')
 
@@ -1061,6 +1088,14 @@ def write_mcu_config(f):
     elif get_mcu_config('EXPECTED_CLOCK', required=True):
         f.write('#define HAL_EXPECTED_SYSCLOCK %u\n' % get_mcu_config('EXPECTED_CLOCK'))
 
+    if get_mcu_config('EXPECTED_CLOCKS', required=False):
+        clockrate = get_config('MCU_CLOCKRATE_MHZ', required=False)
+        for mcu_clock, mcu_clock_speed in get_mcu_config('EXPECTED_CLOCKS'):
+            if (mcu_clock == 'STM32_HCLK' or mcu_clock == 'STM32_SYS_CK') and clockrate:
+                f.write('#define HAL_EXPECTED_%s %u\n' % (mcu_clock, int(clockrate) * 1000000))
+            else:
+                f.write('#define HAL_EXPECTED_%s %u\n' % (mcu_clock, mcu_clock_speed))
+
     env_vars['CORTEX'] = cortex
 
     if not args.bootloader:
@@ -1088,10 +1123,13 @@ def write_mcu_config(f):
 #define HAL_USE_I2C FALSE
 #define HAL_USE_PWM FALSE
 #define HAL_NO_UARTDRIVER
+#ifndef CH_CFG_USE_DYNAMIC
 #define CH_CFG_USE_DYNAMIC FALSE
+#endif
 #define HAL_USE_EMPTY_STORAGE 1
 #ifndef HAL_STORAGE_SIZE
 #define HAL_STORAGE_SIZE 16384
+#define DISABLE_WATCHDOG 1
 #endif
 ''')
         else:
@@ -1114,32 +1152,65 @@ def write_mcu_config(f):
 #endif
 #define HAL_NO_ROMFS_SUPPORT TRUE
 #define CH_CFG_USE_TM FALSE
+#ifndef CH_CFG_USE_REGISTRY
 #define CH_CFG_USE_REGISTRY FALSE
+#endif
+#ifndef CH_CFG_USE_WAITEXIT
 #define CH_CFG_USE_WAITEXIT FALSE
+#endif
+#ifndef CH_CFG_USE_MEMPOOLS
 #define CH_CFG_USE_MEMPOOLS FALSE
+#endif
 #define CH_DBG_FILL_THREADS FALSE
+#ifndef CH_CFG_USE_MUTEXES
 #define CH_CFG_USE_MUTEXES FALSE
+#endif
 #define CH_CFG_USE_EVENTS FALSE
 #define CH_CFG_USE_EVENTS_TIMEOUT FALSE
+#define CH_CFG_OPTIMIZE_SPEED FALSE
 #define HAL_USE_EMPTY_STORAGE 1
 #ifndef HAL_STORAGE_SIZE
 #define HAL_STORAGE_SIZE 16384
 #endif
 #define HAL_USE_RTC FALSE
 #define DISABLE_SERIAL_ESC_COMM TRUE
+#ifndef CH_CFG_USE_DYNAMIC
 #define CH_CFG_USE_DYNAMIC FALSE
+#endif
+#define DISABLE_WATCHDOG 1
 ''')
-        if not env_vars['EXT_FLASH_SIZE_MB']:
+        if not env_vars['EXT_FLASH_SIZE_MB'] and not args.signed_fw:
             f.write('''
+#ifndef CH_CFG_USE_MEMCORE
 #define CH_CFG_USE_MEMCORE FALSE
+#endif
+#ifndef CH_CFG_USE_SEMAPHORES
 #define CH_CFG_USE_SEMAPHORES FALSE
+#endif
+#ifndef CH_CFG_USE_HEAP
 #define CH_CFG_USE_HEAP FALSE
+#endif
 ''')
     if env_vars.get('ROMFS_UNCOMPRESSED', False):
         f.write('#define HAL_ROMFS_UNCOMPRESSED\n')
 
     if not args.bootloader:
         f.write('''#define STM32_DMA_REQUIRED TRUE\n\n''')
+
+    if args.bootloader:
+        # do not enable flash protection in bootloader, even if hwdef
+        # requests it:
+        f.write('''
+#undef HAL_FLASH_PROTECTION
+#define HAL_FLASH_PROTECTION 0
+''')
+    else:
+        # flash protection is off by default:
+        f.write('''
+#ifndef HAL_FLASH_PROTECTION
+#define HAL_FLASH_PROTECTION 0
+#endif
+''')
 
 def write_ldscript(fname):
     '''write ldscript.ld for this board'''
@@ -1288,7 +1359,11 @@ def write_USB_config(f):
     default_product = "%BOARD%"
     if args.bootloader:
         default_product += "-BL"
-    f.write('#define HAL_USB_STRING_PRODUCT %s\n' % get_config("USB_STRING_PRODUCT", default="\"%s\""%default_product))
+    product_string = get_config("USB_STRING_PRODUCT", default="\"%s\""%default_product)
+    if args.bootloader and args.signed_fw:
+        product_string = product_string.replace("-BL", "-Secure-BL-v10")
+    f.write('#define HAL_USB_STRING_PRODUCT %s\n' % product_string)
+    
     f.write('#define HAL_USB_STRING_SERIAL %s\n' % get_config("USB_STRING_SERIAL", default="\"%SERIAL%\""))
 
     f.write('\n\n')
@@ -1391,6 +1466,11 @@ def write_QSPI_table(f):
 def write_QSPI_config(f):
     '''write SPI config defines'''
     global qspi_list
+    # only the bootloader must reset the QSPI clock otherwise it is not possible to 
+    # bootstrap into external flash
+    if not args.bootloader:
+        f.write('#define STM32_QSPI_NO_RESET TRUE\n')
+
     if len(qspidev) == 0:
         # nothing to do
         return
@@ -1411,6 +1491,14 @@ def write_QSPI_config(f):
     f.write('#define HAL_QSPI_BUS_LIST %s\n\n' % ','.join(devlist))
     write_QSPI_table(f)
 
+def write_check_firmware(f):
+    '''add AP_CHECK_FIRMWARE_ENABLED if needed'''
+    if env_vars.get('AP_PERIPH',0) != 0 or intdefines.get('AP_OPENDRONEID_ENABLED',0) == 1:
+        f.write('''
+#ifndef AP_CHECK_FIRMWARE_ENABLED
+#define AP_CHECK_FIRMWARE_ENABLED 1
+#endif
+''')
 
 def parse_spi_device(dev):
     '''parse a SPI:xxx device item'''
@@ -1454,6 +1542,15 @@ def write_IMU_config(f):
             error("Duplicate IMU: %s" % seen_str(dev))
         seen.add(seen_str(dev))
         driver = dev[0]
+        # get instance number if mentioned
+        instance = -1
+        aux_devid = -1
+        if dev[-1].startswith("INSTANCE:"):
+            instance = int(dev[-1][9:])
+            dev = dev[:-1]
+        if dev[-1].startswith("AUX:"):
+            aux_devid = int(dev[-1][4:])
+            dev = dev[:-1]
         for i in range(1, len(dev)):
             if dev[i].startswith("SPI:"):
                 dev[i] = parse_spi_device(dev[i])
@@ -1461,7 +1558,15 @@ def write_IMU_config(f):
                 (wrapper, dev[i]) = parse_i2c_device(dev[i])
         n = len(devlist)+1
         devlist.append('HAL_INS_PROBE%u' % n)
-        if dev[-1].startswith("BOARD_MATCH("):
+        if aux_devid != -1:
+            f.write(
+            '#define HAL_INS_PROBE%u %s ADD_BACKEND_AUX(AP_InertialSensor_%s::probe(*this,%s),%d)\n'
+            % (n, wrapper, driver, ','.join(dev[1:]), aux_devid))
+        elif instance != -1:
+            f.write(
+            '#define HAL_INS_PROBE%u %s ADD_BACKEND_INSTANCE(AP_InertialSensor_%s::probe(*this,%s),%d)\n'
+            % (n, wrapper, driver, ','.join(dev[1:]), instance))
+        elif dev[-1].startswith("BOARD_MATCH("):
             f.write(
                 '#define HAL_INS_PROBE%u %s ADD_BACKEND_BOARD_MATCH(%s, AP_InertialSensor_%s::probe(*this,%s))\n'
                 % (n, wrapper, dev[-1], driver, ','.join(dev[1:-1])))
@@ -1808,8 +1913,7 @@ def write_I2C_config(f):
 ''')
         return
     if 'I2C_ORDER' not in config:
-        print("Missing I2C_ORDER config")
-        return
+        error("Missing I2C_ORDER config")
     i2c_list = config['I2C_ORDER']
     f.write('// I2C configuration\n')
     if len(i2c_list) == 0:
@@ -2277,6 +2381,27 @@ def write_hwdef_header(outfilename):
 
 ''')
 
+    if args.signed_fw:
+        f.write('''
+#define AP_SIGNED_FIRMWARE 1
+''')
+    else:
+        f.write('''
+#define AP_SIGNED_FIRMWARE 0
+''')
+
+    enable_dfu_boot = get_config('ENABLE_DFU_BOOT', default=0)
+    if enable_dfu_boot:
+        env_vars['ENABLE_DFU_BOOT'] = 1
+        f.write('''
+#define HAL_ENABLE_DFU_BOOT TRUE
+''')
+    else:
+        env_vars['ENABLE_DFU_BOOT'] = 0
+        f.write('''
+#define HAL_ENABLE_DFU_BOOT FALSE
+''')
+
     dma_noshare.extend(get_config('DMA_NOSHARE', default='', aslist=True))
 
     write_mcu_config(f)
@@ -2289,7 +2414,7 @@ def write_hwdef_header(outfilename):
     write_BARO_config(f)
     write_AIRSPEED_config(f)
     write_board_validate_macro(f)
-    add_apperiph_defaults(f)
+    write_check_firmware(f)
 
     write_peripheral_enable(f)
 
@@ -2409,6 +2534,11 @@ def write_hwdef_header(outfilename):
             for r in dma_required:
                 if fnmatch.fnmatch(d, r):
                     error("Missing required DMA for %s" % d)
+
+    add_apperiph_defaults(f)
+    add_bootloader_defaults(f)
+    add_iomcu_firmware_defaults(f)
+    add_normal_firmware_defaults(f)
 
     f.close()
     # see if we ended up with the same file, on an unnecessary reconfigure
@@ -2666,6 +2796,9 @@ def process_line(line):
             bylabel.pop(u, '')
             alttype.pop(u, '')
             altlabel.pop(u, '')
+            for dev in spidev:
+                if u == dev[0]:
+                    spidev.remove(dev)
             # also remove all occurences of defines in previous lines if any
             for line in alllines[:]:
                 if line.startswith('define') and u == line.split()[1]:
@@ -2723,14 +2856,12 @@ def add_apperiph_defaults(f):
         # not AP_Periph
         return
 
-    if not args.bootloader:
-        # use the app descriptor needed by MissionPlanner for CAN upload
-        env_vars['APP_DESCRIPTOR'] = 'MissionPlanner'
-
     print("Setting up as AP_Periph")
     f.write('''
-#ifndef HAL_SCHEDULER_ENABLED
-#define HAL_SCHEDULER_ENABLED 0
+// AP_Periph defaults
+
+#ifndef AP_SCHEDULER_ENABLED
+#define AP_SCHEDULER_ENABLED 0
 #endif
 
 #ifndef HAL_LOGGING_ENABLED
@@ -2751,12 +2882,16 @@ def add_apperiph_defaults(f):
 #define HAL_LOGGING_MAVLINK_ENABLED 0
 #endif
 
-#ifndef HAL_MISSION_ENABLED
-#define HAL_MISSION_ENABLED 0
+#ifndef AP_MISSION_ENABLED
+#define AP_MISSION_ENABLED 0
 #endif
 
 #ifndef HAL_RALLY_ENABLED
 #define HAL_RALLY_ENABLED 0
+#endif
+
+#ifndef HAL_NMEA_OUTPUT_ENABLED
+#define HAL_NMEA_OUTPUT_ENABLED 0
 #endif
 
 #ifndef HAL_CAN_DEFAULT_NODE_ID
@@ -2774,6 +2909,14 @@ def add_apperiph_defaults(f):
 #define AP_FETTEC_ONEWIRE_ENABLED 0
 #endif
 
+#ifndef AP_KDECAN_ENABLED
+#define AP_KDECAN_ENABLED 0
+#endif
+
+#ifndef HAL_GENERATOR_ENABLED
+#define HAL_GENERATOR_ENABLED 0
+#endif
+
 #ifndef HAL_BARO_WIND_COMP_ENABLED
 #define HAL_BARO_WIND_COMP_ENABLED 0
 #endif
@@ -2782,8 +2925,16 @@ def add_apperiph_defaults(f):
 #define HAL_UART_STATS_ENABLED (HAL_GCS_ENABLED || HAL_LOGGING_ENABLED)
 #endif
 
+#ifndef HAL_SUPPORT_RCOUT_SERIAL
+#define HAL_SUPPORT_RCOUT_SERIAL 0
+#endif
+
 #ifndef AP_AIRSPEED_AUTOCAL_ENABLE
 #define AP_AIRSPEED_AUTOCAL_ENABLE 0
+#endif
+
+#ifndef AP_STATS_ENABLED
+#define AP_STATS_ENABLED 0
 #endif
 
 #ifndef AP_VOLZ_ENABLED
@@ -2794,8 +2945,42 @@ def add_apperiph_defaults(f):
 #define AP_ROBOTISSERVO_ENABLED 0
 #endif
 
+// by default an AP_Periph defines as many servo output channels as
+// there are PWM outputs:
+#ifndef NUM_SERVO_CHANNELS
+#ifdef HAL_PWM_COUNT
+#define NUM_SERVO_CHANNELS HAL_PWM_COUNT
+#else
+#define NUM_SERVO_CHANNELS 0
+#endif
+#endif
+
 #ifndef AP_STATS_ENABLED
 #define AP_STATS_ENABLED 0
+#endif
+
+#ifndef AP_BATTERY_ESC_ENABLED
+#define AP_BATTERY_ESC_ENABLED 0
+#endif
+
+// disable compass calibrations on periphs; cal is done on the autopilot
+#ifndef COMPASS_CAL_ENABLED
+#define COMPASS_CAL_ENABLED 0
+#endif
+#ifndef COMPASS_MOT_ENABLED
+#define COMPASS_MOT_ENABLED 0
+#endif
+#ifndef COMPASS_LEARN_ENABLED
+#define COMPASS_LEARN_ENABLED 0
+#endif
+
+#ifndef HAL_EXTERNAL_AHRS_ENABLED
+#define HAL_EXTERNAL_AHRS_ENABLED 0
+#endif
+
+// disable RC_Channels library:
+#ifndef AP_RC_CHANNEL_ENABLED
+#define AP_RC_CHANNEL_ENABLED 0
 #endif
 
 /*
@@ -2856,8 +3041,179 @@ def add_apperiph_defaults(f):
 #define AP_RANGEFINDER_HC_SR04_ENABLED 0
 #define AP_RANGEFINDER_PWM_ENABLED 0
 
+// no CAN manager in AP_Periph:
+#define HAL_CANMANAGER_ENABLED 0
+
+// SLCAN is off by default:
+#ifndef AP_CAN_SLCAN_ENABLED
+#define AP_CAN_SLCAN_ENABLED 0
+#endif
+
+// Periphs don't use the FFT library:
+#ifndef HAL_GYROFFT_ENABLED
+#define HAL_GYROFFT_ENABLED 0
+#endif
+
+// MSP parsing is off by default in AP_Periph:
+#ifndef HAL_MSP_ENABLED
+#define HAL_MSP_ENABLED 0
+#endif
+
+// periph does not make use of compass scaling or diagonals
+#ifndef AP_COMPASS_DIAGONALS_ENABLED
+#define AP_COMPASS_DIAGONALS_ENABLED 0
+#endif
+
+// disable various battery monitor backends:
+#ifndef AP_BATTERY_SYNTHETIC_CURRENT_ENABLED
+#define AP_BATTERY_SYNTHETIC_CURRENT_ENABLED 0
+#endif
+
+#ifndef AP_BATT_MONITOR_MAX_INSTANCES
+#define AP_BATT_MONITOR_MAX_INSTANCES 1
+#endif
+
+#ifndef RANGEFINDER_MAX_INSTANCES
+#define RANGEFINDER_MAX_INSTANCES 1
+#endif
+
+// by default AP_Periphs don't use INS:
+#ifndef AP_INERTIALSENSOR_ENABLED
+#define AP_INERTIALSENSOR_ENABLED 0
+#endif
+
+// no fence by default in AP_Periph:
+#ifndef AP_FENCE_ENABLED
+#define AP_FENCE_ENABLED 0
+#endif
+
+// periph does not save temperature cals etc:
+#ifndef HAL_ENABLE_SAVE_PERSISTENT_PARAMS
+#define HAL_ENABLE_SAVE_PERSISTENT_PARAMS 0
+#endif
+
+#ifndef AP_WINCH_ENABLED
+#define AP_WINCH_ENABLED 0
+#endif
+
+// end AP_Periph defaults
 ''')
 
+def add_bootloader_defaults(f):
+    '''add default defines for peripherals'''
+    if not args.bootloader:
+        return
+
+    print("Setting up as Bootloader")
+    f.write('''
+// AP_Bootloader defaults
+
+#define HAL_DSHOT_ALARM_ENABLED 0
+#define HAL_LOGGING_ENABLED 0
+#define HAL_SCHEDULER_ENABLED 0
+
+// bootloaders *definitely* don't use the FFT library:
+#ifndef HAL_GYROFFT_ENABLED
+#define HAL_GYROFFT_ENABLED 0
+#endif
+
+// bootloaders don't talk to the GCS:
+#ifndef HAL_GCS_ENABLED
+#define HAL_GCS_ENABLED 0
+#endif
+
+// by default bootloaders don't use INS:
+#ifndef AP_INERTIALSENSOR_ENABLED
+#define AP_INERTIALSENSOR_ENABLED 0
+#endif
+
+#define HAL_MAX_CAN_PROTOCOL_DRIVERS 0
+
+// bootloader does not save temperature cals etc:
+#ifndef HAL_ENABLE_SAVE_PERSISTENT_PARAMS
+#define HAL_ENABLE_SAVE_PERSISTENT_PARAMS 0
+#endif
+
+#ifndef HAL_GCS_ENABLED
+#define HAL_GCS_ENABLED 0
+#endif
+
+// make diagnosing Faults (e.g. HardFault) harder, but save bytes:
+#ifndef AP_FAULTHANDLER_DEBUG_VARIABLES_ENABLED
+#define AP_FAULTHANDLER_DEBUG_VARIABLES_ENABLED 0
+#endif
+
+#ifndef AP_WATCHDOG_SAVE_FAULT_ENABLED
+#define AP_WATCHDOG_SAVE_FAULT_ENABLED 0
+#endif
+
+// end AP_Bootloader defaults
+''')
+
+def add_iomcu_firmware_defaults(f):
+    '''add default defines IO firmwares'''
+    if env_vars.get('IOMCU_FW', 0) == 0:
+        # not IOMCU firmware
+        return
+
+    print("Setting up as IO firmware")
+    f.write('''
+// IOMCU Firmware defaults
+
+#define HAL_DSHOT_ALARM_ENABLED 0
+
+// IOMCUs *definitely* don't use the FFT library:
+#ifndef HAL_GYROFFT_ENABLED
+#define HAL_GYROFFT_ENABLED 0
+#endif
+
+// by default IOMCUs don't use INS:
+#ifndef AP_INERTIALSENSOR_ENABLED
+#define AP_INERTIALSENSOR_ENABLED 0
+#endif
+
+// no RC_Channels library:
+#ifndef AP_RC_CHANNEL_ENABLED
+#define AP_RC_CHANNEL_ENABLED 0
+#endif
+
+#ifndef AP_VIDEOTX_ENABLED
+#define AP_VIDEOTX_ENABLED 0
+#endif
+
+// make diagnosing Faults (e.g. HardFault) harder, but save bytes:
+#ifndef AP_FAULTHANDLER_DEBUG_VARIABLES_ENABLED
+#define AP_FAULTHANDLER_DEBUG_VARIABLES_ENABLED 0
+#endif
+
+// disable some protocols on iomcu:
+#define AP_RCPROTOCOL_FASTSBUS_ENABLED 0
+
+// end IOMCU Firmware defaults
+''')
+
+def add_normal_firmware_defaults(f):
+    '''add default defines to builds with are not bootloader, periph or IOMCU'''
+    if env_vars.get('IOMCU_FW', 0) != 0:
+        # IOMCU firmware
+        return
+    if env_vars.get('AP_PERIPH', 0) != 0:
+        # Periph firmware
+        return
+    if args.bootloader:
+        # guess
+        return
+
+    print("Setting up as normal firmware")
+    f.write('''
+// firmware defaults
+
+#ifndef HAL_DSHOT_ALARM_ENABLED
+#define HAL_DSHOT_ALARM_ENABLED (HAL_PWM_COUNT>0)
+#endif
+
+// end firmware defaults
+''')
 
 # process input file
 for fname in args.hwdef:
@@ -2886,6 +3242,7 @@ write_hwdef_header(os.path.join(outdir, "hwdef.h"))
 write_ldscript(os.path.join(outdir, "ldscript.ld"))
 
 romfs_add_dir(['scripts'])
+romfs_add_dir(['param'])
 
 write_ROMFS(outdir)
 

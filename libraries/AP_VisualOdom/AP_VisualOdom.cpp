@@ -13,15 +13,15 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "AP_VisualOdom.h"
+#include "AP_VisualOdom_config.h"
 
 #if HAL_VISUALODOM_ENABLED
 
+#include "AP_VisualOdom.h"
 #include "AP_VisualOdom_Backend.h"
 #include "AP_VisualOdom_MAV.h"
 #include "AP_VisualOdom_IntelT265.h"
 #include <AP_AHRS/AP_AHRS.h>
-#include <AP_Logger/AP_Logger.h>
 
 extern const AP_HAL::HAL &hal;
 
@@ -128,13 +128,17 @@ void AP_VisualOdom::init()
     case VisualOdom_Type::None:
         // do nothing
         break;
+#if AP_VISUALODOM_MAV_ENABLED
     case VisualOdom_Type::MAV:
         _driver = new AP_VisualOdom_MAV(*this);
         break;
+#endif
+#if AP_VISUALODOM_INTELT265_ENABLED
     case VisualOdom_Type::IntelT265:
     case VisualOdom_Type::VOXL:
         _driver = new AP_VisualOdom_IntelT265(*this);
         break;
+#endif
     }
 }
 
@@ -218,8 +222,8 @@ void AP_VisualOdom::handle_vision_speed_estimate(uint64_t remote_time_us, uint32
     }
 }
 
-// calibrate camera attitude to align with vehicle's AHRS/EKF attitude
-void AP_VisualOdom::align_sensor_to_vehicle()
+// request sensor's yaw be aligned with vehicle's AHRS/EKF attitude
+void AP_VisualOdom::request_align_yaw_to_ahrs()
 {
     // exit immediately if not enabled
     if (!enabled()) {
@@ -228,7 +232,7 @@ void AP_VisualOdom::align_sensor_to_vehicle()
 
     // call backend
     if (_driver != nullptr) {
-        _driver->align_sensor_to_vehicle();
+        _driver->request_align_yaw_to_ahrs();
     }
 }
 

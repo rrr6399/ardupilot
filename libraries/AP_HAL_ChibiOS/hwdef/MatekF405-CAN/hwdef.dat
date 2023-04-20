@@ -7,7 +7,7 @@ MCU STM32F4xx STM32F405xx
 FLASH_RESERVE_START_KB 64
 FLASH_SIZE_KB 1024
 
-# store parameters in pages 11 and 12
+# store parameters in pages 2 and 3
 STORAGE_FLASH_PAGE 1
 define HAL_STORAGE_SIZE 15360
 
@@ -80,6 +80,9 @@ define HAL_I2C_INTERNAL_MASK 0
 PB8 CAN1_RX CAN1
 PB9 CAN1_TX CAN1
 PC13 GPIO_CAN1_SILENT OUTPUT PUSHPULL SPEED_LOW LOW GPIO(70)
+
+# reduce memory usage
+define DRONECAN_NODE_POOL_SIZE 1024
 
 
 # --------------------- UARTs ---------------------------
@@ -163,14 +166,12 @@ define HAL_BATT2_VOLT_SCALE 11.0
 
 
 # --------------------- save flash ----------------------
-define HAL_MINIMIZE_FEATURES 1
+include ../include/minimize_features.inc
+include ../include/minimal_GPS.inc
 
-define AP_BATTMON_SMBUS_ENABLE 0
-define AP_BATTMON_FUEL_ENABLE 0
+undef AP_BATTERY_SMBUS_ENABLED
+define AP_BATTERY_SMBUS_ENABLED 0
 define HAL_PARACHUTE_ENABLED 0
-define HAL_SPRAYER_ENABLED 0
-
-define HAL_WITH_DSP FALSE
 
 # reduce max size of embedded params for apj_tool.py
 define AP_PARAM_MAX_EMBEDDED_PARAM 1024

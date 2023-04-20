@@ -6,6 +6,7 @@
 #include <AP_InternalError/AP_InternalError.h>
 #include <AP_Scheduler/AP_Scheduler.h>
 #include <AP_Rally/AP_Rally.h>
+#include <AP_Vehicle/AP_Vehicle_Type.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -180,20 +181,16 @@ bool AP_Logger_Backend::Write_Emit_FMT(uint8_t msg_type)
 #endif
 
     // get log structure from front end:
-    char ls_name[LS_NAME_SIZE] = {};
-    char ls_format[LS_FORMAT_SIZE] = {};
-    char ls_labels[LS_LABELS_SIZE] = {};
-    char ls_units[LS_UNITS_SIZE] = {};
-    char ls_multipliers[LS_MULTIPLIERS_SIZE] = {};
+    struct AP_Logger::log_write_fmt_strings ls = {};
     struct LogStructure logstruct = {
         // these will be overwritten, but need to keep the compiler happy:
         0,
         0,
-        ls_name,
-        ls_format,
-        ls_labels,
-        ls_units,
-        ls_multipliers
+        ls.name,
+        ls.format,
+        ls.labels,
+        ls.units,
+        ls.multipliers
     };
     if (!_front.fill_log_write_logstructure(logstruct, msg_type)) {
         // this is a bug; we've been asked to write out the FMT
@@ -523,6 +520,32 @@ bool AP_Logger_Backend::Write_Rally()
 }
 #endif
 
+#if HAL_LOGGER_FENCE_ENABLED
+// Write a fence point
+bool AP_Logger_Backend::Write_FencePoint(uint8_t total, uint8_t sequence, const AC_PolyFenceItem &fence_point)
+{
+    const struct log_Fence pkt_fence{
+        LOG_PACKET_HEADER_INIT(LOG_FENCE_MSG),
+        time_us         : AP_HAL::micros64(),
+        total           : total,
+        sequence        : sequence,
+        type            : uint8_t(fence_point.type),
+        latitude        : fence_point.loc.x,
+        longitude       : fence_point.loc.y,
+        vertex_count    : fence_point.vertex_count,
+        radius          : fence_point.radius
+    };
+    return WriteBlock(&pkt_fence, sizeof(pkt_fence));
+}
+
+// Write all fence points
+bool AP_Logger_Backend::Write_Fence()
+{
+    // kick off asynchronous write:
+    return _startup_messagewriter->writeallfence();
+}
+#endif // HAL_LOGGER_FENCE_ENABLED
+
 
 bool AP_Logger_Backend::Write_VER()
 {
@@ -589,7 +612,8 @@ uint16_t AP_Logger_Backend::find_oldest_log()
 
 void AP_Logger_Backend::vehicle_was_disarmed()
 {
-    if (_front._params.file_disarm_rot) {
+    if (_front._params.file_disarm_rot &&
+        !_front._params.log_replay) {
         // rotate our log.  Closing the current one and letting the
         // logging restart naturally based on log_disarmed should do
         // the trick:
@@ -648,23 +672,24 @@ void AP_Logger_Backend::df_stats_log() {
 
 
 // class to handle rate limiting of log messages
-AP_Logger_RateLimiter::AP_Logger_RateLimiter(const AP_Logger &_front, const AP_Float &_limit_hz)
-    : front(_front), rate_limit_hz(_limit_hz)
+AP_Logger_RateLimiter::AP_Logger_RateLimiter(const AP_Logger &_front, const AP_Float &_limit_hz, const AP_Float &_disarm_limit_hz)
+    : front(_front),
+      rate_limit_hz(_limit_hz),
+      disarm_rate_limit_hz(_disarm_limit_hz)
 {
 }
 
 /*
   return false if a streaming message should not be sent yet
  */
-bool AP_Logger_RateLimiter::should_log_streaming(uint8_t msgid)
+bool AP_Logger_RateLimiter::should_log_streaming(uint8_t msgid, float rate_hz)
 {
-    if (rate_limit_hz <= 0) {
-        // no limiting (user changed the parameter)
-        return true;
+    if (front._log_pause) {
+        return false;
     }
     const uint16_t now = AP_HAL::millis16();
     uint16_t delta_ms = now - last_send_ms[msgid];
-    if (delta_ms < 1000.0 / rate_limit_hz.get()) {
+    if (is_positive(rate_hz) && delta_ms < 1000.0 / rate_hz) {
         // too soon
         return false;
     }
@@ -678,8 +703,14 @@ bool AP_Logger_RateLimiter::should_log_streaming(uint8_t msgid)
  */
 bool AP_Logger_RateLimiter::should_log(uint8_t msgid, bool writev_streaming)
 {
-    if (rate_limit_hz <= 0) {
-        // no limiting (user changed the parameter)
+    float rate_hz = rate_limit_hz;
+    if (!hal.util->get_soft_armed() &&
+        !AP::logger().in_log_persistance() &&
+        !is_zero(disarm_rate_limit_hz)) {
+        rate_hz = disarm_rate_limit_hz;
+    }
+    if (!is_positive(rate_hz) && !front._log_pause) {
+        // no rate limiting if not paused and rate is zero(user changed the parameter)
         return true;
     }
     if (last_send_ms[msgid] == 0 && !writev_streaming) {
@@ -706,7 +737,7 @@ bool AP_Logger_RateLimiter::should_log(uint8_t msgid, bool writev_streaming)
     last_sched_count[msgid] = sched_ticks;
 #endif
 
-    bool ret = should_log_streaming(msgid);
+    bool ret = should_log_streaming(msgid, rate_hz);
     if (ret) {
         last_return.set(msgid);
     } else {

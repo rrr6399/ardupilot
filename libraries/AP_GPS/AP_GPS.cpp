@@ -41,10 +41,10 @@
 #include "AP_GPS_SITL.h"
 #endif
 
-#if HAL_ENABLE_LIBUAVCAN_DRIVERS
+#if HAL_ENABLE_DRONECAN_DRIVERS
 #include <AP_CANManager/AP_CANManager.h>
-#include <AP_UAVCAN/AP_UAVCAN.h>
-#include "AP_GPS_UAVCAN.h"
+#include <AP_DroneCAN/AP_DroneCAN.h>
+#include "AP_GPS_DroneCAN.h"
 #endif
 
 #include <AP_AHRS/AP_AHRS.h>
@@ -81,8 +81,31 @@ const char AP_GPS::_initialisation_blob[] =
 #if AP_GPS_SIRF_ENABLED
     SIRF_SET_BINARY
 #endif
+#if AP_GPS_NMEA_UNICORE_ENABLED
+    NMEA_UNICORE_SETUP
+#endif
     ""   // to compile we need *some_initialiser if all backends compiled out
     ;
+
+#if HAL_GCS_ENABLED
+// ensure that our GPS_Status enumeration is 1:1 with the mavlink
+// numbers of the same fix type.  This allows us to do a simple cast
+// from one to the other when sending GPS mavlink messages, rather
+// than having some sort of mapping function from our internal
+// enumeration into the mavlink enumeration.  Doing things this way
+// has two advantages - in the future we could add that mapping
+// function and change our enumeration, and the other is that it
+// allows us to build the GPS library without having the mavlink
+// headers built (for example, in AP_Periph we shouldn't need mavlink
+// headers).
+static_assert((uint32_t)AP_GPS::GPS_Status::NO_GPS == (uint32_t)GPS_FIX_TYPE_NO_GPS, "NO_GPS incorrect");
+static_assert((uint32_t)AP_GPS::GPS_Status::NO_FIX == (uint32_t)GPS_FIX_TYPE_NO_FIX, "NO_FIX incorrect");
+static_assert((uint32_t)AP_GPS::GPS_Status::GPS_OK_FIX_2D == (uint32_t)GPS_FIX_TYPE_2D_FIX, "FIX_2D incorrect");
+static_assert((uint32_t)AP_GPS::GPS_Status::GPS_OK_FIX_3D == (uint32_t)GPS_FIX_TYPE_3D_FIX, "FIX_3D incorrect");
+static_assert((uint32_t)AP_GPS::GPS_Status::GPS_OK_FIX_3D_DGPS == (uint32_t)GPS_FIX_TYPE_DGPS, "FIX_DGPS incorrect");
+static_assert((uint32_t)AP_GPS::GPS_Status::GPS_OK_FIX_3D_RTK_FLOAT == (uint32_t)GPS_FIX_TYPE_RTK_FLOAT, "FIX_RTK_FLOAT incorrect");
+static_assert((uint32_t)AP_GPS::GPS_Status::GPS_OK_FIX_3D_RTK_FIXED == (uint32_t)GPS_FIX_TYPE_RTK_FIXED, "FIX_RTK_FIXED incorrect");
+#endif
 
 AP_GPS *AP_GPS::_singleton;
 
@@ -91,7 +114,7 @@ const AP_Param::GroupInfo AP_GPS::var_info[] = {
     // @Param: _TYPE
     // @DisplayName: 1st GPS type
     // @Description: GPS type of 1st GPS
-    // @Values: 0:None,1:AUTO,2:uBlox,5:NMEA,6:SiRF,7:HIL,8:SwiftNav,9:DroneCAN,10:SBF,11:GSOF,13:ERB,14:MAV,15:NOVA,16:HemisphereNMEA,17:uBlox-MovingBaseline-Base,18:uBlox-MovingBaseline-Rover,19:MSP,20:AllyStar,21:ExternalAHRS,22:DroneCAN-MovingBaseline-Base,23:DroneCAN-MovingBaseline-Rover
+    // @Values: 0:None,1:AUTO,2:uBlox,5:NMEA,6:SiRF,7:HIL,8:SwiftNav,9:DroneCAN,10:SBF,11:GSOF,13:ERB,14:MAV,15:NOVA,16:HemisphereNMEA,17:uBlox-MovingBaseline-Base,18:uBlox-MovingBaseline-Rover,19:MSP,20:AllyStar,21:ExternalAHRS,22:DroneCAN-MovingBaseline-Base,23:DroneCAN-MovingBaseline-Rover,24:UnicoreNMEA,25:UnicoreMovingBaselineNMEA
     // @RebootRequired: True
     // @User: Advanced
     AP_GROUPINFO("_TYPE",    0, AP_GPS, _type[0], HAL_GPS_TYPE_DEFAULT),
@@ -100,7 +123,7 @@ const AP_Param::GroupInfo AP_GPS::var_info[] = {
     // @Param: _TYPE2
     // @DisplayName: 2nd GPS type
     // @Description: GPS type of 2nd GPS
-    // @Values: 0:None,1:AUTO,2:uBlox,5:NMEA,6:SiRF,7:HIL,8:SwiftNav,9:DroneCAN,10:SBF,11:GSOF,13:ERB,14:MAV,15:NOVA,16:HemisphereNMEA,17:uBlox-MovingBaseline-Base,18:uBlox-MovingBaseline-Rover,19:MSP,20:AllyStar,21:ExternalAHRS,22:DroneCAN-MovingBaseline-Base,23:DroneCAN-MovingBaseline-Rover
+    // @Values: 0:None,1:AUTO,2:uBlox,5:NMEA,6:SiRF,7:HIL,8:SwiftNav,9:DroneCAN,10:SBF,11:GSOF,13:ERB,14:MAV,15:NOVA,16:HemisphereNMEA,17:uBlox-MovingBaseline-Base,18:uBlox-MovingBaseline-Rover,19:MSP,20:AllyStar,21:ExternalAHRS,22:DroneCAN-MovingBaseline-Base,23:DroneCAN-MovingBaseline-Rover,24:UnicoreNMEA,25:UnicoreMovingBaselineNMEA
     // @RebootRequired: True
     // @User: Advanced
     AP_GROUPINFO("_TYPE2",   1, AP_GPS, _type[1], 0),
@@ -308,14 +331,12 @@ const AP_Param::GroupInfo AP_GPS::var_info[] = {
     AP_GROUPINFO("_BLEND_TC", 21, AP_GPS, _blend_tc, 10.0f),
 #endif
 
-#if GPS_MOVING_BASELINE
     // @Param: _DRV_OPTIONS
     // @DisplayName: driver options
     // @Description: Additional backend specific options
     // @Bitmask: 0:Use UART2 for moving baseline on ublox,1:Use base station for GPS yaw on SBF,2:Use baudrate 115200,3:Use dedicated CAN port b/w GPSes for moving baseline,4:Use ellipsoid height instead of AMSL for uBlox driver
     // @User: Advanced
     AP_GROUPINFO("_DRV_OPTIONS", 22, AP_GPS, _driver_options, 0),
-#endif
 
 #if AP_GPS_SBF_ENABLED
     // @Param: _COM_PORT
@@ -363,7 +384,7 @@ const AP_Param::GroupInfo AP_GPS::var_info[] = {
     AP_GROUPINFO("_PRIMARY", 27, AP_GPS, _primary, 0),
 #endif
 
-#if HAL_ENABLE_LIBUAVCAN_DRIVERS
+#if HAL_ENABLE_DRONECAN_DRIVERS
     // @Param: _CAN_NODEID1
     // @DisplayName: GPS Node ID 1
     // @Description: GPS Node id for first-discovered GPS.
@@ -392,7 +413,7 @@ const AP_Param::GroupInfo AP_GPS::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("2_CAN_OVRIDE", 31, AP_GPS, _override_node_id[1], 0),
 #endif // GPS_MAX_RECEIVERS > 1
-#endif // HAL_ENABLE_LIBUAVCAN_DRIVERS
+#endif // HAL_ENABLE_DRONECAN_DRIVERS
 
     AP_GROUPEND
 };
@@ -460,7 +481,7 @@ void AP_GPS::init(const AP_SerialManager& serial_manager)
     // sanity check update rate
     for (uint8_t i=0; i<GPS_MAX_RECEIVERS; i++) {
         if (_rate_ms[i] <= 0 || _rate_ms[i] > GPS_MAX_RATE_MS) {
-            _rate_ms[i] = GPS_MAX_RATE_MS;
+            _rate_ms[i].set(GPS_MAX_RATE_MS);
         }
     }
 }
@@ -502,6 +523,25 @@ bool AP_GPS::vertical_accuracy(uint8_t instance, float &vacc) const
         return true;
     }
     return false;
+}
+
+AP_GPS::CovarianceType AP_GPS::position_covariance(const uint8_t instance, Matrix3f& cov) const
+{
+    AP_GPS::CovarianceType cov_type = AP_GPS::CovarianceType::UNKNOWN;
+    cov.zero();
+    float hacc, vacc;
+    if (horizontal_accuracy(instance, hacc) && vertical_accuracy(instance, vacc))
+    {
+        cov_type = AP_GPS::CovarianceType::DIAGONAL_KNOWN;
+        const auto hacc_variance = hacc * hacc;
+        cov[0][0] = hacc_variance;
+        cov[1][1] = hacc_variance;
+        cov[2][2] = vacc * vacc;
+    }
+    // There may be a receiver that implements hdop+vdop but not accuracy
+    // If so, there could be a condition here to attempt to calculate it
+
+    return cov_type;
 }
 
 
@@ -585,17 +625,34 @@ void AP_GPS::send_blob_start(uint8_t instance)
     }
 #endif
 
-#if AP_GPS_NMEA_ENABLED
-    if (_type[instance] == GPS_TYPE_HEMI) {
-        send_blob_start(instance, AP_GPS_NMEA_HEMISPHERE_INIT_STRING, strlen(AP_GPS_NMEA_HEMISPHERE_INIT_STRING));
-        return;
+    // the following devices don't have init blobs:
+    const char *blob = nullptr;
+    uint32_t blob_size = 0;
+    switch (_type[instance]) {
+#if AP_GPS_SBF_ENABLED
+    case GPS_TYPE_SBF:
+#endif //AP_GPS_SBF_ENABLED
+#if AP_GPS_GSOF_ENABLED
+    case GPS_TYPE_GSOF:
+#endif //AP_GPS_GSOF_ENABLED
+#if AP_GPS_NOVA_ENABLED
+    case GPS_TYPE_NOVA:
+#endif //AP_GPS_NOVA_ENABLED
+#if HAL_SIM_GPS_ENABLED
+    case GPS_TYPE_SITL:
+#endif  // HAL_SIM_GPS_ENABLED
+        // none of these GPSs have initialisation blobs
+        break;
+    default:
+        // send combined initialisation blob, on the assumption that the
+        // GPS units will parse what they need and ignore the data they
+        // don't understand:
+        blob = _initialisation_blob;
+        blob_size = sizeof(_initialisation_blob);
+        break;
     }
-#endif // AP_GPS_NMEA_ENABLED
 
-    // send combined initialisation blob, on the assumption that the
-    // GPS units will parse what they need and ignore the data they
-    // don't understand:
-    send_blob_start(instance, _initialisation_blob, sizeof(_initialisation_blob));
+    send_blob_start(instance, blob, blob_size);
 }
 
 /*
@@ -668,9 +725,9 @@ AP_GPS_Backend *AP_GPS::_detect_instance(uint8_t instance)
     case GPS_TYPE_UAVCAN:
     case GPS_TYPE_UAVCAN_RTK_BASE:
     case GPS_TYPE_UAVCAN_RTK_ROVER:
-#if HAL_ENABLE_LIBUAVCAN_DRIVERS
+#if HAL_ENABLE_DRONECAN_DRIVERS
         dstate->auto_detected_baud = false; // specified, not detected
-        return AP_GPS_UAVCAN::probe(*this, state[instance]);
+        return AP_GPS_DroneCAN::probe(*this, state[instance]);
 #endif
         return nullptr; // We don't do anything here if UAVCAN is not supported
 #if HAL_MSP_GPS_ENABLED
@@ -695,6 +752,29 @@ AP_GPS_Backend *AP_GPS::_detect_instance(uint8_t instance)
     // all remaining drivers automatically cycle through baud rates to detect
     // the correct baud rate, and should have the selected baud broadcast
     dstate->auto_detected_baud = true;
+    const uint32_t now = AP_HAL::millis();
+
+    if (now - dstate->last_baud_change_ms > GPS_BAUD_TIME_MS) {
+        // try the next baud rate
+        // incrementing like this will skip the first element in array of bauds
+        // this is okay, and relied upon
+        dstate->current_baud++;
+        if (dstate->current_baud == ARRAY_SIZE(_baudrates)) {
+            dstate->current_baud = 0;
+        }
+        uint32_t baudrate = _baudrates[dstate->current_baud];
+        _port[instance]->begin(baudrate);
+        _port[instance]->set_flow_control(AP_HAL::UARTDriver::FLOW_CONTROL_DISABLE);
+        dstate->last_baud_change_ms = now;
+
+        if (_auto_config >= GPS_AUTO_CONFIG_ENABLE_SERIAL_ONLY) {
+            send_blob_start(instance);
+        }
+    }
+
+    if (_auto_config >= GPS_AUTO_CONFIG_ENABLE_SERIAL_ONLY) {
+        send_blob_update(instance);
+    }
 
     switch (_type[instance]) {
 #if AP_GPS_SBF_ENABLED
@@ -720,30 +800,6 @@ AP_GPS_Backend *AP_GPS::_detect_instance(uint8_t instance)
         break;
     }
 
-    const uint32_t now = AP_HAL::millis();
-
-    if (now - dstate->last_baud_change_ms > GPS_BAUD_TIME_MS) {
-        // try the next baud rate
-        // incrementing like this will skip the first element in array of bauds
-        // this is okay, and relied upon
-        dstate->current_baud++;
-        if (dstate->current_baud == ARRAY_SIZE(_baudrates)) {
-            dstate->current_baud = 0;
-        }
-        uint32_t baudrate = _baudrates[dstate->current_baud];
-        _port[instance]->begin(baudrate);
-        _port[instance]->set_flow_control(AP_HAL::UARTDriver::FLOW_CONTROL_DISABLE);
-        dstate->last_baud_change_ms = now;
-
-        if (_auto_config >= GPS_AUTO_CONFIG_ENABLE_SERIAL_ONLY) {
-            send_blob_start(instance);
-        }
-    }
-
-    if (_auto_config >= GPS_AUTO_CONFIG_ENABLE_SERIAL_ONLY) {
-        send_blob_update(instance);
-    }
-
     if (initblob_state[instance].remaining != 0) {
         // don't run detection engines if we haven't sent out the initblobs
         return nullptr;
@@ -752,14 +808,8 @@ AP_GPS_Backend *AP_GPS::_detect_instance(uint8_t instance)
     uint16_t bytecount = MIN(8192U, _port[instance]->available());
 
     while (bytecount-- > 0) {
-        uint8_t data = _port[instance]->read();
-        /*
-          running a uBlox at less than 38400 will lead to packet
-          corruption, as we can't receive the packets in the 200ms
-          window for 5Hz fixes. The NMEA startup message should force
-          the uBlox into 230400 no matter what rate it is configured
-          for.
-        */
+        const uint8_t data = _port[instance]->read();
+        (void)data;  // if all backends are compiled out then "data" is unused
 
 #if AP_GPS_UBLOX_ENABLED
         if ((_type[instance] == GPS_TYPE_AUTO ||
@@ -797,7 +847,7 @@ AP_GPS_Backend *AP_GPS::_detect_instance(uint8_t instance)
             return new AP_GPS_SBP(*this, state[instance], _port[instance]);
         }
 #endif //AP_GPS_SBP_ENABLED
-#if !HAL_MINIMIZE_FEATURES && AP_GPS_SIRF_ENABLED
+#if AP_GPS_SIRF_ENABLED
         if ((_type[instance] == GPS_TYPE_AUTO || _type[instance] == GPS_TYPE_SIRF) &&
                  AP_GPS_SIRF::_detect(dstate->sirf_detect_state, data)) {
             return new AP_GPS_SIRF(*this, state[instance], _port[instance]);
@@ -812,6 +862,10 @@ AP_GPS_Backend *AP_GPS::_detect_instance(uint8_t instance)
 #if AP_GPS_NMEA_ENABLED
         if ((_type[instance] == GPS_TYPE_NMEA ||
                     _type[instance] == GPS_TYPE_HEMI ||
+#if AP_GPS_NMEA_UNICORE_ENABLED
+                    _type[instance] == GPS_TYPE_UNICORE_NMEA ||
+                    _type[instance] == GPS_TYPE_UNICORE_MOVINGBASE_NMEA ||
+#endif
                     _type[instance] == GPS_TYPE_ALLYSTAR) &&
                    AP_GPS_NMEA::_detect(dstate->nmea_detect_state, data)) {
             return new AP_GPS_NMEA(*this, state[instance], _port[instance]);
@@ -995,7 +1049,9 @@ void AP_GPS::update_instance(uint8_t instance)
 void AP_GPS::get_RelPosHeading(uint32_t &timestamp, float &relPosHeading, float &relPosLength, float &relPosD, float &accHeading)
 {
     for (uint8_t i=0; i< GPS_MAX_RECEIVERS; i++) {
-        if (drivers[i] && _type[i] == GPS_TYPE_UBLOX_RTK_ROVER) {
+        if (drivers[i] &&
+            state[i].relposheading_ts != 0 &&
+            AP_HAL::millis() - state[i].relposheading_ts < 500) {
            relPosHeading = state[i].relPosHeading;
            relPosLength = state[i].relPosLength;
            relPosD = state[i].relPosD;
@@ -1359,6 +1415,11 @@ void AP_GPS::send_mavlink_gps_raw(mavlink_channel_t chan)
     float hacc = 0.0f;
     float vacc = 0.0f;
     float sacc = 0.0f;
+    float undulation = 0.0;
+    int32_t height_elipsoid_mm = 0;
+    if (get_undulation(0, undulation)) {
+        height_elipsoid_mm = loc.alt*10 - undulation*1000;
+    }
     horizontal_accuracy(0, hacc);
     vertical_accuracy(0, vacc);
     speed_accuracy(0, sacc);
@@ -1374,7 +1435,7 @@ void AP_GPS::send_mavlink_gps_raw(mavlink_channel_t chan)
         ground_speed(0)*100,  // cm/s
         ground_course(0)*100, // 1/100 degrees,
         num_sats(0),
-        0,                    // TODO: Elipsoid height in mm
+        height_elipsoid_mm,   // Elipsoid height in mm
         hacc * 1000,          // one-sigma standard deviation in mm
         vacc * 1000,          // one-sigma standard deviation in mm
         sacc * 1000,          // one-sigma standard deviation in mm/s
@@ -1394,6 +1455,11 @@ void AP_GPS::send_mavlink_gps2_raw(mavlink_channel_t chan)
     float hacc = 0.0f;
     float vacc = 0.0f;
     float sacc = 0.0f;
+    float undulation = 0.0;
+    float height_elipsoid_mm = 0;
+    if (get_undulation(1, undulation)) {
+        height_elipsoid_mm = loc.alt*10 - undulation*1000;
+    }
     horizontal_accuracy(1, hacc);
     vertical_accuracy(1, vacc);
     speed_accuracy(1, sacc);
@@ -1412,7 +1478,7 @@ void AP_GPS::send_mavlink_gps2_raw(mavlink_channel_t chan)
         state[1].rtk_num_sats,
         state[1].rtk_age_ms,
         gps_yaw_cdeg(1),
-        0,                    // TODO: Elipsoid height in mm
+        height_elipsoid_mm,   // Elipsoid height in mm
         hacc * 1000,          // one-sigma standard deviation in mm
         vacc * 1000,          // one-sigma standard deviation in mm
         sacc * 1000,          // one-sigma standard deviation in mm/s
@@ -1497,11 +1563,24 @@ void AP_GPS::handle_gps_rtcm_fragment(uint8_t flags, const uint8_t *data, uint8_
 
     const uint8_t fragment = (flags >> 1U) & 0x03;
     const uint8_t sequence = (flags >> 3U) & 0x1F;
+    uint8_t* start_of_fragment_in_buffer = &rtcm_buffer->buffer[MAVLINK_MSG_GPS_RTCM_DATA_FIELD_DATA_LEN * (uint16_t)fragment];
+    bool should_clear_previous_fragments = false;
 
-    // see if this fragment is consistent with existing fragments
-    if (rtcm_buffer->fragments_received &&
-        (rtcm_buffer->sequence != sequence ||
-         (rtcm_buffer->fragments_received & (1U<<fragment)))) {
+    if (rtcm_buffer->fragments_received) {
+        const bool sequence_nr_changed = rtcm_buffer->sequence != sequence;
+        const bool seen_this_fragment_index = rtcm_buffer->fragments_received & (1U << fragment);
+
+        // check whether this is a duplicate fragment. If it is, we can
+        // return early.
+        if (!sequence_nr_changed && seen_this_fragment_index && !memcmp(start_of_fragment_in_buffer, data, len)) {
+            return;
+        }
+
+        // not a duplicate
+        should_clear_previous_fragments = sequence_nr_changed || seen_this_fragment_index;
+    }
+
+    if (should_clear_previous_fragments) {
         // we have one or more partial fragments already received
         // which conflict with the new fragment, discard previous fragments
         rtcm_buffer->fragment_count = 0;
@@ -1513,7 +1592,7 @@ void AP_GPS::handle_gps_rtcm_fragment(uint8_t flags, const uint8_t *data, uint8_
     rtcm_buffer->fragments_received |= (1U << fragment);
 
     // copy the data
-    memcpy(&rtcm_buffer->buffer[MAVLINK_MSG_GPS_RTCM_DATA_FIELD_DATA_LEN*(uint16_t)fragment], data, len);
+    memcpy(start_of_fragment_in_buffer, data, len);
 
     // when we get a fragment of less than max size then we know the
     // number of fragments. Note that this means if you want to send a
@@ -1848,6 +1927,16 @@ void AP_GPS::calc_blended_state(void)
     timing[GPS_BLENDED_INSTANCE].last_fix_time_ms = 0;
     timing[GPS_BLENDED_INSTANCE].last_message_time_ms = 0;
 
+    if (state[0].have_undulation) {
+        state[GPS_BLENDED_INSTANCE].have_undulation = true;
+        state[GPS_BLENDED_INSTANCE].undulation = state[0].undulation;
+    } else if (state[1].have_undulation) {
+        state[GPS_BLENDED_INSTANCE].have_undulation = true;
+        state[GPS_BLENDED_INSTANCE].undulation = state[1].undulation;
+    } else {
+        state[GPS_BLENDED_INSTANCE].have_undulation = false;
+    }
+
     // combine the states into a blended solution
     for (uint8_t i=0; i<GPS_MAX_RECEIVERS; i++) {
         // use the highest status
@@ -2006,6 +2095,13 @@ bool AP_GPS::is_healthy(uint8_t instance) const
         return false;
     }
 
+#ifdef HAL_BUILD_AP_PERIPH
+    /*
+      on AP_Periph handling of timing is done by the flight controller
+      receiving the DroneCAN messages
+     */
+    return drivers[instance] != nullptr && drivers[instance]->is_healthy();
+#else
     /*
       allow two lost frames before declaring the GPS unhealthy, but
       require the average frame rate to be close to 5Hz. We allow for
@@ -2027,6 +2123,7 @@ bool AP_GPS::is_healthy(uint8_t instance) const
 
     return delay_ok && drivers[instance] != nullptr &&
            drivers[instance]->is_healthy();
+#endif // HAL_BUILD_AP_PERIPH
 }
 
 bool AP_GPS::prepare_for_arming(void) {
@@ -2041,11 +2138,11 @@ bool AP_GPS::prepare_for_arming(void) {
 
 bool AP_GPS::backends_healthy(char failure_msg[], uint16_t failure_msg_len) {
     for (uint8_t i = 0; i < GPS_MAX_RECEIVERS; i++) {
-#if HAL_ENABLE_LIBUAVCAN_DRIVERS
+#if HAL_ENABLE_DRONECAN_DRIVERS
         if (_type[i] == GPS_TYPE_UAVCAN ||
             _type[i] == GPS_TYPE_UAVCAN_RTK_BASE ||
             _type[i] == GPS_TYPE_UAVCAN_RTK_ROVER) {
-            if (!AP_GPS_UAVCAN::backends_healthy(failure_msg, failure_msg_len)) {
+            if (!AP_GPS_DroneCAN::backends_healthy(failure_msg, failure_msg_len)) {
                 return false;
             }
         }
@@ -2093,12 +2190,23 @@ bool AP_GPS::get_error_codes(uint8_t instance, uint32_t &error_codes) const
     return drivers[instance]->get_error_codes(error_codes);
 }
 
+// get the difference between WGS84 and AMSL. A positive value means
+// the AMSL height is higher than WGS84 ellipsoid height
+bool AP_GPS::get_undulation(uint8_t instance, float &undulation) const
+{
+    if (!state[instance].have_undulation) {
+        return false;
+    }
+    undulation = state[instance].undulation;
+    return true;
+}
+
 // Logging support:
 // Write an GPS packet
 void AP_GPS::Write_GPS(uint8_t i)
 {
     const uint64_t time_us = AP_HAL::micros64();
-    const struct Location &loc = location(i);
+    const Location &loc = location(i);
 
     float yaw_deg=0, yaw_accuracy_deg=0;
     uint32_t yaw_time_ms;
@@ -2126,9 +2234,11 @@ void AP_GPS::Write_GPS(uint8_t i)
 
     /* write auxiliary accuracy information as well */
     float hacc = 0, vacc = 0, sacc = 0;
+    float undulation = 0;
     horizontal_accuracy(i, hacc);
     vertical_accuracy(i, vacc);
     speed_accuracy(i, sacc);
+    get_undulation(i, undulation);
     struct log_GPA pkt2{
         LOG_PACKET_HEADER_INIT(LOG_GPA_MSG),
         time_us       : time_us,
@@ -2140,7 +2250,8 @@ void AP_GPS::Write_GPS(uint8_t i)
         yaw_accuracy  : yaw_accuracy_deg,
         have_vv       : (uint8_t)have_vertical_velocity(i),
         sample_ms     : last_message_time_ms(i),
-        delta_ms      : last_message_delta_time_ms(i)
+        delta_ms      : last_message_delta_time_ms(i),
+        undulation    : undulation,
     };
     AP::logger().WriteBlock(&pkt2, sizeof(pkt2));
 }

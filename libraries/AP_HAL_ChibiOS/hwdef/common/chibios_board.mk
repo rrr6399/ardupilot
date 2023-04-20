@@ -18,6 +18,16 @@ ifeq ($(USE_CPPOPT),)
   USE_CPPOPT = -fno-rtti -std=gnu++11
 endif
 
+# Assembly specific options here (added to USE_OPT).
+ifeq ($(USE_ASOPT),)
+  USE_ASOPT = 
+endif
+
+# Assembly specific options here (added to USE_ASXOPT).
+ifeq ($(USE_ASXOPT),)
+  USE_ASXOPT =
+endif
+
 # Enable this if you want the linker to remove unused code and data
 ifeq ($(USE_LINK_GC),)
   USE_LINK_GC = yes
@@ -99,7 +109,7 @@ include $(CHIBIOS)/$(CHIBIOS_PLATFORM_MK)
 include $(CHIBIOS)/os/hal/osal/rt-nil/osal.mk
 # RTOS files (optional).
 include $(CHIBIOS)/os/rt/rt.mk
-include $(CHIBIOS)/os/common/ports/ARMCMx/compilers/GCC/mk/port_v7m.mk
+include $(CHIBIOS)/os/common/ports/ARMv7-M/compilers/GCC/mk/port.mk
 # Other files (optional).
 #include $(CHIBIOS)/test/rt/test.mk
 include $(CHIBIOS)/os/hal/lib/streams/streams.mk
@@ -125,6 +135,11 @@ CSRC += $(HWDEF)/common/stubs.c \
        $(HWDEF)/common/stm32_util.c \
        $(HWDEF)/common/bouncebuffer.c \
        $(HWDEF)/common/watchdog.c
+
+ifeq ($(USE_USB_MSD),yes)
+CSRC += $(CHIBIOS)/os/various/scsi_bindings/lib_scsi.c \
+        $(CHIBIOS)/os/hal/src/hal_usb_msd.c
+endif
 
 #	   $(TESTSRC) \
 #	   test.c
@@ -169,6 +184,11 @@ INCDIR = $(CHIBIOS)/os/license \
 ifneq ($(CRASHCATCHER),)
 INCDIR += $(CRASHCATCHER)/include
 endif
+
+ifeq ($(USE_USB_MSD),yes)
+INCDIR += $(CHIBIOS)/os/various/scsi_bindings
+endif
+
 #
 # Project, sources and paths
 ##############################################################################
@@ -231,6 +251,10 @@ endif
 ifeq ($(ENABLE_STATS),yes)
  UDEFS += -DHAL_ENABLE_THREAD_STATISTICS
  ASXFLAGS += -DHAL_ENABLE_THREAD_STATISTICS
+endif
+
+ifneq ($(AP_BOARD_START_TIME),)
+ UDEFS += -DAP_BOARD_START_TIME=$(AP_BOARD_START_TIME)
 endif
 
 # Define ASM defines here

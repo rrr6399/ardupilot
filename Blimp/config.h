@@ -18,10 +18,6 @@
 #error CONFIG_HAL_BOARD must be defined to build Blimp
 #endif
 
-#ifndef ADVANCED_FAILSAFE
-# define ADVANCED_FAILSAFE DISABLED
-#endif
-
 #ifndef ARMING_DELAY_SEC
 # define ARMING_DELAY_SEC 2.0f
 #endif
@@ -60,10 +56,6 @@
 # define RANGEFINDER_GAIN_DEFAULT 0.8f     // gain for controlling how quickly rangefinder range adjusts target altitude (lower means slower reaction)
 #endif
 
-#ifndef SURFACE_TRACKING_VELZ_MAX
-# define SURFACE_TRACKING_VELZ_MAX 150     // max vertical speed change while surface tracking with rangefinder
-#endif
-
 #ifndef SURFACE_TRACKING_TIMEOUT_MS
 # define SURFACE_TRACKING_TIMEOUT_MS  1000 // surface tracking target alt will reset to current rangefinder alt after this many milliseconds without a good rangefinder alt
 #endif
@@ -95,26 +87,9 @@
 # define MAV_SYSTEM_ID          1
 #endif
 
-
-//////////////////////////////////////////////////////////////////////////////
-// Battery monitoring
-//
-#ifndef BOARD_VOLTAGE_MIN
-# define BOARD_VOLTAGE_MIN             4.3f        // min board voltage in volts for pre-arm checks
-#endif
-
-#ifndef BOARD_VOLTAGE_MAX
-# define BOARD_VOLTAGE_MAX             5.8f        // max board voltage in volts for pre-arm checks
-#endif
-
 // prearm GPS hdop check
 #ifndef GPS_HDOP_GOOD_DEFAULT
 # define GPS_HDOP_GOOD_DEFAULT         140     // minimum hdop that represents a good position.  used during pre-arm checks if fence is enabled
-#endif
-
-// GCS failsafe
-#ifndef FS_GCS
-# define FS_GCS                        DISABLED
 #endif
 
 // Radio failsafe while using RC_override
@@ -163,39 +138,9 @@
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
-//  Crop Sprayer - enabled only on larger firmwares
-#ifndef SPRAYER_ENABLED
-# define SPRAYER_ENABLED  HAL_SPRAYER_ENABLED
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
-// Precision Landing with companion computer or IRLock sensor
-#ifndef PRECISION_LANDING
-# define PRECISION_LANDING ENABLED
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
-// gripper - enabled only on larger firmwares
-#ifndef GRIPPER_ENABLED
-# define GRIPPER_ENABLED !HAL_MINIMIZE_FEATURES
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
-// rotations per minute sensor support
-#ifndef RPM_ENABLED
-# define RPM_ENABLED !HAL_MINIMIZE_FEATURES
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
 // Parachute release
 #ifndef PARACHUTE
 # define PARACHUTE HAL_PARACHUTE_ENABLED
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
-// Nav-Guided - allows external nav computer to control vehicle
-#ifndef NAV_GUIDED
-# define NAV_GUIDED    !HAL_MINIMIZE_FEATURES
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -235,21 +180,9 @@
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
-// Follow - follow another vehicle or GCS
-#ifndef MODE_FOLLOW_ENABLED
-# define MODE_FOLLOW_ENABLED !HAL_MINIMIZE_FEATURES
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
 // Guided mode - control vehicle's position or angles from GCS
 #ifndef MODE_GUIDED_ENABLED
 # define MODE_GUIDED_ENABLED ENABLED
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
-// GuidedNoGPS mode - control vehicle's angles from GCS
-#ifndef MODE_GUIDED_NOGPS_ENABLED
-# define MODE_GUIDED_NOGPS_ENABLED !HAL_MINIMIZE_FEATURES
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -274,18 +207,6 @@
 // SmartRTL - allows vehicle to retrace a (loop-eliminated) breadcrumb home
 #ifndef MODE_SMARTRTL_ENABLED
 # define MODE_SMARTRTL_ENABLED ENABLED
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
-// Sport - fly vehicle in rate-controlled (earth-frame) mode
-#ifndef MODE_SPORT_ENABLED
-# define MODE_SPORT_ENABLED !HAL_MINIMIZE_FEATURES
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
-// System ID - conduct system identification tests on vehicle
-#ifndef MODE_SYSTEMID_ENABLED
-# define MODE_SYSTEMID_ENABLED !HAL_MINIMIZE_FEATURES
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -366,13 +287,6 @@
 #endif
 #ifndef LAND_DETECTOR_ACCEL_MAX
 # define LAND_DETECTOR_ACCEL_MAX            1.0f    // vehicle acceleration must be under 1m/s/s
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
-// CAMERA TRIGGER AND CONTROL
-//
-#ifndef CAMERA
-# define CAMERA        ENABLED
 #endif
 
 //////////////////////////////////////////////////////////////////////////////

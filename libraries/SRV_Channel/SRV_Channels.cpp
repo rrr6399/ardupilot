@@ -19,17 +19,16 @@
 
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Math/AP_Math.h>
-#include <AP_Vehicle/AP_Vehicle.h>
+#include <AP_Scheduler/AP_Scheduler.h>
+#include <AP_Vehicle/AP_Vehicle_Type.h>
+
 #include "SRV_Channel.h"
+#include <AP_Logger/AP_Logger.h>
+#include <AP_KDECAN/AP_KDECAN.h>
 
 #if HAL_MAX_CAN_PROTOCOL_DRIVERS
   #include <AP_CANManager/AP_CANManager.h>
-  #include <AP_UAVCAN/AP_UAVCAN.h>
-
-  // To be replaced with macro saying if KDECAN library is included
-  #if APM_BUILD_COPTER_OR_HELI || APM_BUILD_TYPE(APM_BUILD_ArduPlane) || APM_BUILD_TYPE(APM_BUILD_ArduSub)
-    #include <AP_KDECAN/AP_KDECAN.h>
-  #endif
+  #include <AP_DroneCAN/AP_DroneCAN.h>
   #include <AP_PiccoloCAN/AP_PiccoloCAN.h>
 #endif
 
@@ -236,7 +235,7 @@ const AP_Param::GroupInfo SRV_Channels::var_info[] = {
 
     // @Param: _GPIO_MASK
     // @DisplayName: Servo GPIO mask
-    // @Description: This sets a bitmask of outputs which will be available as GPIOs. Any auxiliary output with either the function set to -1 or with the corresponding bit set in this mask will be available for use as a GPIO pin
+    // @Description: This sets a bitmask of outputs which will be available as GPIOs. Any output with either the function set to -1 or with the corresponding bit set in this mask will be available for use as a GPIO pin
     // @Bitmask: 0:Servo 1, 1:Servo 2, 2:Servo 3, 3:Servo 4, 4:Servo 5, 5:Servo 6, 6:Servo 7, 7:Servo 8, 8:Servo 9, 9:Servo 10, 10:Servo 11, 11:Servo 12, 12:Servo 13, 13:Servo 14, 14:Servo 15, 15:Servo 16, 16:Servo 17, 17:Servo 18, 18:Servo 19, 19:Servo 20, 20:Servo 21, 21:Servo 22, 22:Servo 23, 23:Servo 24, 24:Servo 25, 25:Servo 26, 26:Servo 27, 27:Servo 28, 28:Servo 29, 29:Servo 30, 30:Servo 31, 31:Servo 32
     // @User: Advanced
     // @RebootRequired: True
@@ -394,11 +393,11 @@ SRV_Channels::SRV_Channels(void)
 }
 
 // SRV_Channels initialization
-void SRV_Channels::init(void)
+void SRV_Channels::init(uint32_t motor_mask, AP_HAL::RCOutput::output_mode mode)
 {
     // initialize BLHeli late so that all of the masks it might setup don't get trodden on by motor initialization
 #if HAL_SUPPORT_RCOUT_SERIAL
-    blheli_ptr->init();
+    blheli_ptr->init(motor_mask, mode);
 #endif
 #ifndef HAL_BUILD_AP_PERIPH
     hal.rcout->set_dshot_rate(_singleton->dshot_rate, AP::scheduler().get_loop_rate_hz());
@@ -531,32 +530,27 @@ void SRV_Channels::push()
     fetteconwire_ptr->update();
 #endif
 
-#if HAL_CANMANAGER_ENABLED
+#if AP_KDECAN_ENABLED
+    if (AP::kdecan() != nullptr) {
+        AP::kdecan()->update();
+    }
+#endif
+
+#if HAL_ENABLE_DRONECAN_DRIVERS
     // push outputs to CAN
     uint8_t can_num_drivers = AP::can().get_num_drivers();
     for (uint8_t i = 0; i < can_num_drivers; i++) {
         switch (AP::can().get_driver_type(i)) {
-            case AP_CANManager::Driver_Type_UAVCAN: {
-                AP_UAVCAN *ap_uavcan = AP_UAVCAN::get_uavcan(i);
-                if (ap_uavcan == nullptr) {
+            case AP_CAN::Protocol::DroneCAN: {
+                AP_DroneCAN *ap_dronecan = AP_DroneCAN::get_dronecan(i);
+                if (ap_dronecan == nullptr) {
                     continue;
                 }
-                ap_uavcan->SRV_push_servos();
-                break;
-            }
-            case AP_CANManager::Driver_Type_KDECAN: {
-// To be replaced with macro saying if KDECAN library is included
-#if APM_BUILD_COPTER_OR_HELI || APM_BUILD_TYPE(APM_BUILD_ArduPlane) || APM_BUILD_TYPE(APM_BUILD_ArduSub)
-                AP_KDECAN *ap_kdecan = AP_KDECAN::get_kdecan(i);
-                if (ap_kdecan == nullptr) {
-                    continue;
-                }
-                ap_kdecan->update();
-#endif
+                ap_dronecan->SRV_push_servos();
                 break;
             }
 #if HAL_PICCOLO_CAN_ENABLE
-            case AP_CANManager::Driver_Type_PiccoloCAN: {
+            case AP_CAN::Protocol::PiccoloCAN: {
                 AP_PiccoloCAN *ap_pcan = AP_PiccoloCAN::get_pcan(i);
                 if (ap_pcan == nullptr) {
                     continue;
@@ -565,8 +559,7 @@ void SRV_Channels::push()
                 break;
             }
 #endif
-            case AP_CANManager::Driver_Type_CANTester:
-            case AP_CANManager::Driver_Type_None:
+            case AP_CAN::Protocol::None:
             default:
                 break;
         }
@@ -601,4 +594,17 @@ bool SRV_Channels::is_GPIO(uint8_t channel)
         return true;
     }
     return false;
+}
+
+// Set E - stop
+void SRV_Channels::set_emergency_stop(bool state) {
+#if HAL_LOGGING_ENABLED
+    if (state != emergency_stop) {
+        AP_Logger *logger = AP_Logger::get_singleton();
+        if (logger && logger->logging_enabled()) {
+            logger->Write_Event(state ? LogEvent::MOTORS_EMERGENCY_STOPPED : LogEvent::MOTORS_EMERGENCY_STOP_CLEARED);
+        }
+    }
+#endif
+    emergency_stop = state;
 }

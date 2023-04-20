@@ -365,7 +365,7 @@ void AP_Radio_cc2500::radio_init(void)
     hal.gpio->attach_interrupt(HAL_GPIO_RADIO_IRQ, trigger_irq_radio_event, AP_HAL::GPIO::INTERRUPT_RISING);
 
     // fill in rxid for use in double bind prevention
-    char sysid[40] {};
+    char sysid[50] {};
     hal.util->get_system_id(sysid);
     uint16_t sysid_crc = calc_crc((const uint8_t *)sysid, strnlen(sysid, sizeof(sysid)));
     if (sysid_crc == 0) {
@@ -414,7 +414,7 @@ void AP_Radio_cc2500::trigger_irq_radio_event()
     chSysUnlockFromISR();
 }
 
-void AP_Radio_cc2500::trigger_timeout_event(void *arg)
+void AP_Radio_cc2500::trigger_timeout_event(virtual_timer_t* vt, void *arg)
 {
     (void)arg;
     //we are called from ISR context

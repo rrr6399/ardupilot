@@ -191,6 +191,36 @@ def under_macos():
     return sys.platform == 'darwin'
 
 
+def under_vagrant():
+    return os.path.isfile("/ardupilot.vagrant")
+
+
+def under_wsl2():
+    import platform
+    return 'microsoft-standard-WSL2' in platform.release()
+
+
+def wsl2_host_ip():
+    if not under_wsl2():
+        return None
+
+    pipe = subprocess.Popen("ip route show default | awk '{print $3}'",
+                            shell=True,
+                            stdout=subprocess.PIPE)
+    output_lines = pipe.stdout.read().decode('utf-8').strip(' \r\n')
+    ret = pipe.wait()
+
+    if ret != 0:
+        # Command exited with an error. The output it generated probably isn't what we're expecting
+        return None
+
+    if not output_lines:
+        # No output detected, maybe there's no nameserver or WSL2 has some abnormal firewalls/network settings?
+        return None
+
+    return str(output_lines)
+
+
 def kill_tasks_cygwin(victims):
     """Shell out to ps -ea to find processes to kill"""
     for victim in list(victims):
@@ -319,7 +349,9 @@ def do_build(opts, frame_options):
 
     waf_light = os.path.join(root_dir, "modules/waf/waf-light")
 
-    cmd_configure = [waf_light, "configure", "--board", "sitl"]
+    configure_target = frame_options.get('configure_target', 'sitl')
+
+    cmd_configure = [waf_light, "configure", "--board", configure_target]
     if opts.debug:
         cmd_configure.append("--debug")
 
@@ -361,8 +393,8 @@ def do_build(opts, frame_options):
     if opts.ekf_single:
         cmd_configure.append("--ekf-single")
 
-    if opts.sitl_32bit:
-        cmd_configure.append("--sitl-32bit")
+    if opts.force_32bit:
+        cmd_configure.append("--force-32bit")
 
     if opts.ubsan:
         cmd_configure.append("--ubsan")
@@ -370,8 +402,14 @@ def do_build(opts, frame_options):
     if opts.ubsan_abort:
         cmd_configure.append("--ubsan-abort")
 
+    if opts.num_aux_imus:
+        cmd_configure.append("--num-aux-imus=%s" % opts.num_aux_imus)
+
     for nv in opts.define:
         cmd_configure.append("--define=%s" % nv)
+
+    if opts.enable_dds:
+        cmd_configure.append("--enable-dds")
 
     pieces = [shlex.split(x) for x in opts.waf_configure_args]
     for piece in pieces:
@@ -382,6 +420,7 @@ def do_build(opts, frame_options):
     if opts.clean:
         run_cmd_blocking("Building clean", [waf_light, "clean"])
 
+    print(frame_options)
     cmd_build = [waf_light, "build", "--target", frame_options["waf_target"]]
     if opts.jobs is not None:
         cmd_build += ['-j', str(opts.jobs)]
@@ -607,13 +646,10 @@ def start_antenna_tracker(opts):
     oldpwd = os.getcwd()
     os.chdir(vehicledir)
     tracker_uarta = "tcp:127.0.0.1:" + str(5760 + 10 * tracker_instance)
-    if cmd_opts.build_system == "waf":
-        binary_basedir = "build/sitl"
-        exe = os.path.join(root_dir,
-                           binary_basedir,
-                           "bin/antennatracker")
-    else:
-        exe = os.path.join(vehicledir, "AntennaTracker.elf")
+    binary_basedir = "build/sitl"
+    exe = os.path.join(root_dir,
+                       binary_basedir,
+                       "bin/antennatracker")
     run_in_terminal_window("AntennaTracker",
                            ["nice",
                             exe,
@@ -621,6 +657,38 @@ def start_antenna_tracker(opts):
                             "--model=tracker",
                             "--home=" + ",".join([str(x) for x in tracker_home])])
     os.chdir(oldpwd)
+
+
+def start_CAN_GPS(opts):
+    """Compile and run the sitl_periph_gps"""
+
+    global can_uarta
+    progress("Preparing sitl_periph_gps")
+    options = vinfo.options["sitl_periph_gps"]['frames']['gps']
+    do_build(opts, options)
+    exe = os.path.join(root_dir, 'build/sitl_periph_gps', 'bin/AP_Periph')
+    cmd = ["nice"]
+    cmd_name = "sitl_periph_gps"
+    if opts.valgrind:
+        cmd_name += " (valgrind)"
+        cmd.append("valgrind")
+        # adding this option allows valgrind to cope with the overload
+        # of operator new
+        cmd.append("--soname-synonyms=somalloc=nouserintercepts")
+        cmd.append("--track-origins=yes")
+    if opts.gdb or opts.gdb_stopped:
+        cmd_name += " (gdb)"
+        cmd.append("gdb")
+        gdb_commands_file = tempfile.NamedTemporaryFile(mode='w', delete=False)
+        atexit.register(os.unlink, gdb_commands_file.name)
+        gdb_commands_file.write("set pagination off\n")
+        if not opts.gdb_stopped:
+            gdb_commands_file.write("r\n")
+        gdb_commands_file.close()
+        cmd.extend(["-x", gdb_commands_file.name])
+        cmd.append("--args")
+    cmd.append(exe)
+    run_in_terminal_window(cmd_name, cmd)
 
 
 def start_vehicle(binary, opts, stuff, spawns=None):
@@ -700,6 +768,9 @@ def start_vehicle(binary, opts, stuff, spawns=None):
                 print("The parameter file (%s) does not exist" % (x,))
                 sys.exit(1)
         path = ",".join(paths)
+        if cmd_opts.count > 1:
+            # we are in a subdirectory when using -n
+            path = os.path.join("..", path)
         progress("Using defaults from (%s)" % (path,))
     if opts.flash_storage:
         cmd.append("--set-storage-flash-enabled 1")
@@ -725,7 +796,7 @@ def start_vehicle(binary, opts, stuff, spawns=None):
         path += "," + os.path.join(autotest_dir, "default_params/msposd.parm")
         subprocess.Popen([os.path.join(root_dir, "libraries/AP_MSP/Tools/msposd.py")])
 
-    if path is not None:
+    if path is not None and len(path) > 0:
         cmd.extend(["--defaults", path])
 
     if cmd_opts.start_time is not None:
@@ -737,6 +808,8 @@ def start_vehicle(binary, opts, stuff, spawns=None):
             sys.exit(1)
 
         cmd.append("--start-time=%d" % start_time_UTC)
+
+    cmd.append("--sim-address=%s" % cmd_opts.sim_address)
 
     old_dir = os.getcwd()
     for i, i_dir in zip(instances, instance_dir):
@@ -778,14 +851,22 @@ def start_mavproxy(opts, stuff):
     if opts.mcast:
         cmd.extend(["--master", "mcast:"])
 
+    # returns a valid IP of the host windows computer if we're WSL2.
+    # This is run before the loop so it only runs once
+    wsl2_host_ip_str = wsl2_host_ip()
+
     for i in instances:
         if not opts.no_extra_ports:
             ports = [p + 10 * i for p in [14550, 14551]]
             for port in ports:
-                if os.path.isfile("/ardupilot.vagrant"):
+                if under_vagrant():
                     # We're running inside of a vagrant guest; forward our
                     # mavlink out to the containing host OS
                     cmd.extend(["--out", "10.0.2.2:" + str(port)])
+                elif wsl2_host_ip_str:
+                    # We're running WSL2; forward our
+                    # mavlink out to the containing host Windows OS
+                    cmd.extend(["--out", str(wsl2_host_ip_str) + ":" + str(port)])
                 else:
                     cmd.extend(["--out", "127.0.0.1:" + str(port)])
 
@@ -893,6 +974,20 @@ def generate_frame_help():
     return ret
 
 
+# map from some vehicle aliases back to directory names.  APMrover2
+# was the old name / directory name for Rover.
+vehicle_map = {
+    "APMrover2": "Rover",
+    "Copter": "ArduCopter",
+    "Plane": "ArduPlane",
+    "Sub": "ArduSub",
+    "Blimp" : "Blimp",
+    "Rover": "Rover",
+}
+# add lower-case equivalents too
+for k in list(vehicle_map.keys()):
+    vehicle_map[k.lower()] = vehicle_map[k]
+
 # define and run parser
 parser = CompatOptionParser(
     "sim_vehicle.py",
@@ -904,15 +999,10 @@ parser = CompatOptionParser(
     "simulate ArduPlane")
 
 vehicle_choices = list(vinfo.options.keys())
-# add an alias for people with too much m
-vehicle_choices.append("APMrover2")
-vehicle_choices.append("Copter")  # should change to ArduCopter at some stage
-vehicle_choices.append("Plane")  # should change to ArduPlane at some stage
-vehicle_choices.append("Sub")  # should change to Sub at some stage
-vehicle_choices.append("copter")  # should change to ArduCopter at some stage
-vehicle_choices.append("plane")  # should change to ArduPlane at some stage
-vehicle_choices.append("sub")  # should change to Sub at some stage
-vehicle_choices.append("blimp")  # should change to Blimp at some stage
+
+# add vehicle aliases to argument parser options:
+for c in vehicle_map.keys():
+    vehicle_choices.append(c)
 
 parser.add_option("-v", "--vehicle",
                   type='choice',
@@ -955,20 +1045,15 @@ group_build.add_option("-b", "--build-target",
                        default=None,
                        type='string',
                        help="override SITL build target")
-group_build.add_option("-s", "--build-system",
-                       default="waf",
-                       type='choice',
-                       choices=["make", "waf"],
-                       help="build system to use")
 group_build.add_option("--enable-math-check-indexes",
                        default=False,
                        action="store_true",
                        dest="math_check_indexes",
                        help="enable checking of math indexes")
-group_build.add_option("", "--sitl-32bit",
+group_build.add_option("", "--force-32bit",
                        default=False,
                        action='store_true',
-                       dest="sitl_32bit",
+                       dest="force_32bit",
                        help="compile sitl using 32-bit")
 group_build.add_option("", "--configure-define",
                        default=[],
@@ -1006,6 +1091,11 @@ group_build.add_option("", "--ubsan-abort",
                        action='store_true',
                        dest="ubsan_abort",
                        help="compile sitl with undefined behaviour sanitiser and abort on error")
+group_build.add_option("--num-aux-imus",
+                       dest="num_aux_imus",
+                       default=0,
+                       type='int',
+                       help='number of auxiliary IMUs to simulate')
 parser.add_option_group(group_build)
 
 group_sim = optparse.OptionGroup(parser, "Simulation options")
@@ -1036,6 +1126,10 @@ group_sim.add_option("-T", "--tracker",
 group_sim.add_option("", "--enable-onvif",
                      action="store_true",
                      help="enable onvif camera control sim using AntennaTracker")
+group_sim.add_option("", "--can-gps",
+                     action='store_true',
+                     default=False,
+                     help="start a DroneCAN GPS instance (use Tools/scripts/CAN/can_sitl_nodev.sh first)")
 group_sim.add_option("-A", "--sitl-instance-args",
                      type='string',
                      default=None,
@@ -1207,6 +1301,13 @@ group_sim.add_option("", "--auto-sysid",
                      default=False,
                      action='store_true',
                      help="Set SYSID_THISMAV based upon instance number")
+group_sim.add_option("", "--sim-address",
+                     type=str,
+                     default="127.0.0.1",
+                     help="IP address of the simulator. Defaults to localhost")
+group_sim.add_option("--enable-dds", action='store_true',
+                     help="Enable the dds client to connect with ROS2/DDS")
+
 parser.add_option_group(group_sim)
 
 
@@ -1321,22 +1422,10 @@ if cmd_opts.vehicle not in vinfo.options:
             break
         cwd = os.path.dirname(cwd)
 
-# map from some vehicle aliases back to canonical names.  APMrover2
-# was the old name / directory name for Rover.
-vehicle_map = {
-    "APMrover2": "Rover",
-    "Copter": "ArduCopter",  # will switch eventually
-    "Plane": "ArduPlane",  # will switch eventually
-    "Sub": "ArduSub",  # will switch eventually
-    "copter": "ArduCopter",  # will switch eventually
-    "plane": "ArduPlane",  # will switch eventually
-    "sub": "ArduSub",  # will switch eventually
-    "blimp" : "Blimp", # will switch eventually
-}
 if cmd_opts.vehicle in vehicle_map:
-    progress("%s is now known as %s" %
-             (cmd_opts.vehicle, vehicle_map[cmd_opts.vehicle]))
     cmd_opts.vehicle = vehicle_map[cmd_opts.vehicle]
+elif cmd_opts.vehicle.lower() in vehicle_map:
+    cmd_opts.vehicle = vehicle_map[cmd_opts.vehicle.lower()]
 
 # try to validate vehicle
 if cmd_opts.vehicle not in vinfo.options:
@@ -1377,6 +1466,9 @@ if cmd_opts.instance == 0:
 
 if cmd_opts.tracker:
     start_antenna_tracker(cmd_opts)
+
+if cmd_opts.can_gps:
+    start_CAN_GPS(cmd_opts)
 
 if cmd_opts.custom_location:
     location = [(float)(x) for x in cmd_opts.custom_location.split(",")]
@@ -1440,13 +1532,11 @@ if True:
 
     if cmd_opts.vehicle_binary is not None:
         vehicle_binary = cmd_opts.vehicle_binary
-    elif cmd_opts.build_system == "waf":
+    else:
         binary_basedir = "build/sitl"
         vehicle_binary = os.path.join(root_dir,
                                       binary_basedir,
                                       frame_infos["waf_target"])
-    else:
-        vehicle_binary = os.path.join(vehicle_dir, cmd_opts.vehicle + ".elf")
 
     if not os.path.exists(vehicle_binary):
         print("Vehicle binary (%s) does not exist" % (vehicle_binary,))

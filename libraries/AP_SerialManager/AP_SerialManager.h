@@ -120,8 +120,7 @@ public:
     AP_SerialManager();
 
     /* Do not allow copies */
-    AP_SerialManager(const AP_SerialManager &other) = delete;
-    AP_SerialManager &operator=(const AP_SerialManager&) = delete;
+    CLASS_NO_COPY(AP_SerialManager);
 
     enum SerialProtocol {
         SerialProtocol_None = -1,
@@ -170,6 +169,7 @@ public:
         SerialProtocol_MSP_DisplayPort = 42,
         SerialProtocol_MAVLinkHL = 43,
         SerialProtocol_Tramp = 44,
+        SerialProtocol_DDS_XRCE = 45,
         SerialProtocol_NumProtocols                    // must be the last value
     };
 

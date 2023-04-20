@@ -129,7 +129,7 @@ bool Sub::guided_set_destination(const Vector3f& destination)
         guided_pos_control_start();
     }
 
-#if AC_FENCE == ENABLED
+#if AP_FENCE_ENABLED
     // reject destination if outside the fence
     const Location dest_loc(destination, Location::AltFrame::ABOVE_ORIGIN);
     if (!fence.check_destination_within_fence(dest_loc)) {
@@ -157,7 +157,7 @@ bool Sub::guided_set_destination(const Location& dest_loc)
         guided_pos_control_start();
     }
 
-#if AC_FENCE == ENABLED
+#if AP_FENCE_ENABLED
     // reject destination outside the fence.
     // Note: there is a danger that a target specified as a terrain altitude might not be checked if the conversion to alt-above-home fails
     if (!fence.check_destination_within_fence(dest_loc)) {
@@ -201,7 +201,7 @@ bool Sub::guided_set_destination_posvel(const Vector3f& destination, const Vecto
         guided_posvel_control_start();
     }
 
-#if AC_FENCE == ENABLED
+#if AP_FENCE_ENABLED
     // reject destination if outside the fence
     const Location dest_loc(destination, Location::AltFrame::ABOVE_ORIGIN);
     if (!fence.check_destination_within_fence(dest_loc)) {
@@ -358,6 +358,7 @@ void Sub::guided_vel_control_run()
         pos_control.set_vel_desired_cms(Vector3f(0,0,0));
     }
 
+    pos_control.stop_pos_xy_stabilisation();
     // call velocity controller which includes z axis controller
     pos_control.update_xy_controller();
     pos_control.update_z_controller();

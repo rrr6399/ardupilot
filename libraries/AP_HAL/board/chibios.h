@@ -108,15 +108,7 @@
 
 // we support RC serial for BLHeli pass-thru
 #ifndef HAL_SUPPORT_RCOUT_SERIAL
-#define HAL_SUPPORT_RCOUT_SERIAL !defined(HAL_BUILD_AP_PERIPH)
-#endif
-
-#ifndef HAL_DSHOT_ALARM
-#if !defined(HAL_BUILD_AP_PERIPH) && !defined(HAL_BOOTLOADER_BUILD) && HAL_PWM_COUNT > 0
-#define HAL_DSHOT_ALARM 1
-#else
-#define HAL_DSHOT_ALARM 0
-#endif
+#define HAL_SUPPORT_RCOUT_SERIAL 1
 #endif
 
 // by default assume first I2C bus is internal

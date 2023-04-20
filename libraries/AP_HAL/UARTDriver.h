@@ -21,8 +21,7 @@ private:
 public:
     UARTDriver() {}
     /* Do not allow copies */
-    UARTDriver(const UARTDriver &other) = delete;
-    UARTDriver &operator=(const UARTDriver&) = delete;
+    CLASS_NO_COPY(UARTDriver);
 
     // begin() implicitly clears rx/tx buffers, even if the port was already open (unless the UART is the console UART)
     virtual void begin(uint32_t baud) = 0;
@@ -67,7 +66,7 @@ public:
     virtual size_t write_locked(const uint8_t *buffer, size_t size, uint32_t key) { return 0; }
 
     // read from a locked port. If port is locked and key is not correct then 0 is returned
-    virtual int16_t read_locked(uint32_t key) { return -1; }
+    virtual bool read_locked(uint32_t key, uint8_t &b) WARN_IF_UNUSED { return -1; }
     
     // control optional features
     virtual bool set_options(uint16_t options) { _last_options = options; return options==0; }
@@ -90,7 +89,9 @@ public:
     };
 
     enum flow_control {
-        FLOW_CONTROL_DISABLE=0, FLOW_CONTROL_ENABLE=1, FLOW_CONTROL_AUTO=2
+        FLOW_CONTROL_DISABLE=0,
+        FLOW_CONTROL_ENABLE=1,
+        FLOW_CONTROL_AUTO=2,
     };
     virtual void set_flow_control(enum flow_control flow_control_setting) {};
     virtual enum flow_control get_flow_control(void) { return FLOW_CONTROL_DISABLE; }
@@ -131,9 +132,11 @@ public:
      */
     virtual uint64_t receive_time_constraint_us(uint16_t nbytes) { return 0; }
 
-    virtual uint32_t bw_in_kilobytes_per_second() const {
-        return 57;
+    virtual uint32_t bw_in_bytes_per_second() const {
+        return 5760;
     }
+
+    virtual uint32_t get_baud_rate() const { return 0; }
 
     /*
       return true if this UART has DMA enabled on both RX and TX

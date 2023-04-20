@@ -5,6 +5,7 @@
 
 #include <AP_BattMonitor/AP_BattMonitor.h>
 #include <AP_Vehicle/AP_Vehicle_Type.h>
+#include <AP_BoardConfig/AP_BoardConfig.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -20,6 +21,30 @@ void AP_Compass_Backend::rotate_field(Vector3f &mag, uint8_t instance)
         mag.rotate(MAG_BOARD_ORIENTATION);
     }
     mag.rotate(state.rotation);
+
+#ifdef HAL_HEATER_MAG_OFFSET
+    /*
+      apply compass compensations for boards that have a heater which
+      interferes with an internal compass. This needs to be applied
+      before the board orientation so it is independent of
+      AHRS_ORIENTATION
+     */
+    if (!is_external(instance)) {
+        const uint32_t dev_id = uint32_t(_compass._state[Compass::StateIndex(instance)].dev_id);
+        static const struct offset {
+            uint32_t dev_id;
+            Vector3f ofs;
+        } offsets[] = HAL_HEATER_MAG_OFFSET;
+        const auto *bc = AP::boardConfig();
+        if (bc) {
+            for (const auto &o : offsets) {
+                if (o.dev_id == dev_id) {
+                    mag += o.ofs * bc->get_heater_duty_cycle() * 0.01;
+                }
+            }
+        }
+    }
+#endif
 
     if (!state.external) {
         mag.rotate(_compass._board_orientation);
@@ -48,13 +73,11 @@ void AP_Compass_Backend::correct_field(Vector3f &mag, uint8_t i)
 {
     Compass::mag_state &state = _compass._state[Compass::StateIndex(i)];
 
-    if (state.diagonals.get().is_zero()) {
-        state.diagonals.set(Vector3f(1.0f,1.0f,1.0f));
-    }
-
     const Vector3f &offsets = state.offset.get();
+#if AP_COMPASS_DIAGONALS_ENABLED
     const Vector3f &diagonals = state.diagonals.get();
     const Vector3f &offdiagonals = state.offdiagonals.get();
+#endif
 
     // add in the basic offsets
     mag += offsets;
@@ -65,14 +88,18 @@ void AP_Compass_Backend::correct_field(Vector3f &mag, uint8_t i)
         mag *= state.scale_factor;
     }
 
+#if AP_COMPASS_DIAGONALS_ENABLED
     // apply eliptical correction
-    Matrix3f mat(
-        diagonals.x, offdiagonals.x, offdiagonals.y,
-        offdiagonals.x,    diagonals.y, offdiagonals.z,
-        offdiagonals.y, offdiagonals.z,    diagonals.z
-    );
+    if (!diagonals.is_zero()) {
+        Matrix3f mat(
+            diagonals.x,    offdiagonals.x, offdiagonals.y,
+            offdiagonals.x, diagonals.y,    offdiagonals.z,
+            offdiagonals.y, offdiagonals.z, diagonals.z
+            );
 
-    mag = mat * mag;
+        mag = mat * mag;
+    }
+#endif
 
 #if COMPASS_MOT_ENABLED
     const Vector3f &mot = state.motor_compensation.get();

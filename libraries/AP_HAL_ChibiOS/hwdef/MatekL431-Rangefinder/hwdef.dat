@@ -10,4 +10,9 @@ define HAL_DISABLE_ADC_DRIVER TRUE
 define HAL_PERIPH_ENABLE_RANGEFINDER
 
 define AP_PERIPH_RANGEFINDER_PORT_DEFAULT 2
-define RANGEFINDER_MAX_INSTANCES 1
+
+# setup for MSP
+define HAL_MSP_ENABLED 1
+
+# some lidars take a long time to init, keep probing till we find it
+define AP_PERIPH_PROBE_CONTINUOUS 1

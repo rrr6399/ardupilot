@@ -29,6 +29,7 @@ bool AP_Mission::start_command_do_aux_function(const AP_Mission::Mission_Command
     return true;
 }
 
+#if AP_GRIPPER_ENABLED
 bool AP_Mission::start_command_do_gripper(const AP_Mission::Mission_Command& cmd)
 {
     AP_Gripper *gripper = AP::gripper();
@@ -56,6 +57,7 @@ bool AP_Mission::start_command_do_gripper(const AP_Mission::Mission_Command& cmd
         return false;
     }
 }
+#endif  // AP_GRIPPER_ENABLED
 
 bool AP_Mission::start_command_do_servorelayevents(const AP_Mission::Mission_Command& cmd)
 {
@@ -89,6 +91,7 @@ bool AP_Mission::start_command_do_servorelayevents(const AP_Mission::Mission_Com
     }
 }
 
+#if AP_CAMERA_ENABLED
 bool AP_Mission::start_command_camera(const AP_Mission::Mission_Command& cmd)
 {
     AP_Camera *camera = AP::camera();
@@ -126,6 +129,47 @@ bool AP_Mission::start_command_camera(const AP_Mission::Mission_Command& cmd)
         }
         return true;
 
+    case MAV_CMD_SET_CAMERA_ZOOM:
+        if (cmd.content.set_camera_zoom.zoom_type == ZOOM_TYPE_CONTINUOUS) {
+            return camera->set_zoom(ZoomType::RATE, cmd.content.set_camera_zoom.zoom_value);
+        }
+        if (cmd.content.set_camera_zoom.zoom_type == ZOOM_TYPE_RANGE) {
+            return camera->set_zoom(ZoomType::PCT, cmd.content.set_camera_zoom.zoom_value);
+        }
+        return false;
+
+    case MAV_CMD_SET_CAMERA_FOCUS:
+        // accept any of the auto focus types
+        if ((cmd.content.set_camera_focus.focus_type == FOCUS_TYPE_AUTO) ||
+            (cmd.content.set_camera_focus.focus_type == FOCUS_TYPE_AUTO_SINGLE) ||
+            (cmd.content.set_camera_focus.focus_type == FOCUS_TYPE_AUTO_CONTINUOUS)) {
+            camera->set_auto_focus();
+            return true;
+        }
+        // accept step or continuous manual focus
+        if (cmd.content.set_camera_focus.focus_type == FOCUS_TYPE_CONTINUOUS) {
+            camera->set_manual_focus_step(cmd.content.set_camera_focus.focus_value);
+            return true;
+        }
+        return false;
+
+    case MAV_CMD_IMAGE_START_CAPTURE:
+        camera->take_picture();
+        return true;
+
+    case MAV_CMD_VIDEO_START_CAPTURE:
+    case MAV_CMD_VIDEO_STOP_CAPTURE:
+    {
+        const bool start_recording = (cmd.id == MAV_CMD_VIDEO_START_CAPTURE);
+        if (cmd.content.video_start_capture.video_stream_id == 0) {
+            // stream id of zero interpreted as primary camera
+            return camera->record_video(start_recording);
+        } else {
+            // non-zero stream id is converted to camera instance
+            return camera->record_video(cmd.content.video_start_capture.video_stream_id - 1, start_recording);
+        }
+    }
+
     default:
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
         AP_HAL::panic("Unhandled camera case");
@@ -133,6 +177,7 @@ bool AP_Mission::start_command_camera(const AP_Mission::Mission_Command& cmd)
         return false;
     }
 }
+#endif
 
 bool AP_Mission::start_command_parachute(const AP_Mission::Mission_Command& cmd)
 {
@@ -213,36 +258,39 @@ bool AP_Mission::start_command_do_gimbal_manager_pitchyaw(const AP_Mission::Miss
     if (mount == nullptr) {
         return false;
     }
+
+    // check gimbal device id.  0 is primary, 1 is 1st gimbal, 2 is 2nd gimbal, etc
+    uint8_t gimbal_instance = mount->get_primary_instance();
+    if (cmd.content.gimbal_manager_pitchyaw.gimbal_id > 0) {
+        gimbal_instance = cmd.content.gimbal_manager_pitchyaw.gimbal_id - 1;
+    }
+
     // check flags for change to RETRACT
     if ((cmd.content.gimbal_manager_pitchyaw.flags & GIMBAL_MANAGER_FLAGS_RETRACT) > 0) {
-        mount->set_mode(MAV_MOUNT_MODE_RETRACT);
+        mount->set_mode(gimbal_instance, MAV_MOUNT_MODE_RETRACT);
         return true;
     }
     // check flags for change to NEUTRAL
     if ((cmd.content.gimbal_manager_pitchyaw.flags & GIMBAL_MANAGER_FLAGS_NEUTRAL) > 0) {
-        mount->set_mode(MAV_MOUNT_MODE_NEUTRAL);
+        mount->set_mode(gimbal_instance, MAV_MOUNT_MODE_NEUTRAL);
         return true;
     }
-
-    // To-Do: handle gimbal device id
 
     // handle angle target
     const bool pitch_angle_valid = !isnan(cmd.content.gimbal_manager_pitchyaw.pitch_angle_deg) && (fabsf(cmd.content.gimbal_manager_pitchyaw.pitch_angle_deg) <= 90);
     const bool yaw_angle_valid = !isnan(cmd.content.gimbal_manager_pitchyaw.yaw_angle_deg) && (fabsf(cmd.content.gimbal_manager_pitchyaw.yaw_angle_deg) <= 360);
     if (pitch_angle_valid && yaw_angle_valid) {
-        mount->set_angle_target(0, cmd.content.gimbal_manager_pitchyaw.pitch_angle_deg, cmd.content.gimbal_manager_pitchyaw.yaw_angle_deg, cmd.content.gimbal_manager_pitchyaw.flags & GIMBAL_MANAGER_FLAGS_YAW_LOCK);
+        mount->set_angle_target(gimbal_instance, 0, cmd.content.gimbal_manager_pitchyaw.pitch_angle_deg, cmd.content.gimbal_manager_pitchyaw.yaw_angle_deg, cmd.content.gimbal_manager_pitchyaw.flags & GIMBAL_MANAGER_FLAGS_YAW_LOCK);
         return true;
     }
 
     // handle rate target
     if (!isnan(cmd.content.gimbal_manager_pitchyaw.pitch_rate_degs) && !isnan(cmd.content.gimbal_manager_pitchyaw.yaw_rate_degs)) {
-        mount->set_rate_target(0, cmd.content.gimbal_manager_pitchyaw.pitch_rate_degs, cmd.content.gimbal_manager_pitchyaw.yaw_rate_degs, cmd.content.gimbal_manager_pitchyaw.flags & GIMBAL_MANAGER_FLAGS_YAW_LOCK);
+        mount->set_rate_target(gimbal_instance, 0, cmd.content.gimbal_manager_pitchyaw.pitch_rate_degs, cmd.content.gimbal_manager_pitchyaw.yaw_rate_degs, cmd.content.gimbal_manager_pitchyaw.flags & GIMBAL_MANAGER_FLAGS_YAW_LOCK);
         return true;
     }
 
+#endif // HAL_MOUNT_ENABLED
     // if we got this far then message is not handled
     return false;
-#else
-    return false;
-#endif // HAL_MOUNT_ENABLED
 }
