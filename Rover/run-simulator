@@ -3,20 +3,18 @@
 export MASTER_DRONE=1
 location=keywest
 location=AustinRCLidar1
-location=Moab
 location=PortHueneme
+location=Moab
 
 #python3 ../Tools/autotest/sim_vehicle.py  --map --console -L $location --instance=2 -f sailboat-motor
 
-python3 ../Tools/autotest/sim_vehicle.py  --map --console -L $location --instance=2 --mavproxy-args -f sailboat-motor "--out=udp:192.168.234.1:14551" 
+#python3 ../Tools/autotest/sim_vehicle.py  --map --console -L $location --instance=2 --mavproxy-args -f sailboat-motor "--out=udp:192.168.234.1:14551" 
 
 #python3 ../Tools/autotest/sim_vehicle.py -D -G --map --console -L $location --instance=2 -f sailboat-motor
 #python3 ../Tools/autotest/sim_vehicle.py -D --map --console -L $location --instance=2 -f sailboat-motor
 
-
 #python3 ../Tools/autotest/sim_vehicle.py --map --console -L $location --instance=2 -f boat
 #python3 ../Tools/autotest/sim_vehicle.py --map --console -L $location --instance=2
-
 
 #python3 ../Tools/autotest/sim_vehicle.py --map --console -L $location --instance=1
 
@@ -24,3 +22,4 @@ python3 ../Tools/autotest/sim_vehicle.py  --map --console -L $location --instanc
 #python3 ../Tools/autotest/sim_vehicle.py --instance=2 --map --console -L $location
 #output add <ip-address>:14551
 
+python3 ../Tools/autotest/sim_vehicle.py  --map --console -L $location --instance=2 --mavproxy-args  "--out=udp:192.168.1.119:14551" 
