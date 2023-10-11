@@ -3,12 +3,15 @@
 export TETHER_KG_PER_METER=.0238
 location=keywest
 location=AustinRC
-location=Moab
 location=PortHueneme
+location=Moab
 /bin/rm -rf logs mav.tlog  mav.tlog.raw /tmp/master-gps.data
 #python3 ../Tools/autotest/sim_vehicle.py --instance=0 --map --console -L $location -f hexa -D
 #python3 ../Tools/autotest/sim_vehicle.py -M -f hexa --map --console -L $location -I 0
 #python3 ../Tools/autotest/sim_vehicle.py --instance=0 --map --console -L $location -M  -f hexa
-#python3 ../Tools/autotest/sim_vehicle.py -D --instance=0 --map --console -L $location -f hexa --mavproxy-args "--out=udp:192.168.234.1:14550" 
-python3 ../Tools/autotest/sim_vehicle.py -D --instance=0 --map --console -L $location -f Callisto --mavproxy-args "--out=udp:192.168.234.1:14550" 
+#python3 ../Tools/autotest/sim_vehicle.py --instance=0 --map --console -L $location -f hexa --mavproxy-args "--out=udp:192.168.234.1:14550" 
+#python3 ../Tools/autotest/sim_vehicle.py --instance=0 --map --console -L $location -f Callisto --mavproxy-args "--out=udp:192.168.1.85:14550" 
+
+#python3 ../Tools/autotest/sim_vehicle.py --instance=0 --map --console -L $location -f Callisto -A --uartC=tcp:15550
+python3 ../Tools/autotest/sim_vehicle.py --instance=0 --map --console -L $location -f Callisto --mavproxy-args "--out=udp:192.168.1.119:14550" 
 
