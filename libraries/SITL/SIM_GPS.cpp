@@ -484,8 +484,13 @@ void GPS::update_ubx(const struct gps_data *d)
     pvt.valid = 0; // invalid utc date
     pvt.t_acc = 0; 
     pvt.nano = 0; 
+    AP_Int8 fix_type = _sitl->gps_fix_type[instance];
     pvt.fix_type = d->have_lock? 0x3 : 0;
-    pvt.flags = 0b10000011; // carrsoln=fixed, psm = na, diffsoln and fixok
+    if(fix_type == 6) {
+   	 pvt.flags = 0b10000011; // carrsoln=fixed, psm = na, diffsoln and fixok
+    } else {
+         pvt.flags = 0b00000010; // 3d fix rrr
+    }
     pvt.flags2 =0; 
     pvt.num_sv = d->have_lock?_sitl->gps_numsats[instance]:3;
     pvt.lon = d->longitude * 1.0e7;

@@ -198,6 +198,7 @@ public:
     AP_Int8  gps_type[2]; // see enum SITL::GPS::Type
     AP_Float gps_byteloss[2];// byte loss as a percent
     AP_Int8  gps_numsats[2]; // number of visible satellites
+    AP_Int8  gps_fix_type[2]; // current GPS fix type
     AP_Vector3f gps_glitch[2];  // glitch offsets in lat, lon and altitude
     AP_Int8  gps_hertz[2];   // GPS update rate in Hz
     AP_Int8 gps_hdg_enabled[2]; // enable the output of a NMEA heading HDT sentence or UBLOX RELPOSNED
