@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # encoding: utf-8
 
 from __future__ import print_function
@@ -126,6 +126,11 @@ def options(opt):
         default=False,
         help='Configure as debug variant.')
 
+    g.add_option('--debug-symbols', '-g',
+        action='store_true',
+        default=False,
+        help='Add debug symbolds to build.')
+    
     g.add_option('--disable-watchdog',
         action='store_true',
         default=False,
@@ -138,8 +143,13 @@ def options(opt):
 
     g.add_option('--Werror',
         action='store_true',
-        default=False,
+        default=None,
         help='build with -Werror.')
+
+    g.add_option('--disable-Werror',
+        action='store_true',
+        default=None,
+        help='Disable -Werror.')
     
     g.add_option('--toolchain',
         action='store',
@@ -220,6 +230,10 @@ submodules at specific revisions.
                  default=False,
                  help="Disable onboard scripting engine")
 
+    g.add_option('--enable-scripting', action='store_true',
+                 default=False,
+                 help="Enable onboard scripting engine")
+
     g.add_option('--no-gcs', action='store_true',
                  default=False,
                  help="Disable GCS code")
@@ -253,9 +267,14 @@ submodules at specific revisions.
                  help="Enables GPS logging")
     
     g.add_option('--enable-dds', action='store_true',
-                 help="Enable the dds client to connect with ROS2/DDS"
-    )
+                 help="Enable the dds client to connect with ROS2/DDS.")
 
+    g.add_option('--disable-networking', action='store_true',
+                 help="Disable the networking API code")
+
+    g.add_option('--enable-networking-tests', action='store_true',
+                 help="Enable the networking test code. Automatically enables networking.")
+    
     g.add_option('--enable-dronecan-tests', action='store_true',
                  default=False,
                  help="Enables DroneCAN tests in sitl")
@@ -341,10 +360,10 @@ configuration in order to save typing.
         default=False,
         help='Use flash storage emulation.')
 
-    g.add_option('--disable-ekf2',
+    g.add_option('--enable-ekf2',
         action='store_true',
         default=False,
-        help='Configure without EKF2.')
+        help='Configure with EKF2.')
 
     g.add_option('--disable-ekf3',
         action='store_true',
@@ -427,6 +446,7 @@ def configure(cfg):
         
     cfg.env.BOARD = cfg.options.board
     cfg.env.DEBUG = cfg.options.debug
+    cfg.env.DEBUG_SYMBOLS = cfg.options.debug_symbols
     cfg.env.COVERAGE = cfg.options.coverage
     cfg.env.AUTOCONFIG = cfg.options.autoconfig
 
@@ -439,6 +459,7 @@ def configure(cfg):
 
     cfg.env.BOARD = cfg.options.board
     cfg.env.DEBUG = cfg.options.debug
+    cfg.env.DEBUG_SYMBOLS = cfg.options.debug_symbols
     cfg.env.COVERAGE = cfg.options.coverage
     cfg.env.FORCE32BIT = cfg.options.force_32bit
     cfg.env.ENABLE_ASSERTS = cfg.options.enable_asserts
@@ -469,6 +490,10 @@ def configure(cfg):
         cfg.define('AP_BOARD_START_TIME', cfg.options.board_start_time)
         # also in env for hrt.c
         cfg.env.AP_BOARD_START_TIME = cfg.options.board_start_time
+
+    # require python 3.8.x or later
+    cfg.load('python')
+    cfg.check_python_version(minver=(3,6,9))
 
     cfg.load('ap_library')
 
@@ -513,11 +538,15 @@ def configure(cfg):
     cfg.start_msg('Scripting')
     if cfg.options.disable_scripting:
         cfg.end_msg('disabled', color='YELLOW')
-    else:
+    elif cfg.options.enable_scripting:
         cfg.end_msg('enabled')
-        cfg.recurse('libraries/AP_Scripting')
+    else:
+        cfg.end_msg('maybe')
+    cfg.recurse('libraries/AP_Scripting')
 
     cfg.recurse('libraries/AP_GPS')
+    cfg.recurse('libraries/AP_HAL_SITL')
+    cfg.recurse('libraries/SITL')
 
     cfg.start_msg('Scripting runtime checks')
     if cfg.options.scripting_checks:
@@ -560,14 +589,13 @@ def configure(cfg):
     else:
         cfg.env.ENABLE_HEADER_CHECKS = False
 
-    # TODO: Investigate if code could be changed to not depend on the
-    # source absolute path.
-    cfg.env.prepend_value('DEFINES', [
-        'SKETCHBOOK="' + cfg.srcnode.abspath() + '"',
-    ])
-
     # Always use system extensions
     cfg.define('_GNU_SOURCE', 1)
+
+    if cfg.options.Werror:
+        # print(cfg.options.Werror)
+        if cfg.options.disable_Werror:
+            cfg.options.Werror = False
 
     cfg.write_config_header(os.path.join(cfg.variant, 'ap_config.h'), guard='_AP_CONFIG_H_')
 

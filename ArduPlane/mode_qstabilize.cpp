@@ -40,15 +40,30 @@ void ModeQStabilize::update()
 // quadplane stabilize mode
 void ModeQStabilize::run()
 {
+    const uint32_t now = AP_HAL::millis();
+    if (quadplane.tailsitter.in_vtol_transition(now)) {
+        // Tailsitters in FW pull up phase of VTOL transition run FW controllers
+        Mode::run();
+        return;
+    }
+
+    plane.quadplane.assign_tilt_to_fwd_thr();
+
     // special check for ESC calibration in QSTABILIZE
     if (quadplane.esc_calibration != 0) {
         quadplane.run_esc_calibration();
+        plane.stabilize_roll();
+        plane.stabilize_pitch();
         return;
     }
 
     // normal QSTABILIZE mode
     float pilot_throttle_scaled = quadplane.get_pilot_throttle();
     quadplane.hold_stabilize(pilot_throttle_scaled);
+
+    // Stabilize with fixed wing surfaces
+    plane.stabilize_roll();
+    plane.stabilize_pitch();
 }
 
 // set the desired roll and pitch for a tailsitter
@@ -68,7 +83,7 @@ void ModeQStabilize::set_tailsitter_roll_pitch(const float roll_input, const flo
     plane.quadplane.transition->set_VTOL_roll_pitch_limit(plane.nav_roll_cd, plane.nav_pitch_cd);
 }
 
-// set the desired roll and pitch for normal quadplanes, also limited by forward flight limtis
+// set the desired roll and pitch for normal quadplanes, also limited by forward flight limits
 void ModeQStabilize::set_limited_roll_pitch(const float roll_input, const float pitch_input)
 {
     plane.nav_roll_cd = roll_input * MIN(plane.roll_limit_cd, plane.quadplane.aparm.angle_max);

@@ -17,8 +17,11 @@
   Code by Andy Piper
  */
 
+#include "AP_RCProtocol_config.h"
+
+#if AP_RCPROTOCOL_CRSF_ENABLED
+
 #include "AP_RCProtocol.h"
-#include "AP_RCProtocol_SRXL.h"
 #include "AP_RCProtocol_CRSF.h"
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Math/AP_Math.h>
@@ -152,6 +155,8 @@ static const char* get_frame_type(uint8_t byte, uint8_t subtype = 0)
 #define CRSF_DIGITAL_CHANNEL_MIN 172
 #define CRSF_DIGITAL_CHANNEL_MAX 1811
 
+#define CRSF_BAUDRATE_1MBIT      1000000U
+#define CRSF_BAUDRATE_2MBIT      2000000U
 
 const uint16_t AP_RCProtocol_CRSF::RF_MODE_RATES[RFMode::RF_MODE_MAX_MODES] = {
     4, 50, 150, 250,    // CRSF
@@ -200,6 +205,8 @@ const char* AP_RCProtocol_CRSF::get_protocol_string(ProtocolType protocol) const
 uint16_t AP_RCProtocol_CRSF::get_link_rate(ProtocolType protocol) const {
     if (protocol == ProtocolType::PROTOCOL_ELRS) {
         return RF_MODE_RATES[_link_status.rf_mode + RFMode::ELRS_RF_MODE_4HZ];
+    } else if (protocol == ProtocolType::PROTOCOL_TRACER) {
+        return 250;
     } else {
         return RF_MODE_RATES[_link_status.rf_mode];
     }
@@ -303,7 +310,7 @@ void AP_RCProtocol_CRSF::update(void)
 
 #if AP_RC_CHANNEL_ENABLED
     //Check if LQ is to be reported in place of RSSI
-    _use_lq_for_rssi = bool(rc().use_crsf_lq_as_rssi());
+    _use_lq_for_rssi = rc().option_is_enabled(RC_Channels::Option::USE_CRSF_LQ_AS_RSSI);
 #endif
 }
 
@@ -388,7 +395,7 @@ bool AP_RCProtocol_CRSF::decode_crsf_packet()
         default:
             break;
     }
-#if HAL_CRSF_TELEM_ENABLED && !APM_BUILD_TYPE(APM_BUILD_iofirmware)
+#if HAL_CRSF_TELEM_ENABLED
     if (AP_CRSF_Telem::process_frame(FrameType(_frame.type), (uint8_t*)&_frame.payload)) {
         process_telemetry();
     }
@@ -563,7 +570,7 @@ void AP_RCProtocol_CRSF::process_link_stats_tx_frame(const void* data)
 void AP_RCProtocol_CRSF::process_byte(uint8_t byte, uint32_t baudrate)
 {
     // reject RC data if we have been configured for standalone mode
-    if (baudrate != CRSF_BAUDRATE || _uart) {
+    if ((baudrate != CRSF_BAUDRATE && baudrate != CRSF_BAUDRATE_1MBIT && baudrate != CRSF_BAUDRATE_2MBIT) || _uart) {
         return;
     }
     _process_byte(AP_HAL::micros(), byte);
@@ -575,7 +582,6 @@ void AP_RCProtocol_CRSF::start_uart()
     _uart->configure_parity(0);
     _uart->set_stop_bits(1);
     _uart->set_flow_control(AP_HAL::UARTDriver::FLOW_CONTROL_DISABLE);
-    _uart->set_blocking_writes(false);
     _uart->set_options(_uart->get_options() & ~AP_HAL::UARTDriver::OPTION_RXINV);
     _uart->begin(get_bootstrap_baud_rate());
 }
@@ -592,7 +598,7 @@ bool AP_RCProtocol_CRSF::change_baud_rate(uint32_t baudrate)
         return false;
     }
 #endif
-    if (baudrate > 2000000) {
+    if (baudrate > CRSF_BAUDRATE_2MBIT) {
         return false;
     }
 
@@ -629,3 +635,5 @@ namespace AP {
         return AP_RCProtocol_CRSF::get_singleton();
     }
 };
+
+#endif  // AP_RCPROTOCOL_CRSF_ENABLED

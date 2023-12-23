@@ -15,50 +15,72 @@
  * Code by Andrew Tridgell and Siddharth Bharat Purohit
  */
 
-#include <AP_Vehicle/AP_Vehicle_Type.h>
+#include "AP_RCProtocol_config.h"
+
 #include "AP_RCProtocol.h"
+
+#if AP_RCPROTOCOL_ENABLED
+
 #include "AP_RCProtocol_PPMSum.h"
 #include "AP_RCProtocol_DSM.h"
 #include "AP_RCProtocol_IBUS.h"
 #include "AP_RCProtocol_SBUS.h"
 #include "AP_RCProtocol_SUMD.h"
 #include "AP_RCProtocol_SRXL.h"
-#ifndef IOMCU_FW
 #include "AP_RCProtocol_SRXL2.h"
-#endif
 #include "AP_RCProtocol_CRSF.h"
 #include "AP_RCProtocol_ST24.h"
 #include "AP_RCProtocol_FPort.h"
 #include "AP_RCProtocol_FPort2.h"
+#include "AP_RCProtocol_DroneCAN.h"
 #include <AP_Math/AP_Math.h>
 #include <RC_Channel/RC_Channel.h>
+
+#include <AP_Vehicle/AP_Vehicle_Type.h>
 
 extern const AP_HAL::HAL& hal;
 
 void AP_RCProtocol::init()
 {
-    backend[AP_RCProtocol::PPM] = new AP_RCProtocol_PPMSum(*this);
+#if AP_RCPROTOCOL_PPMSUM_ENABLED
+    backend[AP_RCProtocol::PPMSUM] = new AP_RCProtocol_PPMSum(*this);
+#endif
+#if AP_RCPROTOCOL_IBUS_ENABLED
     backend[AP_RCProtocol::IBUS] = new AP_RCProtocol_IBUS(*this);
+#endif
+#if AP_RCPROTOCOL_SBUS_ENABLED
     backend[AP_RCProtocol::SBUS] = new AP_RCProtocol_SBUS(*this, true, 100000);
+#endif
 #if AP_RCPROTOCOL_FASTSBUS_ENABLED
     backend[AP_RCProtocol::FASTSBUS] = new AP_RCProtocol_SBUS(*this, true, 200000);
 #endif
     backend[AP_RCProtocol::DSM] = new AP_RCProtocol_DSM(*this);
+#if AP_RCPROTOCOL_SUMD_ENABLED
     backend[AP_RCProtocol::SUMD] = new AP_RCProtocol_SUMD(*this);
+#endif
 #if AP_RCPROTOCOL_SRXL_ENABLED
     backend[AP_RCProtocol::SRXL] = new AP_RCProtocol_SRXL(*this);
 #endif
-#ifndef IOMCU_FW
+#if AP_RCPROTOCOL_SBUS_NI_ENABLED
     backend[AP_RCProtocol::SBUS_NI] = new AP_RCProtocol_SBUS(*this, false, 100000);
+#endif
+#if AP_RCPROTOCOL_SRXL2_ENABLED
     backend[AP_RCProtocol::SRXL2] = new AP_RCProtocol_SRXL2(*this);
+#endif
+#if AP_RCPROTOCOL_CRSF_ENABLED
     backend[AP_RCProtocol::CRSF] = new AP_RCProtocol_CRSF(*this);
+#endif
 #if AP_RCPROTOCOL_FPORT2_ENABLED
     backend[AP_RCProtocol::FPORT2] = new AP_RCProtocol_FPort2(*this, true);
 #endif
-#endif
+#if AP_RCPROTOCOL_ST24_ENABLED
     backend[AP_RCProtocol::ST24] = new AP_RCProtocol_ST24(*this);
+#endif
 #if AP_RCPROTOCOL_FPORT_ENABLED
     backend[AP_RCProtocol::FPORT] = new AP_RCProtocol_FPort(*this, true);
+#endif
+#if AP_RCPROTOCOL_DRONECAN_ENABLED
+    backend[AP_RCProtocol::DRONECAN] = new AP_RCProtocol_DroneCAN(*this);
 #endif
 }
 
@@ -75,7 +97,7 @@ AP_RCProtocol::~AP_RCProtocol()
 bool AP_RCProtocol::should_search(uint32_t now_ms) const
 {
 #if AP_RC_CHANNEL_ENABLED && !APM_BUILD_TYPE(APM_BUILD_UNKNOWN)
-    if (_detected_protocol != AP_RCProtocol::NONE && !rc().multiple_receiver_support()) {
+    if (_detected_protocol != AP_RCProtocol::NONE && !rc().option_is_enabled(RC_Channels::Option::MULTI_RECEIVER_SUPPORT)) {
         return false;
     }
 #else
@@ -225,7 +247,7 @@ bool AP_RCProtocol::process_byte(uint8_t byte, uint32_t baudrate)
                 }
                 // stop decoding pulses to save CPU
                 hal.rcin->pulse_input_enable(false);
-                break;
+                return true;
             }
         }
     }
@@ -275,8 +297,12 @@ static const AP_RCProtocol::SerialConfig serial_configs[] {
     // FastSBUS:
     { 200000,  2,   2, true },
 #endif
+#if AP_RCPROTOCOL_CRSF_ENABLED
     // CrossFire:
     { 416666,  0,   1, false },
+    // CRSFv3 can negotiate higher rates which are sticky on soft reboot
+    { 2000000, 0,   1, false },
+#endif
 };
 
 static_assert(ARRAY_SIZE(serial_configs) > 1, "must have at least one serial config");
@@ -337,9 +363,6 @@ void AP_RCProtocol::update()
 
 bool AP_RCProtocol::new_input()
 {
-    bool ret = _new_input;
-    _new_input = false;
-
     // if we have an extra UART from a SERIALn_PROTOCOL then check it for data
     check_added_uart();
 
@@ -349,6 +372,25 @@ bool AP_RCProtocol::new_input()
             backend[i]->update();
         }
     }
+
+#if AP_RCPROTOCOL_DRONECAN_ENABLED
+    uint32_t now = AP_HAL::millis();
+    if (should_search(now)) {
+        if (backend[AP_RCProtocol::DRONECAN] != nullptr &&
+            backend[AP_RCProtocol::DRONECAN]->new_input()) {
+            _detected_protocol = AP_RCProtocol::DRONECAN;
+            _last_input_ms = now;
+        }
+    } else if (_detected_protocol == AP_RCProtocol::DRONECAN) {
+        _new_input = backend[AP_RCProtocol::DRONECAN]->new_input();
+        if (_new_input) {
+            _last_input_ms = now;
+        }
+    }
+#endif
+
+    bool ret = _new_input;
+    _new_input = false;
     return ret;
 }
 
@@ -401,37 +443,56 @@ void AP_RCProtocol::start_bind(void)
     }
 }
 
+#endif  // AP_RCPROTOCOL_ENABLED
+
 /*
   return protocol name
  */
 const char *AP_RCProtocol::protocol_name_from_protocol(rcprotocol_t protocol)
 {
     switch (protocol) {
-    case PPM:
+#if AP_RCPROTOCOL_PPMSUM_ENABLED
+    case PPMSUM:
         return "PPM";
+#endif
+#if AP_RCPROTOCOL_IBUS_ENABLED
     case IBUS:
         return "IBUS";
+#endif
+#if AP_RCPROTOCOL_SBUS_ENABLED
     case SBUS:
+        return "SBUS";
+#endif
+#if AP_RCPROTOCOL_SBUS_NI_ENABLED
     case SBUS_NI:
         return "SBUS";
+#endif
 #if AP_RCPROTOCOL_FASTSBUS_ENABLED
     case FASTSBUS:
         return "FastSBUS";
 #endif
     case DSM:
         return "DSM";
+#if AP_RCPROTOCOL_SUMD_ENABLED
     case SUMD:
         return "SUMD";
+#endif
 #if AP_RCPROTOCOL_SRXL_ENABLED
     case SRXL:
         return "SRXL";
 #endif
+#if AP_RCPROTOCOL_SRXL2_ENABLED
     case SRXL2:
         return "SRXL2";
+#endif
+#if AP_RCPROTOCOL_CRSF_ENABLED
     case CRSF:
         return "CRSF";
+#endif
+#if AP_RCPROTOCOL_ST24_ENABLED
     case ST24:
         return "ST24";
+#endif
 #if AP_RCPROTOCOL_FPORT_ENABLED
     case FPORT:
         return "FPORT";
@@ -440,12 +501,17 @@ const char *AP_RCProtocol::protocol_name_from_protocol(rcprotocol_t protocol)
     case FPORT2:
         return "FPORT2";
 #endif
+#if AP_RCPROTOCOL_DRONECAN_ENABLED
+    case DRONECAN:
+        return "DroneCAN";
+#endif
     case NONE:
         break;
     }
     return nullptr;
 }
 
+#if AP_RCPROTOCOL_ENABLED
 /*
   return protocol name
  */
@@ -480,3 +546,5 @@ namespace AP {
         return rcprot;
     }
 };
+
+#endif  // AP_RCPROTOCOL_ENABLED

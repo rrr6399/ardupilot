@@ -111,6 +111,7 @@ public:
 
     // check initialisation succeeded
     virtual bool        arming_checks(size_t buflen, char *buffer) const;
+    virtual bool        motor_test_checks(size_t buflen, char *buffer) const;
     bool                initialised_ok() const { return _initialised_ok; }
     void                set_initialised_ok(bool val) { _initialised_ok = val; }
 
@@ -277,6 +278,11 @@ public:
     // write log, to be called at 10hz
     virtual void Log_Write() {};
 
+    enum MotorOptions : uint8_t {
+        BATT_RAW_VOLTAGE = (1 << 0U)
+    };
+    bool has_option(MotorOptions option) { return _options.get() & uint8_t(option); }
+
 protected:
     // output functions that should be overloaded by child classes
     virtual void        output_armed_stabilizing() = 0;
@@ -339,6 +345,9 @@ protected:
     bool                _thrust_boost;          // true if thrust boost is enabled to handle motor failure
     bool                _thrust_balanced;       // true when output thrust is well balanced
     float               _thrust_boost_ratio;    // choice between highest and second highest motor output for output mixing (0 ~ 1). Zero is normal operation
+
+    // motor options
+    AP_Int16            _options;
 
     MAV_TYPE _mav_type; // MAV_TYPE_GENERIC = 0;
 

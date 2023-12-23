@@ -27,9 +27,9 @@ const AP_Param::Info Rover::var_info[] = {
     // @Param: INITIAL_MODE
     // @DisplayName: Initial driving mode
     // @Description: This selects the mode to start in on boot. This is useful for when you want to start in AUTO mode on boot without a receiver. Usually used in combination with when AUTO_TRIGGER_PIN or AUTO_KICKSTART.
-    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,7:Simple,10:Auto,11:RTL,12:SmartRTL,15:Guided
+    // @CopyValuesFrom: MODE1
     // @User: Advanced
-    GSCALAR(initial_mode,        "INITIAL_MODE",     Mode::Number::MANUAL),
+    GSCALAR(initial_mode,        "INITIAL_MODE",     (int8_t)Mode::Number::MANUAL),
 
     // @Param: SYSID_THISMAV
     // @DisplayName: MAVLink system ID of this vehicle
@@ -42,6 +42,7 @@ const AP_Param::Info Rover::var_info[] = {
     // @DisplayName: MAVLink ground station ID
     // @Description: The identifier of the ground station in the MAVLink protocol. Don't change this unless you also modify the ground station to match.
     // @Range: 1 255
+    // @Increment: 1
     // @User: Advanced
     GSCALAR(sysid_my_gcs,           "SYSID_MYGCS",      255),
 
@@ -109,7 +110,7 @@ const AP_Param::Info Rover::var_info[] = {
     // @Description: What to do on a failsafe event
     // @Values: 0:Nothing,1:RTL,2:Hold,3:SmartRTL or RTL,4:SmartRTL or Hold
     // @User: Standard
-    GSCALAR(fs_action,    "FS_ACTION",     Failsafe_Action_Hold),
+    GSCALAR(fs_action,    "FS_ACTION",     (int8_t)FailsafeAction::Hold),
 
     // @Param: FS_TIMEOUT
     // @DisplayName: Failsafe timeout
@@ -171,41 +172,41 @@ const AP_Param::Info Rover::var_info[] = {
 
     // @Param: MODE1
     // @DisplayName: Mode1
-    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,7:Simple,10:Auto,11:RTL,12:SmartRTL,15:Guided
+    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,7:Simple,8:Dock,9:Circle,10:Auto,11:RTL,12:SmartRTL,15:Guided
     // @User: Standard
     // @Description: Driving mode for switch position 1 (910 to 1230 and above 2049)
-    GSCALAR(mode1,           "MODE1",         Mode::Number::MANUAL),
+    GSCALAR(mode1,           "MODE1",         (int8_t)Mode::Number::MANUAL),
 
     // @Param: MODE2
     // @DisplayName: Mode2
     // @Description: Driving mode for switch position 2 (1231 to 1360)
     // @CopyValuesFrom: MODE1
     // @User: Standard
-    GSCALAR(mode2,           "MODE2",         Mode::Number::MANUAL),
+    GSCALAR(mode2,           "MODE2",         (int8_t)Mode::Number::MANUAL),
 
     // @Param: MODE3
     // @CopyFieldsFrom: MODE1
     // @DisplayName: Mode3
     // @Description: Driving mode for switch position 3 (1361 to 1490)
-    GSCALAR(mode3,           "MODE3",         Mode::Number::MANUAL),
+    GSCALAR(mode3,           "MODE3",         (int8_t)Mode::Number::MANUAL),
 
     // @Param: MODE4
     // @CopyFieldsFrom: MODE1
     // @DisplayName: Mode4
     // @Description: Driving mode for switch position 4 (1491 to 1620)
-    GSCALAR(mode4,           "MODE4",         Mode::Number::MANUAL),
+    GSCALAR(mode4,           "MODE4",         (int8_t)Mode::Number::MANUAL),
 
     // @Param: MODE5
     // @CopyFieldsFrom: MODE1
     // @DisplayName: Mode5
     // @Description: Driving mode for switch position 5 (1621 to 1749)
-    GSCALAR(mode5,           "MODE5",         Mode::Number::MANUAL),
+    GSCALAR(mode5,           "MODE5",         (int8_t)Mode::Number::MANUAL),
 
     // @Param: MODE6
     // @CopyFieldsFrom: MODE1
     // @DisplayName: Mode6
     // @Description: Driving mode for switch position 6 (1750 to 2049)
-    GSCALAR(mode6,           "MODE6",         Mode::Number::MANUAL),
+    GSCALAR(mode6,           "MODE6",         (int8_t)Mode::Number::MANUAL),
 
     // variables not in the g class which contain EEPROM saved variables
 
@@ -221,9 +222,11 @@ const AP_Param::Info Rover::var_info[] = {
     // @Path: ../libraries/AP_Baro/AP_Baro.cpp
     GOBJECT(barometer, "BARO", AP_Baro),
 
-    // @Group: RELAY_
+#if AP_RELAY_ENABLED
+    // @Group: RELAY
     // @Path: ../libraries/AP_Relay/AP_Relay.cpp
-    GOBJECT(relay,                  "RELAY_", AP_Relay),
+    GOBJECT(relay,                  "RELAY", AP_Relay),
+#endif
 
     // @Group: RCMAP_
     // @Path: ../libraries/AP_RCMapper/AP_RCMapper.cpp
@@ -515,9 +518,11 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("CRASH_ANGLE", 22, ParametersG2, crash_angle, 0),
 
+#if AP_FOLLOW_ENABLED
     // @Group: FOLL
     // @Path: ../libraries/AP_Follow/AP_Follow.cpp
     AP_SUBGROUPINFO(follow, "FOLL", 23, ParametersG2, AP_Follow),
+#endif
 
     // @Param: FRAME_TYPE
     // @DisplayName: Frame Type
@@ -544,7 +549,7 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @Path: ../libraries/AP_WheelEncoder/AP_WheelRateControl.cpp
     AP_SUBGROUPINFO(wheel_rate_control, "WRC", 27, ParametersG2, AP_WheelRateControl),
 
-#if AP_RALLY == ENABLED
+#if HAL_RALLY_ENABLED
     // @Group: RALLY_
     // @Path: AP_Rally.cpp,../libraries/AP_Rally/AP_Rally.cpp
     AP_SUBGROUPINFO(rally, "RALLY_", 28, ParametersG2, AP_Rally_Rover),
@@ -694,6 +699,10 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("FS_GCS_TIMEOUT", 56, ParametersG2, fs_gcs_timeout, 5),
 
+    // @Group: CIRC
+    // @Path: mode_circle.cpp
+    AP_SUBGROUPINFO(mode_circle, "CIRC", 57, ParametersG2, ModeCircle),
+
     AP_GROUPEND
 };
 
@@ -735,7 +744,7 @@ ParametersG2::ParametersG2(void)
 #if AP_BEACON_ENABLED
     beacon(),
 #endif
-    motors(rover.ServoRelayEvents, wheel_rate_control),
+    motors(wheel_rate_control),
     wheel_rate_control(wheel_encoder),
     attitude_control(),
     smart_rtl(),
@@ -746,7 +755,9 @@ ParametersG2::ParametersG2(void)
     proximity(),
 #endif
     avoid(),
+#if AP_FOLLOW_ENABLED
     follow(),
+#endif
     windvane(),
     pos_control(attitude_control),
     wp_nav(attitude_control, pos_control),

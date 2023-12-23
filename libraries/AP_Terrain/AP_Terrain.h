@@ -18,11 +18,7 @@
 #include <AP_Filesystem/AP_Filesystem_config.h>
 
 #ifndef AP_TERRAIN_AVAILABLE
-#if HAVE_FILESYSTEM_SUPPORT && defined(HAL_BOARD_TERRAIN_DIRECTORY)
-#define AP_TERRAIN_AVAILABLE 1
-#else
-#define AP_TERRAIN_AVAILABLE 0
-#endif
+#define AP_TERRAIN_AVAILABLE AP_FILESYSTEM_FILE_READING_ENABLED
 #endif
 
 #if AP_TERRAIN_AVAILABLE
@@ -185,6 +181,11 @@ public:
       get some statistics for TERRAIN_REPORT
      */
     void get_statistics(uint16_t &pending, uint16_t &loaded) const;
+
+    /*
+      get grid spacing in meters
+     */
+    uint16_t get_grid_spacing() const { return MAX(grid_spacing, 0); };
 
     /*
       returns true if initialisation failed because out-of-memory

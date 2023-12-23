@@ -13,12 +13,14 @@
 #include <SITL/SIM_RF_Benewake_TF02.h>
 #include <SITL/SIM_RF_Benewake_TF03.h>
 #include <SITL/SIM_RF_Benewake_TFmini.h>
+#include <SITL/SIM_RF_NoopLoop.h>
 #include <SITL/SIM_RF_TeraRanger_Serial.h>
 #include <SITL/SIM_RF_LightWareSerial.h>
 #include <SITL/SIM_RF_LightWareSerialBinary.h>
 #include <SITL/SIM_RF_Lanbao.h>
 #include <SITL/SIM_RF_BLping.h>
 #include <SITL/SIM_RF_LeddarOne.h>
+#include <SITL/SIM_RF_RDS02UF.h>
 #include <SITL/SIM_RF_USD1_v0.h>
 #include <SITL/SIM_RF_USD1_v1.h>
 #include <SITL/SIM_RF_MaxsonarSerialLV.h>
@@ -27,9 +29,12 @@
 #include <SITL/SIM_RF_MAVLink.h>
 #include <SITL/SIM_RF_GYUS42v2.h>
 #include <SITL/SIM_VectorNav.h>
-#include <SITL/SIM_LORD.h>
+#include <SITL/SIM_MicroStrain.h>
+#include <SITL/SIM_InertialLabs.h>
 #include <SITL/SIM_AIS.h>
 #include <SITL/SIM_GPS.h>
+
+#include <SITL/SIM_EFI_Hirth.h>
 
 #include <SITL/SIM_Frsky_D.h>
 #include <SITL/SIM_CRSF.h>
@@ -126,6 +131,8 @@ private:
     SITL::RF_Benewake_TF03 *benewake_tf03;
     // simulated Benewake tfmini rangefinder:
     SITL::RF_Benewake_TFmini *benewake_tfmini;
+    //simulated NoopLoop TOFSense rangefinder:
+    SITL::RF_Nooploop *nooploop;
     // simulated TeraRangerSerial rangefinder:
     SITL::RF_TeraRanger_Serial *teraranger_serial;
 
@@ -139,6 +146,8 @@ private:
     SITL::RF_BLping *blping;
     // simulated LeddarOne rangefinder:
     SITL::RF_LeddarOne *leddarone;
+    // simulated RDS02UF rangefinder:
+    SITL::RF_RDS02UF *rds02uf;
     // simulated USD1 v0 rangefinder:
     SITL::RF_USD1_v0 *USD1_v0;
     // simulated USD1 v1 rangefinder:
@@ -184,9 +193,15 @@ private:
     // simulated VectorNav system:
     SITL::VectorNav *vectornav;
 
-    // simulated LORD Microstrain system
-    SITL::LORD *lord;
+    // simulated MicroStrain Series 5 system
+    SITL::MicroStrain5 *microstrain5;
 
+    // simulated MicroStrain Series 7 system
+    SITL::MicroStrain7 *microstrain7;
+
+    // simulated InertialLabs INS-U
+    SITL::InertialLabs *inertiallabs;
+    
 #if HAL_SIM_JSON_MASTER_ENABLED
     // Ride along instances via JSON SITL backend
     SITL::JSON_Master ride_along;
@@ -199,6 +214,9 @@ private:
 
     // simulated EFI MegaSquirt device:
     SITL::EFI_MegaSquirt *efi_ms;
+
+    // simulated EFI Hirth device:
+    SITL::EFI_Hirth *efi_hirth;
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
     // output socket for flightgear viewing

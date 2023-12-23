@@ -19,6 +19,7 @@
 #include <AP_ExternalAHRS/AP_ExternalAHRS.h>
 #include <Filter/LowPassFilter.h>
 #include <Filter/HarmonicNotchFilter.h>
+#include <AP_SerialManager/AP_SerialManager_config.h>
 #include "AP_InertialSensor_Params.h"
 #include "AP_InertialSensor_tempcal.h"
 
@@ -74,6 +75,10 @@ public:
     ///
     void init(uint16_t sample_rate_hz);
 
+    // get accel/gyro instance numbers that a backend will get when they register
+    bool get_accel_instance(uint8_t &instance) const;
+    bool get_gyro_instance(uint8_t &instance) const;
+
     /// Register a new gyro/accel driver, allocating an instance
     /// number
     bool register_gyro(uint8_t &instance, uint16_t raw_sample_rate_hz, uint32_t id);
@@ -81,8 +86,6 @@ public:
 
     // a function called by the main thread at the main loop rate:
     void periodic();
-
-    bool calibrate_trim(Vector3f &trim_rad);
 
     /// calibrating - returns true if the gyros or accels are currently being calibrated
     bool calibrating() const;
@@ -280,9 +283,16 @@ public:
     void acal_update();
 #endif
 
-    // simple accel calibration
 #if HAL_GCS_ENABLED
+    bool calibrate_gyros();
+
+    MAV_RESULT calibrate_trim();
+
+    // simple accel calibration
     MAV_RESULT simple_accel_cal();
+private:
+    uint32_t last_accel_cal_ms;
+public:
 #endif
 
     bool accel_cal_requires_reboot() const { return _accel_cal_requires_reboot; }
@@ -292,6 +302,17 @@ public:
 
     // for killing an IMU for testing purposes
     void kill_imu(uint8_t imu_idx, bool kill_it);
+
+#if AP_SERIALMANAGER_IMUOUT_ENABLED
+    // optional UART for sending IMU data to an external process
+    void set_imu_out_uart(AP_HAL::UARTDriver *uart);
+    void send_uart_data(void);
+
+    struct {
+        uint16_t counter;
+        AP_HAL::UARTDriver *imu_out_uart;
+    } uart;
+#endif // AP_SERIALMANAGER_IMUOUT_ENABLED
 
     enum IMU_SENSOR_TYPE {
         IMU_SENSOR_TYPE_ACCEL = 0,
@@ -653,6 +674,7 @@ private:
     // are gyros or accels currently being calibrated
     bool _calibrating_accel;
     bool _calibrating_gyro;
+    bool _trimming_accel;
 
     // the delta time in seconds for the last sample
     float _delta_time;
@@ -760,6 +782,18 @@ private:
     AP_Int32 tcal_options;
     bool tcal_learning;
 #endif
+
+    // Raw logging options bitmask and parameter
+    enum class RAW_LOGGING_OPTION {
+        PRIMARY_GYRO_ONLY   = (1U<<0),
+        ALL_GYROS           = (1U<<1),
+        POST_FILTER         = (1U<<2),
+        PRE_AND_POST_FILTER = (1U<<3),
+    };
+    AP_Int16 raw_logging_options;
+    bool raw_logging_option_set(RAW_LOGGING_OPTION option) const {
+        return (raw_logging_options.get() & int32_t(option)) != 0;
+    }
 };
 
 namespace AP {

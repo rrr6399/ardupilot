@@ -74,7 +74,14 @@ class TestBuildOptions(object):
                 'AP_COMPASS_AK8963_ENABLED',
                 'AP_COMPASS_AK09916_ENABLED',
                 'AP_COMPASS_ICM20948_ENABLED',
-            ])
+            ]),
+            "CubeBlack": frozenset([
+                'AP_BARO_MS56XX_ENABLED',
+                'AP_COMPASS_LSM303D_ENABLED',
+                'AP_COMPASS_AK8963_ENABLED',
+                'AP_COMPASS_AK09916_ENABLED',
+                'AP_COMPASS_ICM20948_ENABLED',
+            ]),
         }
         return must_have_defines.get(board, frozenset([]))
 
@@ -294,12 +301,13 @@ class TestBuildOptions(object):
 
     def run_disable_in_turn(self):
         options = self.get_build_options_from_ardupilot_tree()
-        if self.match_glob is not None:
-            options = list(filter(lambda x : fnmatch.fnmatch(x.define, self.match_glob), options))
         count = 1
         for feature in sorted(options, key=lambda x : x.define):
+            if self.match_glob is not None:
+                if not fnmatch.fnmatch(feature.define, self.match_glob):
+                    continue
             with open("/tmp/run-disable-in-turn-progress", "w") as f:
-                print(f.write(f"{count}/{len(options)} {feature.define}\n"))
+                f.write(f"{count}/{len(options)} {feature.define}\n")
                 #            if feature.define < "WINCH_ENABLED":
                 #                count += 1
                 #                continue
@@ -323,6 +331,8 @@ class TestBuildOptions(object):
                     continue
             self.progress("Enabling feature %s(%s) (%u/%u)" %
                           (feature.label, feature.define, count, len(options)))
+            with open("/tmp/run-enable-in-turn-progress", "w") as f:
+                f.write(f"{count}/{len(options)} {feature.define}\n")
             self.test_enable_feature(feature, options)
             count += 1
 

@@ -18,6 +18,10 @@
  */
 #pragma once
 
+#include "AP_RCProtocol_config.h"
+
+#if AP_RCPROTOCOL_CRSF_ENABLED
+
 #include "AP_RCProtocol.h"
 #include <AP_Math/AP_Math.h>
 #include <RC_Channel/RC_Channel.h>
@@ -44,7 +48,7 @@ public:
     // bootstrap baudrate
     uint32_t get_bootstrap_baud_rate() const {
 #if AP_RC_CHANNEL_ENABLED
-        return rc().use_420kbaud_for_elrs() ? ELRS_BAUDRATE : CRSF_BAUDRATE;
+        return rc().option_is_enabled(RC_Channels::Option::ELRS_420KBAUD) ? ELRS_BAUDRATE : CRSF_BAUDRATE;
 #else
         return CRSF_BAUDRATE;
 #endif
@@ -332,3 +336,5 @@ private:
 namespace AP {
     AP_RCProtocol_CRSF* crsf();
 };
+
+#endif  // AP_RCPROTOCOL_CRSF_ENABLED

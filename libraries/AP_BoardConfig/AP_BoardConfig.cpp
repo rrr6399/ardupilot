@@ -138,7 +138,7 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
     // @Values: 0:Disabled,1:Enabled,2:Auto
     // @RebootRequired: True
     // @User: Advanced
-    AP_GROUPINFO("SER3_RTSCTS",    23, AP_BoardConfig, state.ser_rtscts[3], 2),
+    AP_GROUPINFO("SER3_RTSCTS",    26, AP_BoardConfig, state.ser_rtscts[3], 2),
 #endif
 
 #ifdef HAL_HAVE_RTSCTS_SERIAL4
@@ -148,7 +148,7 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
     // @Values: 0:Disabled,1:Enabled,2:Auto
     // @RebootRequired: True
     // @User: Advanced
-    AP_GROUPINFO("SER4_RTSCTS",    24, AP_BoardConfig, state.ser_rtscts[4], 2),
+    AP_GROUPINFO("SER4_RTSCTS",    27, AP_BoardConfig, state.ser_rtscts[4], 2),
 #endif
 
 #ifdef HAL_HAVE_RTSCTS_SERIAL5
@@ -234,13 +234,15 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
     // @Param: SAFETYOPTION
     // @DisplayName: Options for safety button behavior
     // @Description: This controls the activation of the safety button. It allows you to control if the safety button can be used for safety enable and/or disable, and whether the button is only active when disarmed
-    // @Bitmask: 0:ActiveForSafetyEnable,1:ActiveForSafetyDisable,2:ActiveWhenArmed,3:Force safety on when the aircraft disarms
+    // @Bitmask: 0:ActiveForSafetyDisable,1:ActiveForSafetyEnable,2:ActiveWhenArmed,3:Force safety on when the aircraft disarms
     // @User: Standard
     AP_GROUPINFO("SAFETYOPTION",   13, AP_BoardConfig, state.safety_option, BOARD_SAFETY_OPTION_DEFAULT),
 
+#if AP_RTC_ENABLED
     // @Group: RTC
     // @Path: ../AP_RTC/AP_RTC.cpp
     AP_SUBGROUPINFO(rtc, "RTC", 14, AP_BoardConfig, AP_RTC),
+#endif
 
 #if HAL_HAVE_BOARD_VOLTAGE
     // @Param: VBUS_MIN
@@ -278,7 +280,7 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
 #ifdef HAL_GPIO_PWM_VOLT_PIN
     // @Param: PWM_VOLT_SEL
     // @DisplayName: Set PWM Out Voltage
-    // @Description: This sets the voltage max for PWM output pulses. 0 for 3.3V and 1 for 5V output. On boards with an IOMCU that support this parameter this option only affects the 8 main outputs, not the 6 auxilliary outputs. Using 5V output can help to reduce the impact of ESC noise interference corrupting signals to the ESCs.
+    // @Description: This sets the voltage max for PWM output pulses. 0 for 3.3V and 1 for 5V output. On boards with an IOMCU that support this parameter this option only affects the 8 main outputs, not the 6 auxiliary outputs. Using 5V output can help to reduce the impact of ESC noise interference corrupting signals to the ESCs.
     // @Values: 0:3.3V,1:5V
     // @User: Advanced
     AP_GROUPINFO("PWM_VOLT_SEL", 18, AP_BoardConfig, _pwm_volt_sel, 0),
@@ -287,7 +289,7 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
     // @Param: OPTIONS
     // @DisplayName: Board options
     // @Description: Board specific option flags
-    // @Bitmask: 0:Enable hardware watchdog, 1:Disable MAVftp, 2:Enable set of internal parameters, 3:Enable Debug Pins, 4:Unlock flash on reboot, 5:Write protect firmware flash on reboot, 6:Write protect bootloader flash on reboot
+    // @Bitmask: 0:Enable hardware watchdog, 1:Disable MAVftp, 2:Enable set of internal parameters, 3:Enable Debug Pins, 4:Unlock flash on reboot, 5:Write protect firmware flash on reboot, 6:Write protect bootloader flash on reboot, 7:Skip board validation, 8:Disable board arming gpio output change on arm/disarm
     // @User: Advanced
     AP_GROUPINFO("OPTIONS", 19, AP_BoardConfig, _options, HAL_BRD_OPTIONS_DEFAULT),
 
@@ -353,7 +355,21 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("SD_MISSION", 24, AP_BoardConfig, sdcard_storage.mission_kb, 0),
 #endif
+
+    // index 25 used by SER5_RTSCTS
+    // index 26 used by SER3_RTSCTS
+    // index 27 used by SER4_RTSCTS
+
     
+#if HAL_WITH_IO_MCU_DSHOT
+    // @Param: IO_DSHOT
+    // @DisplayName: Load DShot FW on IO
+    // @Description: This loads the DShot firmware on the IO co-processor
+    // @Values: 0:StandardFW,1:DshotFW
+    // @RebootRequired: True
+    // @User: Advanced
+    AP_GROUPINFO("IO_DSHOT", 28, AP_BoardConfig, state.io_dshot, 0),
+#endif
     AP_GROUPEND
 };
 
@@ -364,7 +380,9 @@ void AP_BoardConfig::init()
 
     board_setup();
 
+#if AP_RTC_ENABLED
     AP::rtc().set_utc_usec(hal.util->get_hw_rtc(), AP_RTC::SOURCE_HW);
+#endif
 
     if (_boot_delay_ms > 0) {
         uint16_t delay_ms = uint16_t(_boot_delay_ms.get());

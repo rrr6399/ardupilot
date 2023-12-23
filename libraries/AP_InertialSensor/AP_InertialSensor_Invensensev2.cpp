@@ -27,9 +27,19 @@
 
 extern const AP_HAL::HAL& hal;
 
+#ifdef INS_TIMING_DEBUG
+#include <stdio.h>
+#define timing_printf(fmt, args...)      do { printf("[timing] " fmt, ##args); } while(0)
+#else
+#define timing_printf(fmt, args...)
+#endif
+
 #if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
 // hal.console can be accessed from bus threads on ChibiOS
 #define debug(fmt, args ...)  do {hal.console->printf("INV2: " fmt "\n", ## args); } while(0)
+#elif CONFIG_HAL_BOARD == HAL_BOARD_ESP32 
+// esp32 commonly has timing issues
+#define debug(fmt, args ...)  do {timing_printf("INV2: " fmt "\n", ## args); } while(0)
 #else
 #define debug(fmt, args ...)  do {printf("INV2: " fmt "\n", ## args); } while(0)
 #endif
@@ -156,6 +166,11 @@ bool AP_InertialSensor_Invensensev2::_has_auxiliary_bus()
 
 void AP_InertialSensor_Invensensev2::start()
 {
+    // pre-fetch instance numbers for checking fast sampling settings
+    if (!_imu.get_gyro_instance(_gyro_instance) || !_imu.get_accel_instance(_accel_instance)) {
+        return;
+    }
+
     WITH_SEMAPHORE(_dev->get_semaphore());
 
     // initially run the bus at low speed

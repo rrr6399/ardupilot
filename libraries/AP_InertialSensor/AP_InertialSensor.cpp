@@ -38,6 +38,7 @@
 #include "AP_InertialSensor_ExternalAHRS.h"
 #include "AP_InertialSensor_Invensensev3.h"
 #include "AP_InertialSensor_NONE.h"
+#include "AP_InertialSensor_SCHA63T.h"
 
 /* Define INS_TIMING_DEBUG to track down scheduling issues with the main loop.
  * Output is on the debug console. */
@@ -673,6 +674,13 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     AP_SUBGROUPINFO(params[1], "5_", 55, AP_InertialSensor, AP_InertialSensor_Params),
 #endif
 
+    // @Param: _RAW_LOG_OPT
+    // @DisplayName: Raw logging options
+    // @Description: Raw logging options bitmask
+    // @Bitmask: 0:Log primary gyro only, 1:Log all gyros, 2:Post filter, 3: Pre and post filter
+    // @User: Advanced
+    AP_GROUPINFO("_RAW_LOG_OPT", 56, AP_InertialSensor, raw_logging_options, 0),
+
     /*
       NOTE: parameter indexes have gaps above. When adding new
       parameters check for conflicts carefully
@@ -749,6 +757,30 @@ bool AP_InertialSensor::register_gyro(uint8_t &instance, uint16_t raw_sample_rat
 
     instance = _gyro_count++;
 
+    return true;
+}
+
+/*
+  get the accel instance number we will get from register_accel()
+ */
+bool AP_InertialSensor::get_accel_instance(uint8_t &instance) const
+{
+    if (_accel_count == INS_MAX_INSTANCES) {
+        return false;
+    }
+    instance = _accel_count;
+    return true;
+}
+
+/*
+  get the gyro instance number we will get from register_accel()
+ */
+bool AP_InertialSensor::get_gyro_instance(uint8_t &instance) const
+{
+    if (_gyro_count == INS_MAX_INSTANCES) {
+        return false;
+    }
+    instance = _gyro_count;
     return true;
 }
 
@@ -887,6 +919,11 @@ AP_InertialSensor::init(uint16_t loop_rate)
     // cause divergence of state estimators
     _loop_delta_t_max = 10 * _loop_delta_t;
 
+    // Initialize notch params
+    for (auto &notch : harmonic_notches) {
+        notch.params.init();
+    }
+
     if (_gyro_count == 0 && _accel_count == 0) {
         _start_backends();
     }
@@ -949,7 +986,9 @@ AP_InertialSensor::init(uint16_t loop_rate)
         if (!notch.params.enabled() && !fft_enabled) {
             continue;
         }
-        notch.calculated_notch_freq_hz[0] = notch.params.center_freq_hz();
+        for (uint8_t i = 0; i < ARRAY_SIZE(notch.calculated_notch_freq_hz); i++) {
+            notch.calculated_notch_freq_hz[i] = notch.params.center_freq_hz();
+        }
         notch.num_calculated_notch_frequencies = 1;
         notch.num_dynamic_notches = 1;
 #if APM_BUILD_COPTER_OR_HELI || APM_BUILD_TYPE(APM_BUILD_ArduPlane)
@@ -1421,21 +1460,37 @@ bool AP_InertialSensor::get_accel_health_all(void) const
     return (get_accel_count() > 0);
 }
 
-
+#if HAL_GCS_ENABLED
 /*
   calculate the trim_roll and trim_pitch. This is used for redoing the
   trim without needing a full accel cal
  */
-bool AP_InertialSensor::calibrate_trim(Vector3f &trim_rad)
+MAV_RESULT AP_InertialSensor::calibrate_trim()
 {
-    Vector3f level_sample;
-
     // exit immediately if calibration is already in progress
     if (calibrating()) {
-        return false;
+        return MAV_RESULT_TEMPORARILY_REJECTED;
     }
 
+    // reject any time we've done a calibration recently
+    const uint32_t now = AP_HAL::millis();
+    if ((now - last_accel_cal_ms) < 5000) {
+        return MAV_RESULT_TEMPORARILY_REJECTED;
+    }
+
+    if (!calibrate_gyros()) {
+        return MAV_RESULT_FAILED;
+    }
+
+    AP_AHRS &ahrs = AP::ahrs();
+    Vector3f trim_rad = ahrs.get_trim();
+
     const uint8_t update_dt_milliseconds = (uint8_t)(1000.0f/get_loop_rate_hz()+0.5f);
+    Vector3f level_sample;
+    uint32_t num_samples = 0;
+
+    _trimming_accel = true;
+
 
     // wait 100ms for ins filter to rise
     for (uint8_t k=0; k<100/update_dt_milliseconds; k++) {
@@ -1444,7 +1499,6 @@ bool AP_InertialSensor::calibrate_trim(Vector3f &trim_rad)
         hal.scheduler->delay(update_dt_milliseconds);
     }
 
-    uint32_t num_samples = 0;
     while (num_samples < 400/update_dt_milliseconds) {
         wait_for_sample();
         // read samples from ins
@@ -1454,7 +1508,7 @@ bool AP_InertialSensor::calibrate_trim(Vector3f &trim_rad)
         samp = get_accel(0);
         level_sample += samp;
         if (!get_accel_health(0)) {
-            return false;
+            goto failed;
         }
         hal.scheduler->delay(update_dt_milliseconds);
         num_samples++;
@@ -1462,11 +1516,21 @@ bool AP_InertialSensor::calibrate_trim(Vector3f &trim_rad)
     level_sample /= num_samples;
 
     if (!_calculate_trim(level_sample, trim_rad)) {
-        return false;
+        goto failed;
     }
 
-    return true;
+    // reset ahrs's trim to suggested values from calibration routine
+    ahrs.set_trim(trim_rad);
+    last_accel_cal_ms = AP_HAL::millis();
+    _trimming_accel = false;
+    return MAV_RESULT_ACCEPTED;
+
+failed:
+    last_accel_cal_ms = AP_HAL::millis();
+    _trimming_accel = false;
+    return MAV_RESULT_FAILED;
 }
+#endif  // HAL_GCS_ENABLED
 
 /*
   check if the accelerometers are calibrated in 3D and that current number of accels matched number when calibrated
@@ -1818,6 +1882,11 @@ void AP_InertialSensor::update(void)
         GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "TCAL finished all IMUs");
     }
 #endif
+#if AP_SERIALMANAGER_IMUOUT_ENABLED
+    if (uart.imu_out_uart) {
+        send_uart_data();
+    }
+#endif
 }
 
 /*
@@ -2098,7 +2167,7 @@ bool AP_InertialSensor::is_still()
 // return true if we are in a calibration
 bool AP_InertialSensor::calibrating() const
 {
-    if (_calibrating_accel || _calibrating_gyro) {
+    if (_calibrating_accel || _calibrating_gyro || _trimming_accel) {
         return true;
     }
 #if HAL_INS_ACCELCAL_ENABLED
@@ -2332,12 +2401,28 @@ bool AP_InertialSensor::get_primary_accel_cal_sample_avg(uint8_t sample_num, Vec
     return true;
 }
 
+#if HAL_GCS_ENABLED
+bool AP_InertialSensor::calibrate_gyros()
+{
+    init_gyro();
+    if (!gyro_calibrated_ok_all()) {
+        return false;
+    }
+    AP::ahrs().reset_gyro_drift();
+    return true;
+}
+
 /*
   perform a simple 1D accel calibration, returning mavlink result code
  */
-#if HAL_GCS_ENABLED
 MAV_RESULT AP_InertialSensor::simple_accel_cal()
 {
+    const uint32_t now = AP_HAL::millis();
+    if ((now - last_accel_cal_ms) < 5000) {
+        return MAV_RESULT_TEMPORARILY_REJECTED;
+    }
+    last_accel_cal_ms = now;
+
     uint8_t num_accels = MIN(get_accel_count(), INS_MAX_INSTANCES);
     Vector3f last_average[INS_MAX_INSTANCES];
     Vector3f new_accel_offset[INS_MAX_INSTANCES];
@@ -2492,6 +2577,7 @@ MAV_RESULT AP_InertialSensor::simple_accel_cal()
 
     // stop flashing leds
     AP_Notify::flags.initialising = false;
+    last_accel_cal_ms = AP_HAL::millis ();
 
     return result;
 }
@@ -2508,7 +2594,7 @@ AP_InertialSensor::Gyro_Calibration_Timing AP_InertialSensor::gyro_calibration_t
     return (Gyro_Calibration_Timing)_gyro_cal_timing.get();
 }
 
-#if !HAL_MINIMIZE_FEATURES
+#if AP_INERTIALSENSOR_KILL_IMU_ENABLED
 /*
   update IMU kill mask, used for testing IMU failover
  */
@@ -2531,8 +2617,52 @@ void AP_InertialSensor::kill_imu(uint8_t imu_idx, bool kill_it)
         imu_kill_mask &= ~(1U<<imu_idx);
     }
 }
-#endif // HAL_MINIMIZE_FEATURES
+#endif // AP_INERTIALSENSOR_KILL_IMU_ENABLED
 
+#if AP_SERIALMANAGER_IMUOUT_ENABLED
+/*
+  setup a UART for sending external data
+ */
+void AP_InertialSensor::set_imu_out_uart(AP_HAL::UARTDriver *_uart)
+{
+    uart.imu_out_uart = _uart;
+    uart.counter = 0;
+}
+
+/*
+  send IMU delta-angle and delta-velocity to a UART
+ */
+void AP_InertialSensor::send_uart_data(void)
+{
+    struct {
+        uint16_t magic = 0x29c4;
+        uint16_t length;
+        uint32_t timestamp_us;
+        Vector3f delta_velocity;
+        Vector3f delta_angle;
+        float    delta_velocity_dt;
+        float    delta_angle_dt;
+        uint16_t counter;
+        uint16_t crc;
+    } data;
+
+    if (uart.imu_out_uart->txspace() < sizeof(data)) {
+        // not enough space
+        return;
+    }
+
+    data.length = sizeof(data);
+    data.timestamp_us = AP_HAL::micros();
+
+    get_delta_angle(get_primary_gyro(), data.delta_angle, data.delta_angle_dt);
+    get_delta_velocity(get_primary_accel(), data.delta_velocity, data.delta_velocity_dt);
+
+    data.counter = uart.counter++;
+    data.crc = crc_xmodem((const uint8_t *)&data, sizeof(data)-sizeof(uint16_t));
+
+    uart.imu_out_uart->write((const uint8_t *)&data, sizeof(data));
+}
+#endif // AP_SERIALMANAGER_IMUOUT_ENABLED
 
 #if HAL_EXTERNAL_AHRS_ENABLED
 void AP_InertialSensor::handle_external(const AP_ExternalAHRS::ins_data_message_t &pkt)

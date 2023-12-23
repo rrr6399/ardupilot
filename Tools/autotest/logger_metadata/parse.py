@@ -11,6 +11,7 @@ import sys
 import emit_html
 import emit_rst
 import emit_xml
+import emit_md
 
 import enum_parse
 from enum_parse import EnumDocco
@@ -50,6 +51,7 @@ class LoggerDocco(object):
             emit_html.HTMLEmitter(),
             emit_rst.RSTEmitter(),
             emit_xml.XMLEmitter(),
+            emit_md.MDEmitter(),
         ]
 
     class Docco(object):
@@ -184,7 +186,7 @@ class LoggerDocco(object):
         # expand things like PIDR,PIDQ,PIDA into multiple doccos
         new_doccos = []
         for docco in self.doccos:
-            if type(docco.name) == list:
+            if isinstance(docco.name, list):
                 for name in docco.name:
                     tmpdocco = copy.copy(docco)
                     tmpdocco.name = name

@@ -1,13 +1,15 @@
 /*
   ArduPilot filesystem interface for systems using the FATFS filesystem
  */
+#include "AP_Filesystem_config.h"
+
+#if AP_FILESYSTEM_FATFS_ENABLED
+
 #include "AP_Filesystem.h"
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Math/AP_Math.h>
 #include <stdio.h>
-#include <AP_RTC/AP_RTC.h>
-
-#if HAVE_FILESYSTEM_SUPPORT && CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
+#include <AP_Common/time.h>
 
 #include <ff.h>
 #include <AP_HAL_ChibiOS/sdcard.h>
@@ -562,7 +564,7 @@ static time_t fat_time_to_unix(uint16_t date, uint16_t time)
     tp.tm_mday = (date & 0x1f);
     tp.tm_mon = ((date >> 5) & 0x0f) - 1;
     tp.tm_year = ((date >> 9) & 0x7f) + 80;
-    unix = AP::rtc().mktime(&tp);
+    unix = ap_mktime(&tp);
     return unix;
 }
 
@@ -877,7 +879,7 @@ bool AP_Filesystem_FATFS::format(void)
 #if FF_USE_MKFS
     WITH_SEMAPHORE(sem);
     hal.scheduler->register_io_process(FUNCTOR_BIND_MEMBER(&AP_Filesystem_FATFS::format_handler, void));
-    // the format is handled asyncronously, we inform user of success
+    // the format is handled asynchronously, we inform user of success
     // via a text message.  format_status can be polled for progress
     format_status = FormatStatus::PENDING;
     return true;
@@ -975,4 +977,4 @@ char *strerror(int errnum)
     return NULL;
 }
 
-#endif // CONFIG_HAL_BOARD
+#endif  // AP_FILESYSTEM_FATFS_ENABLED
