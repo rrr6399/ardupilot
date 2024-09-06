@@ -6,13 +6,13 @@
 */
 void Plane::parachute_check()
 {
-#if PARACHUTE == ENABLED
+#if HAL_PARACHUTE_ENABLED
     parachute.update();
     parachute.check_sink_rate();
 #endif
 }
 
-#if PARACHUTE == ENABLED
+#if HAL_PARACHUTE_ENABLED
 
 /*
   parachute_release - trigger the release of the parachute
@@ -31,7 +31,7 @@ void Plane::parachute_release()
     // release parachute
     parachute.release();
 
-#if LANDING_GEAR_ENABLED == ENABLED
+#if AP_LANDINGGEAR_ENABLED
     // deploy landing gear
     g2.landing_gear.set_position(AP_LandingGear::LandingGear_Deploy);
 #endif
@@ -59,7 +59,7 @@ bool Plane::parachute_manual_release()
     // if we get this far release parachute
     parachute_release();
 
-#if LANDING_GEAR_ENABLED == ENABLED
+#if AP_LANDINGGEAR_ENABLED
     // deploy landing gear
     g2.landing_gear.set_position(AP_LandingGear::LandingGear_Deploy);
 #endif

@@ -2,6 +2,10 @@
 
 extern const AP_HAL::HAL &hal;
 
+uint32_t AP_HAL::RCOutput::DSHOT_BIT_WIDTH_TICKS = DSHOT_BIT_WIDTH_TICKS_DEFAULT;
+uint32_t AP_HAL::RCOutput::DSHOT_BIT_0_TICKS = DSHOT_BIT_0_TICKS_DEFAULT;
+uint32_t AP_HAL::RCOutput::DSHOT_BIT_1_TICKS = DSHOT_BIT_1_TICKS_DEFAULT;
+
 // helper function for implementation of get_output_mode_banner
 const char* AP_HAL::RCOutput::get_output_mode_string(enum output_mode out_mode) const
 {
@@ -26,6 +30,7 @@ const char* AP_HAL::RCOutput::get_output_mode_string(enum output_mode out_mode) 
     case MODE_PWM_DSHOT1200:
         return "DS1200";
     case MODE_NEOPIXEL:
+    case MODE_NEOPIXELRGB:
         return "NeoP";
     case MODE_PROFILED:
         return "ProfiLED";
@@ -68,3 +73,34 @@ bool AP_HAL::RCOutput::is_dshot_protocol(const enum output_mode mode)
         return false;
     }
 }
+
+/*
+ * calculate the prescaler required to achieve the desire bitrate
+ */
+uint32_t AP_HAL::RCOutput::calculate_bitrate_prescaler(uint32_t timer_clock, uint32_t target_frequency, bool at_least_freq)
+{
+    if (target_frequency > timer_clock) {
+        // we can't achieve the desired frequency
+        return 0;
+    }
+
+    uint32_t prescaler;
+
+    if (at_least_freq) { // choose a frequency of at least the target, needed by BLHeli_S
+        prescaler = uint32_t(floorf((float) timer_clock / target_frequency + 0.01f) - 1);
+    } else { // original prescaler calculation from betaflight, chooses closest
+        // bi-dir dshot is incredibly sensitive to the bitrate
+        prescaler = uint32_t(lrintf((float) timer_clock / target_frequency + 0.01f) - 1);
+    }
+
+    return prescaler;
+}
+
+/*
+  returns the pwm value scaled to [-1;1] regrading to set_esc_scaling ranges range without constraints.
+*/
+float AP_HAL::RCOutput::scale_esc_to_unity(uint16_t pwm) const
+{
+    return 2.0 * ((float) pwm - _esc_pwm_min) / (_esc_pwm_max - _esc_pwm_min) - 1.0;
+}
+

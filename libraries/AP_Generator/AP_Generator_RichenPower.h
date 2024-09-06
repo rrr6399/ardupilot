@@ -1,12 +1,14 @@
 // -*- tab-width: 4; Mode: C++; c-basic-offset: 4; indent-tabs-mode: nil -*-
 #pragma once
 
+#include "AP_Generator_config.h"
+
+#if AP_GENERATOR_RICHENPOWER_ENABLED
+
 #include "AP_Generator_Backend.h"
 
-#if HAL_GENERATOR_ENABLED
-
+#include <AP_Logger/AP_Logger_config.h>
 #include <AP_Common/AP_Common.h>
-#include <SRV_Channel/SRV_Channel.h>
 #include <stdint.h>
 #include <stdio.h>
 
@@ -66,7 +68,7 @@ private:
     RunState pilot_desired_runstate = RunState::STOP;
     RunState commanded_runstate = RunState::STOP;  // output is based on this
     void set_pilot_desired_runstate(RunState newstate) {
-        // gcs().send_text(MAV_SEVERITY_INFO, "RichenPower: Moving to state (%u) from (%u)\n", (unsigned)newstate, (unsigned)runstate);
+        // GCS_SEND_TEXT(MAV_SEVERITY_INFO, "RichenPower: Moving to state (%u) from (%u)\n", (unsigned)newstate, (unsigned)runstate);
         pilot_desired_runstate = newstate;
     }
     void update_runstate();
@@ -94,9 +96,11 @@ private:
         Mode        mode;
     };
 
+#if HAL_LOGGING_ENABLED
     // method and state to write and entry to the onboard log:
     void Log_Write();
     uint32_t last_logged_reading_ms;
+#endif
 
     struct Reading last_reading;
     uint32_t last_reading_ms;
@@ -151,7 +155,6 @@ private:
         uint8_t footermagic1;
         uint8_t footermagic2;
     };
-    assert_storage_size<RichenPacket, 70> _assert_storage_size_RichenPacket;
 
     union RichenUnion {
         uint8_t parse_buffer[70];
@@ -204,5 +207,11 @@ private:
         }
         return AP_HAL::millis() - idle_state_start_ms;
     }
+
+    // check if the generator requires maintenance and send a message if it does:
+    void check_maintenance_required();
+    // if we are emitting warnings about the generator requiring
+    // maintenamce, this is the last time we sent the warning:
+    uint32_t last_maintenance_warning_ms;
 };
-#endif
+#endif  // AP_GENERATOR_RICHENPOWER_ENABLED

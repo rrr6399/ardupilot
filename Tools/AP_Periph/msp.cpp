@@ -3,6 +3,7 @@
   Thanks to input from Konstantin Sharlaimov
  */
 
+#include <AP_HAL/AP_HAL_Boards.h>
 #include "AP_Periph.h"
 
 #ifdef HAL_PERIPH_ENABLE_MSP
@@ -109,7 +110,8 @@ void AP_Periph_FW::send_msp_GPS(void)
     }
     uint64_t tepoch_us = gps.time_epoch_usec(0);
     time_t utc_sec = tepoch_us / (1000U * 1000U);
-    struct tm* tm = gmtime(&utc_sec);
+    struct tm tvd {};
+    struct tm* tm = gmtime_r(&utc_sec, &tvd);
 
     p.year = tm->tm_year+1900;
     p.month = tm->tm_mon;

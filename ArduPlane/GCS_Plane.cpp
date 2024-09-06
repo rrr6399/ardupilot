@@ -8,23 +8,11 @@ uint8_t GCS_Plane::sysid_this_mav() const
 
 void GCS_Plane::update_vehicle_sensor_status_flags(void)
 {
-    // airspeed
-    const AP_Airspeed *airspeed = AP_Airspeed::get_singleton();
-    if (airspeed && airspeed->enabled()) {
-        control_sensors_present |= MAV_SYS_STATUS_SENSOR_DIFFERENTIAL_PRESSURE;
-    }
-    if (airspeed && airspeed->enabled() && airspeed->use()) {
-        control_sensors_enabled |= MAV_SYS_STATUS_SENSOR_DIFFERENTIAL_PRESSURE;
-    }
-    if (airspeed && airspeed->all_healthy()) {
-        control_sensors_health |= MAV_SYS_STATUS_SENSOR_DIFFERENTIAL_PRESSURE;
-    }
-
     // reverse thrust
     if (plane.have_reverse_thrust()) {
         control_sensors_present |= MAV_SYS_STATUS_REVERSE_MOTOR;
     }
-    if (plane.have_reverse_thrust() && SRV_Channels::get_output_scaled(SRV_Channel::k_throttle) < 0) {
+    if (plane.have_reverse_thrust() && is_negative(SRV_Channels::get_output_scaled(SRV_Channel::k_throttle))) {
         control_sensors_enabled |= MAV_SYS_STATUS_REVERSE_MOTOR;
         control_sensors_health |= MAV_SYS_STATUS_REVERSE_MOTOR;
     }
@@ -110,24 +98,6 @@ void GCS_Plane::update_vehicle_sensor_status_flags(void)
         control_sensors_health |= MAV_SYS_STATUS_SENSOR_ATTITUDE_STABILIZATION;
     }
 
-#if OPTFLOW == ENABLED
-    const OpticalFlow *optflow = AP::opticalflow();
-    if (optflow && optflow->enabled()) {
-        control_sensors_present |= MAV_SYS_STATUS_SENSOR_OPTICAL_FLOW;
-        control_sensors_enabled |= MAV_SYS_STATUS_SENSOR_OPTICAL_FLOW;
-    }
-    if (optflow && optflow->healthy()) {
-        control_sensors_health |= MAV_SYS_STATUS_SENSOR_OPTICAL_FLOW;
-    }
-#endif
-
-    control_sensors_present |= MAV_SYS_STATUS_SENSOR_RC_RECEIVER;
-    control_sensors_enabled |= MAV_SYS_STATUS_SENSOR_RC_RECEIVER;
-    uint32_t last_valid = plane.failsafe.last_valid_rc_ms;
-    if (millis() - last_valid < 200) {
-        control_sensors_health |= MAV_SYS_STATUS_SENSOR_RC_RECEIVER;
-    }
-
 #if AP_TERRAIN_AVAILABLE
     switch (plane.terrain.status()) {
     case AP_Terrain::TerrainStatusDisabled:
@@ -144,6 +114,7 @@ void GCS_Plane::update_vehicle_sensor_status_flags(void)
     }
 #endif
 
+#if AP_RANGEFINDER_ENABLED
     const RangeFinder *rangefinder = RangeFinder::get_singleton();
     if (rangefinder && rangefinder->has_orientation(ROTATION_PITCH_270)) {
         control_sensors_present |= MAV_SYS_STATUS_SENSOR_LASER_POSITION;
@@ -154,4 +125,5 @@ void GCS_Plane::update_vehicle_sensor_status_flags(void)
             control_sensors_health |= MAV_SYS_STATUS_SENSOR_LASER_POSITION;            
         }
     }
+#endif
 }

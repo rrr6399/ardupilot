@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <AP_HAL/AP_HAL_Boards.h>
 
-#include "AP_Filesystem_Available.h"
+#include "AP_Filesystem_config.h"
 
 #include <AP_InternalError/AP_InternalError.h>
 
@@ -43,7 +43,7 @@ class AP_Filesystem_Backend {
 
 public:
     // functions that closely match the equivalent posix calls
-    virtual int open(const char *fname, int flags) {
+    virtual int open(const char *fname, int flags, bool allow_absolute_paths = false) {
         return -1;
     }
     virtual int close(int fd) { return -1; }
@@ -57,6 +57,7 @@ public:
     virtual void *opendir(const char *pathname) { return nullptr; }
     virtual struct dirent *readdir(void *dirp) { return nullptr; }
     virtual int closedir(void *dirp) { return -1; }
+    virtual int rename(const char *oldpath, const char *newpath) { return -1; }
 
     // return free disk space in bytes, -1 on error
     virtual int64_t disk_free(const char *path) { return 0; }
@@ -73,8 +74,22 @@ public:
     // unmount filesystem for reboot
     virtual void unmount(void) {}
 
+    enum class FormatStatus {
+        NOT_STARTED,
+        PENDING,
+        IN_PROGRESS,
+        SUCCESS,
+        FAILURE,
+    };
+
+    // format sdcard.  This is async, monitor get_format_status for progress
+    virtual bool format(void) { return false; }
+    virtual AP_Filesystem_Backend::FormatStatus get_format_status() const { return FormatStatus::NOT_STARTED; }
+
     /*
-      load a full file. Use delete to free the data
+      Load a file's contents into memory. Returned object must be `delete`d to
+      free the data. The data is guaranteed to be null-terminated such that it
+      can be treated as a string.
      */
     virtual FileData *load_file(const char *filename);
 

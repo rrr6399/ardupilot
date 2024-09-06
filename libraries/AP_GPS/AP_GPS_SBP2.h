@@ -24,10 +24,11 @@
 #include "AP_GPS.h"
 #include "GPS_Backend.h"
 
+#if AP_GPS_SBP2_ENABLED
 class AP_GPS_SBP2 : public AP_GPS_Backend
 {
 public:
-    AP_GPS_SBP2(AP_GPS &_gps, AP_GPS::GPS_State &_state, AP_HAL::UARTDriver *_port);
+    AP_GPS_SBP2(AP_GPS &_gps, AP_GPS::Params &_params, AP_GPS::GPS_State &_state, AP_HAL::UARTDriver *_port);
 
     AP_GPS::GPS_Status highest_supported_status(void) override { return AP_GPS::GPS_OK_FIX_3D_RTK_FIXED; }
 
@@ -201,4 +202,4 @@ private:
     int32_t distMod(int32_t tow1_ms, int32_t tow2_ms, int32_t mod);
 
 };
-
+#endif

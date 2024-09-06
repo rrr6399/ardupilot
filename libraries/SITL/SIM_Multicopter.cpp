@@ -36,7 +36,6 @@ MultiCopter::MultiCopter(const char *frame_str) :
 
     mass = frame->get_mass();
     frame_height = 0.1;
-    num_motors = frame->num_motors;
     ground_behavior = GROUND_BEHAVIOR_NO_MOVEMENT;
     lock_step_scheduled = true;
 }
@@ -44,10 +43,16 @@ MultiCopter::MultiCopter(const char *frame_str) :
 // calculate rotational and linear accelerations
 void MultiCopter::calculate_forces(const struct sitl_input &input, Vector3f &rot_accel, Vector3f &body_accel)
 {
+    motor_mask |= ((1U<<frame->num_motors)-1U) << frame->motor_offset;
     frame->calculate_forces(*this, input, rot_accel, body_accel, rpm);
 
     add_shove_forces(rot_accel, body_accel);
     add_twist_forces(rot_accel);
+
+#if AP_SIM_SLUNGPAYLOAD_ENABLED
+    // add forces from slung payload
+    add_slungpayload_forces(body_accel);
+#endif
 }
     
 /*
@@ -61,6 +66,11 @@ void MultiCopter::update(const struct sitl_input &input)
     Vector3f rot_accel;
 
     calculate_forces(input, rot_accel, accel_body);
+    // simulated clamp holding vehicle down
+    if (clamp.clamped(*this, input)) {
+        rot_accel.zero();
+        accel_body.zero();
+    }
 
     // estimate voltage and current
     frame->current_and_voltage(battery_voltage, battery_current);

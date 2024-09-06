@@ -2,6 +2,7 @@
 #include <AP_RSSI/AP_RSSI.h>
 #include <AP_OpticalFlow/AP_OpticalFlow.h>
 
+#if AP_RANGEFINDER_ENABLED
 /*
   read the rangefinder and update height estimate
  */
@@ -18,7 +19,7 @@ void Plane::read_rangefinder(void)
 #endif
     {
         // use the best available alt estimate via baro above home
-        if (flight_stage == AP_Vehicle::FixedWing::FLIGHT_LAND) {
+        if (flight_stage == AP_FixedWing::FlightStage::LAND) {
             // ensure the rangefinder is powered-on when land alt is higher than home altitude.
             // This is done using the target alt which we know is below us and we are sinking to it
             height = height_above_target();
@@ -34,34 +35,4 @@ void Plane::read_rangefinder(void)
     rangefinder_height_update();
 }
 
-/*
-  ask airspeed sensor for a new value
- */
-void Plane::read_airspeed(void)
-{
-    airspeed.update(should_log(MASK_LOG_IMU));
-
-    // we calculate airspeed errors (and thus target_airspeed_cm) even
-    // when airspeed is disabled as TECS may be using synthetic
-    // airspeed for a quadplane transition
-    calc_airspeed_errors();
-    
-    // update smoothed airspeed estimate
-    float aspeed;
-    if (ahrs.airspeed_estimate(aspeed)) {
-        smoothed_airspeed = smoothed_airspeed * 0.8f + aspeed * 0.2f;
-    }
-}
-
-/*
-  update RPM sensors
- */
-void Plane::rpm_update(void)
-{
-    rpm_sensor.update();
-    if (rpm_sensor.enabled(0) || rpm_sensor.enabled(1)) {
-        if (should_log(MASK_LOG_RC)) {
-            logger.Write_RPM(rpm_sensor);
-        }
-    }
-}
+#endif  // AP_RANGEFINDER_ENABLED

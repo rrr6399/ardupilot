@@ -25,11 +25,13 @@
 #include "AP_GPS.h"
 #include "GPS_Backend.h"
 
+#if AP_GPS_SIRF_ENABLED
+
 #define SIRF_SET_BINARY "$PSRF100,0,38400,8,1,0*3C\r\n"
 
 class AP_GPS_SIRF : public AP_GPS_Backend {
 public:
-	AP_GPS_SIRF(AP_GPS &_gps, AP_GPS::GPS_State &_state, AP_HAL::UARTDriver *_port);
+	AP_GPS_SIRF(AP_GPS &_gps, AP_GPS::Params &_params, AP_GPS::GPS_State &_state, AP_HAL::UARTDriver *_port);
 
     bool read() override;
 
@@ -107,3 +109,4 @@ private:
 
     static const uint8_t _initialisation_blob[];
 };
+#endif

@@ -1,8 +1,11 @@
 -- This script scans for devices on the i2c bus
+
+---@diagnostic disable: need-check-nil
+
 local address = 0
 local found = 0
 
-local i2c_bus = i2c.get_device(0,0)
+local i2c_bus = i2c:get_device(0,0)
 i2c_bus:set_retries(10)
 
 function update() -- this is the loop which periodically runs

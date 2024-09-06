@@ -14,8 +14,9 @@
  */
 #pragma once
 
-#include <AP_Common/AP_Common.h>
-#include <AP_HAL/AP_HAL.h>
+#include "AP_Notify_config.h"
+
+#if AP_NOTIFY_GPIO_LED_RGB_ENABLED
 
 #include "RGBLed.h"
 
@@ -28,3 +29,5 @@ public:
 protected:
     bool hw_set_rgb(uint8_t r, uint8_t g, uint8_t b) override;
 };
+
+#endif  // AP_NOTIFY_GPIO_LED_RGB_ENABLED

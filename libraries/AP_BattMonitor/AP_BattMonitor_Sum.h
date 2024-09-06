@@ -1,7 +1,10 @@
 #pragma once
 
-#include "AP_BattMonitor.h"
 #include "AP_BattMonitor_Backend.h"
+
+#if AP_BATTERY_SUM_ENABLED
+
+#include "AP_BattMonitor.h"
 
 class AP_BattMonitor_Sum : public AP_BattMonitor_Backend
 {
@@ -19,9 +22,19 @@ public:
     /// returns true if battery monitor provides current info
     bool has_current() const override { return _has_current; }
 
+    /// returns true if battery monitor provides temperature info
+    bool has_temperature() const override { return _has_temperature; }
+
     void init(void) override {}
 
+    static const struct AP_Param::GroupInfo var_info[];
+
 private:
+
+    AP_Int16  _sum_mask;
     uint8_t _instance;
     bool _has_current;
+    bool _has_temperature;
 };
+
+#endif  // AP_BATTERY_SUM_ENABLED

@@ -24,6 +24,7 @@ public:
     void get_log_boundaries(uint16_t list_entry, uint32_t & start_page, uint32_t & end_page) override;
     void get_log_info(uint16_t list_entry, uint32_t &size, uint32_t &time_utc) override;
     int16_t get_log_data(uint16_t list_entry, uint16_t page, uint32_t offset, uint16_t len, uint8_t *data) override WARN_IF_UNUSED;
+    void end_log_transfer() override { }
     uint16_t get_num_logs() override;
     void start_new_log(void) override;
     uint32_t bufferspace_available() override;
@@ -60,9 +61,9 @@ protected:
     uint32_t df_NumPages;
     volatile bool log_write_started;
 
-    static const uint16_t page_size_max = 256;
     uint8_t *buffer;
     uint32_t last_messagewrite_message_sent;
+    uint32_t df_Read_PageAdr;
 
 private:
     /*
@@ -74,6 +75,7 @@ private:
     virtual void Sector4kErase(uint32_t SectorAdr) = 0;
     virtual void StartErase() = 0;
     virtual bool InErase() = 0;
+    void         flash_test(void);
 
     struct PACKED PageHeader {
         uint32_t FilePage;
@@ -95,8 +97,7 @@ private:
 
     // state variables
     uint16_t df_Read_BufferIdx;
-    uint32_t df_PageAdr;
-    uint32_t df_Read_PageAdr;
+    uint32_t df_PageAdr;    // current page address for writes
     // file numbers
     uint16_t df_FileNumber;
     uint16_t df_Write_FileNumber;

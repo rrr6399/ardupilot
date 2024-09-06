@@ -85,7 +85,7 @@ AP_InertialSensor_BMI055::probe(AP_InertialSensor &imu,
     if (!dev_accel || !dev_gyro) {
         return nullptr;
     }
-    auto sensor = new AP_InertialSensor_BMI055(imu, std::move(dev_accel), std::move(dev_gyro), rotation);
+    auto sensor = NEW_NOTHROW AP_InertialSensor_BMI055(imu, std::move(dev_accel), std::move(dev_gyro), rotation);
 
     if (!sensor) {
         return nullptr;
@@ -161,7 +161,7 @@ bool AP_InertialSensor_BMI055::accel_init()
         goto failed;
     }
 
-    hal.console->printf("BMI055: found accel\n");
+    DEV_PRINTF("BMI055: found accel\n");
 
     dev_accel->get_semaphore()->give();
     return true;
@@ -215,7 +215,7 @@ bool AP_InertialSensor_BMI055::gyro_init()
         goto failed;
     }
 
-    hal.console->printf("BMI055: found gyro\n");    
+    DEV_PRINTF("BMI055: found gyro\n");    
 
     dev_gyro->get_semaphore()->give();
     return true;

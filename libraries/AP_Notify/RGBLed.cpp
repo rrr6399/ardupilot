@@ -20,6 +20,7 @@
 #include <AP_GPS/AP_GPS.h>
 #include "RGBLed.h"
 #include "AP_Notify.h"
+#include <AP_AHRS/AP_AHRS.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -47,15 +48,15 @@ void RGBLed::_set_rgb(uint8_t red, uint8_t green, uint8_t blue)
     }
 }
 
-RGBLed::rgb_source_t RGBLed::rgb_source() const
+RGBLed::Source RGBLed::rgb_source() const
 {
-    return rgb_source_t(pNotify->_rgb_led_override.get());
+    return Source(pNotify->_rgb_led_override.get());
 }
 
 // set_rgb - set color as a combination of red, green and blue values
 void RGBLed::set_rgb(uint8_t red, uint8_t green, uint8_t blue)
 {
-    if (rgb_source() == mavlink) {
+    if (rgb_source() == Source::mavlink) {
         // don't set if in override mode
         return;
     }
@@ -136,29 +137,45 @@ uint32_t RGBLed::get_colour_sequence(void) const
         return sequence_failsafe_radio_or_battery;
     }
 
+#if AP_GPS_ENABLED
+    Location loc;
+#if AP_AHRS_ENABLED
+    // the AHRS can return "true" for get_location and still not be
+    // happy enough with the location to set its origin from that
+    // location:
+    const bool good_ahrs_location = AP::ahrs().get_location(loc) && AP::ahrs().get_origin(loc);
+#else
+    const bool good_ahrs_location = true;
+#endif
+
     // solid green or blue if armed
     if (AP_Notify::flags.armed) {
-        // solid green if armed with GPS 3d lock
-        if (AP_Notify::flags.gps_status >= AP_GPS::GPS_OK_FIX_3D) {
+#if AP_GPS_ENABLED
+        // solid green if armed with GPS 3d lock and good location
+        if (AP_Notify::flags.gps_status >= AP_GPS::GPS_OK_FIX_3D &&
+            good_ahrs_location) {
             return sequence_armed;
         }
+#endif
         // solid blue if armed with no GPS lock
-        return sequence_armed_nogps;
+        return sequence_armed_no_gps_or_no_location;
     }
 
     // double flash yellow if failing pre-arm checks
     if (!AP_Notify::flags.pre_arm_check) {
         return sequence_prearm_failing;
     }
-    if (AP_Notify::flags.gps_status >= AP_GPS::GPS_OK_FIX_3D_DGPS && AP_Notify::flags.pre_arm_gps_check) {
-        return sequence_disarmed_good_dgps;
+    if (AP_Notify::flags.pre_arm_gps_check && good_ahrs_location) {
+        if (AP_Notify::flags.gps_status >= AP_GPS::GPS_OK_FIX_3D_DGPS) {
+            return sequence_disarmed_good_dgps_and_location;
+        }
+        if (AP_Notify::flags.gps_status >= AP_GPS::GPS_OK_FIX_3D) {
+            return sequence_disarmed_good_gps_and_location;
+        }
     }
+#endif
 
-    if (AP_Notify::flags.gps_status >= AP_GPS::GPS_OK_FIX_3D && AP_Notify::flags.pre_arm_gps_check) {
-        return sequence_disarmed_good_gps;
-    }
-
-    return sequence_disarmed_bad_gps;
+    return sequence_disarmed_bad_gps_or_no_location;
 }
 
 uint32_t RGBLed::get_colour_sequence_traffic_light(void) const
@@ -192,16 +209,16 @@ void RGBLed::update()
     uint32_t current_colour_sequence = 0;
 
     switch (rgb_source()) {
-    case mavlink:
+    case Source::mavlink:
         update_override();
         return; // note this is a return not a break!
-    case standard:
+    case Source::standard:
         current_colour_sequence = get_colour_sequence();
         break;
-    case obc:
+    case Source::obc:
         current_colour_sequence = get_colour_sequence_obc();
         break;
-    case traffic_light:
+    case Source::traffic_light:
         current_colour_sequence = get_colour_sequence_traffic_light();
         break;
     }
@@ -225,12 +242,13 @@ void RGBLed::update()
     set_rgb(red_des, green_des, blue_des);
 }
 
+#if AP_NOTIFY_MAVLINK_LED_CONTROL_SUPPORT_ENABLED
 /*
   handle LED control, only used when LED_OVERRIDE=1
 */
 void RGBLed::handle_led_control(const mavlink_message_t &msg)
 {
-    if (rgb_source() != mavlink) {
+    if (rgb_source() != Source::mavlink) {
         // ignore LED_CONTROL commands if not in LED_OVERRIDE mode
         return;
     }
@@ -241,24 +259,17 @@ void RGBLed::handle_led_control(const mavlink_message_t &msg)
 
     _led_override.start_ms = AP_HAL::millis();
 
+    uint8_t rate_hz = 0;
     switch (packet.custom_len) {
-    case 3:
-        _led_override.rate_hz = 0;
-        _led_override.r = packet.custom_bytes[0];
-        _led_override.g = packet.custom_bytes[1];
-        _led_override.b = packet.custom_bytes[2];
-        break;
     case 4:
-        _led_override.rate_hz = packet.custom_bytes[3];
-        _led_override.r = packet.custom_bytes[0];
-        _led_override.g = packet.custom_bytes[1];
-        _led_override.b = packet.custom_bytes[2];
-        break;
-    default:
-        // not understood
+        rate_hz = packet.custom_bytes[3];
+        FALLTHROUGH;
+    case 3:
+        rgb_control(packet.custom_bytes[0], packet.custom_bytes[1], packet.custom_bytes[2], rate_hz);
         break;
     }
 }
+#endif
 
 /*
   update LED when in override mode

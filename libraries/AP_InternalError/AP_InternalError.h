@@ -22,6 +22,10 @@
 
 #pragma once
 
+#include "AP_InternalError_config.h"
+
+#if AP_INTERNALERROR_ENABLED
+
 #include <stdint.h>
 
 class AP_InternalError {
@@ -112,4 +116,8 @@ extern "C" {
 }
 
 #define INTERNAL_ERROR(error_number) \
-    AP::internalerror().error(error_number, __LINE__);
+    AP::internalerror().error(error_number, __AP_LINE__);
+
+#else  // AP_INTERNALERROR_ENABLED is false
+#define INTERNAL_ERROR(error_number)
+#endif // AP_INTERNALERROR_ENABLED

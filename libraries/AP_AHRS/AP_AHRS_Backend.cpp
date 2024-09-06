@@ -16,10 +16,14 @@
 */
 #include "AP_AHRS.h"
 #include "AP_AHRS_View.h"
+
+#include <AP_Common/Location.h>
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Logger/AP_Logger.h>
 #include <AP_GPS/AP_GPS.h>
 #include <AP_Baro/AP_Baro.h>
+#include <AP_Compass/AP_Compass.h>
+#include <AP_Vehicle/AP_Vehicle_Type.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -63,85 +67,27 @@ void AP_AHRS::add_trim(float roll_in_radians, float pitch_in_radians, bool save_
     }
 }
 
-// Set the board mounting orientation, may be called while disarmed
+// Set the board mounting orientation from AHRS_ORIENTATION parameter
 void AP_AHRS::update_orientation()
 {
+    const uint32_t now_ms = AP_HAL::millis();
+    if (now_ms - last_orientation_update_ms < 1000) {
+        // only update once/second
+        return;
+    }
+
+    // never update while armed - unless we've never updated
+    // (e.g. mid-air reboot or ARMING_REQUIRED=NO on Plane):
+    if (hal.util->get_soft_armed() && last_orientation_update_ms != 0) {
+        return;
+    }
+
+    last_orientation_update_ms = now_ms;
+
     const enum Rotation orientation = (enum Rotation)_board_orientation.get();
-    if (orientation != ROTATION_CUSTOM) {
-        AP::ins().set_board_orientation(orientation);
-        AP::compass().set_board_orientation(orientation);
-    } else {
-        _custom_rotation.from_euler(radians(_custom_roll), radians(_custom_pitch), radians(_custom_yaw));
-        AP::ins().set_board_orientation(orientation, &_custom_rotation);
-        AP::compass().set_board_orientation(orientation, &_custom_rotation);
-    }
-}
 
-// return a ground speed estimate in m/s
-Vector2f AP_AHRS_DCM::groundspeed_vector(void)
-{
-    // Generate estimate of ground speed vector using air data system
-    Vector2f gndVelADS;
-    Vector2f gndVelGPS;
-    float airspeed = 0;
-    const bool gotAirspeed = airspeed_estimate_true(airspeed);
-    const bool gotGPS = (AP::gps().status() >= AP_GPS::GPS_OK_FIX_2D);
-    if (gotAirspeed) {
-        const Vector3f wind = wind_estimate();
-        const Vector2f wind2d(wind.x, wind.y);
-        const Vector2f airspeed_vector{_cos_yaw * airspeed, _sin_yaw * airspeed};
-        gndVelADS = airspeed_vector + wind2d;
-    }
-
-    // Generate estimate of ground speed vector using GPS
-    if (gotGPS) {
-        const float cog = radians(AP::gps().ground_course());
-        gndVelGPS = Vector2f(cosf(cog), sinf(cog)) * AP::gps().ground_speed();
-    }
-    // If both ADS and GPS data is available, apply a complementary filter
-    if (gotAirspeed && gotGPS) {
-        // The LPF is applied to the GPS and the HPF is applied to the air data estimate
-        // before the two are summed
-        //Define filter coefficients
-        // alpha and beta must sum to one
-        // beta = dt/Tau, where
-        // dt = filter time step (0.1 sec if called by nav loop)
-        // Tau = cross-over time constant (nominal 2 seconds)
-        // More lag on GPS requires Tau to be bigger, less lag allows it to be smaller
-        // To-Do - set Tau as a function of GPS lag.
-        const float alpha = 1.0f - beta;
-        // Run LP filters
-        _lp = gndVelGPS * beta  + _lp * alpha;
-        // Run HP filters
-        _hp = (gndVelADS - _lastGndVelADS) + _hp * alpha;
-        // Save the current ADS ground vector for the next time step
-        _lastGndVelADS = gndVelADS;
-        // Sum the HP and LP filter outputs
-        return _hp + _lp;
-    }
-    // Only ADS data is available return ADS estimate
-    if (gotAirspeed && !gotGPS) {
-        return gndVelADS;
-    }
-    // Only GPS data is available so return GPS estimate
-    if (!gotAirspeed && gotGPS) {
-        return gndVelGPS;
-    }
-
-    if (airspeed > 0) {
-        // we have a rough airspeed, and we have a yaw. For
-        // dead-reckoning purposes we can create a estimated
-        // groundspeed vector
-        Vector2f ret{_cos_yaw, _sin_yaw};
-        ret *= airspeed;
-        // adjust for estimated wind
-        const Vector3f wind = wind_estimate();
-        ret.x += wind.x;
-        ret.y += wind.y;
-        return ret;
-    }
-
-    return Vector2f(0.0f, 0.0f);
+    AP::ins().set_board_orientation(orientation);
+    AP::compass().set_board_orientation(orientation);
 }
 
 /*
@@ -221,7 +167,7 @@ AP_AHRS_View *AP_AHRS::create_view(enum Rotation rotation, float pitch_trim_deg)
         // can only have one
         return nullptr;
     }
-    _view = new AP_AHRS_View(*this, rotation, pitch_trim_deg);
+    _view = NEW_NOTHROW AP_AHRS_View(*this, rotation, pitch_trim_deg);
     return _view;
 }
 
@@ -298,6 +244,7 @@ Vector2f AP_AHRS::body_to_earth2D(const Vector2f &bf) const
                     bf.x * _sin_yaw + bf.y * _cos_yaw);
 }
 
+#if HAL_LOGGING_ENABLED
 // log ahrs home and EKF origin
 void AP_AHRS::Log_Write_Home_And_Origin()
 {
@@ -310,14 +257,15 @@ void AP_AHRS::Log_Write_Home_And_Origin()
         Write_Origin(LogOriginType::ekf_origin, ekf_orig);
     }
 
-    if (home_is_set()) {
+    if (_home_is_set) {
         Write_Origin(LogOriginType::ahrs_home, _home);
     }
 }
+#endif
 
 // get apparent to true airspeed ratio
-float AP_AHRS_Backend::get_EAS2TAS(void) const {
-    return AP::baro().get_EAS2TAS();
+float AP_AHRS_Backend::get_EAS2TAS(void) {
+    return AP::baro()._get_EAS2TAS();
 }
 
 // return current vibration vector for primary IMU

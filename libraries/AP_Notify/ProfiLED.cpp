@@ -13,8 +13,10 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "AP_Notify/AP_Notify.h"
 #include "ProfiLED.h"
+
+#include "AP_Notify/AP_Notify.h"
+
 #include "SRV_Channel/SRV_Channel.h"
 #include <utility>
 #include <GCS_MAVLink/GCS.h>
@@ -28,6 +30,8 @@
 #define ProfiLED_OFF    0x00
 
 extern const AP_HAL::HAL& hal;
+
+#if AP_NOTIFY_PROFILED_ENABLED
 
 ProfiLED::ProfiLED() :
     SerialLED(ProfiLED_OFF, ProfiLED_HIGH, ProfiLED_MEDIUM, ProfiLED_LOW)
@@ -62,14 +66,16 @@ uint16_t ProfiLED::init_ports()
 
     return mask;
 }
+#endif  // AP_NOTIFY_PROFILED_ENABLED
 
+#if AP_NOTIFY_PROFILED_SPI_ENABLED
 ProfiLED_SPI::ProfiLED_SPI() :
     RGBLed(ProfiLED_OFF, ProfiLED_HIGH, ProfiLED_MEDIUM, ProfiLED_LOW) {}
 
 bool ProfiLED_SPI::init()
 {
     num_leds = pNotify->get_led_len() + 1; // for some reason we have to send an additional LED data
-    rgb = new ProfiLED_SPI::RGB[num_leds];
+    rgb = NEW_NOTHROW ProfiLED_SPI::RGB[num_leds];
     if (!rgb) {
         return false;
     }
@@ -161,3 +167,5 @@ void ProfiLED_SPI::update_led_strip() {
         send_buf_len = 0;
     }
 }
+
+#endif  // AP_NOTIFY_PROFILED_SPI_ENABLED

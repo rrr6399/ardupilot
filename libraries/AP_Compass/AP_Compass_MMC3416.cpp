@@ -17,6 +17,8 @@
  */
 #include "AP_Compass_MMC3416.h"
 
+#if AP_COMPASS_MMC3416_ENABLED
+
 #include <AP_HAL/AP_HAL.h>
 #include <utility>
 #include <AP_Math/AP_Math.h>
@@ -48,7 +50,7 @@ AP_Compass_Backend *AP_Compass_MMC3416::probe(AP_HAL::OwnPtr<AP_HAL::I2CDevice> 
     if (!dev) {
         return nullptr;
     }
-    AP_Compass_MMC3416 *sensor = new AP_Compass_MMC3416(std::move(dev), force_external, rotation);
+    AP_Compass_MMC3416 *sensor = NEW_NOTHROW AP_Compass_MMC3416(std::move(dev), force_external, rotation);
     if (!sensor || !sensor->init()) {
         delete sensor;
         return nullptr;
@@ -97,7 +99,7 @@ bool AP_Compass_MMC3416::init()
     
     set_dev_id(compass_instance, dev->get_bus_id());
 
-    printf("Found a MMC3416 on 0x%x as compass %u\n", dev->get_bus_id(), compass_instance);
+    printf("Found a MMC3416 on 0x%x as compass %u\n", unsigned(dev->get_bus_id()), compass_instance);
     
     set_rotation(compass_instance, rotation);
 
@@ -247,6 +249,10 @@ void AP_Compass_MMC3416::timer()
 #endif
 
         last_sample_ms = AP_HAL::millis();
+
+        // sensor is not FRD
+        field.y = -field.y;
+
         accumulate_sample(field, compass_instance);
 
         if (!dev->write_register(REG_CONTROL0, REG_CONTROL0_TM)) {
@@ -273,6 +279,9 @@ void AP_Compass_MMC3416::timer()
         field *= -counts_to_milliGauss;
         field += offset;
 
+        // sensor is not FRD
+        field.y = -field.y;
+
         last_sample_ms = AP_HAL::millis();
         accumulate_sample(field, compass_instance);
 
@@ -294,3 +303,5 @@ void AP_Compass_MMC3416::read()
 {
     drain_accumulated_samples(compass_instance);
 }
+
+#endif  // AP_COMPASS_MMC3416_ENABLED

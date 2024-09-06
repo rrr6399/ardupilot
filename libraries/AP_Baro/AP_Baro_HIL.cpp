@@ -1,38 +1,12 @@
 #include "AP_Baro.h"
 
 #include <AP_HAL/AP_HAL.h>
+#include <AP_Math/definitions.h>
 
 extern const AP_HAL::HAL& hal;
 
 // ==========================================================================
 // based on tables.cpp from http://www.pdas.com/atmosdownload.html
-
-/* 
-   Compute the temperature, density, and pressure in the standard atmosphere
-   Correct to 20 km.  Only approximate thereafter.
-*/
-void AP_Baro::SimpleAtmosphere(
-	const float alt,                           // geometric altitude, km.
-	float& sigma,                   // density/sea-level standard density
-	float& delta,                 // pressure/sea-level standard pressure
-	float& theta)           // temperature/sea-level standard temperature
-{
-    const float REARTH = 6369.0f;        // radius of the Earth (km)
-    const float GMR    = 34.163195f;     // gas constant
-    float h=alt*REARTH/(alt+REARTH);     // geometric to geopotential altitude
-
-    if (h < 11.0f) {
-        // Troposphere
-        theta = (SSL_AIR_TEMPERATURE - 6.5f * h) / SSL_AIR_TEMPERATURE;
-        delta = powf(theta, GMR / 6.5f);
-    } else {
-        // Stratosphere
-        theta = 216.65f / SSL_AIR_TEMPERATURE;
-        delta = 0.2233611f * expf(-GMR * (h - 11.0f) / 216.65f);
-    }
-
-    sigma = delta/theta;
-}
 
 void AP_Baro::SimpleUnderWaterAtmosphere(
 	float alt,            // depth, km.
@@ -66,7 +40,7 @@ void AP_Baro::SimpleUnderWaterAtmosphere(
     // \f$T(D)\f$ Temperature underwater at given temperature
     // \f$S\f$ Surface temperature at the surface
     // \f$T(D)\approx\frac{S}{1.8 \cdot 10^{-4} \cdot S \cdot T + 1}\f$
-    const float seaTempSurface = SSL_AIR_TEMPERATURE - C_TO_KELVIN; // Celsius
+    const float seaTempSurface = KELVIN_TO_C(SSL_AIR_TEMPERATURE); // Celsius
     const float S = seaTempSurface * 0.338f;
     theta = 1.0f / ((1.8e-4f) * S * (alt * 1e3f) + 1.0f);
 }

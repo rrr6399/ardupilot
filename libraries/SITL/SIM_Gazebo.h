@@ -18,8 +18,16 @@
 
 #pragma once
 
+#include <AP_HAL/AP_HAL_Boards.h>
+
+#ifndef HAL_SIM_GAZEBO_ENABLED
+#define HAL_SIM_GAZEBO_ENABLED (CONFIG_HAL_BOARD == HAL_BOARD_SITL)
+#endif
+
+#if HAL_SIM_GAZEBO_ENABLED
+
 #include "SIM_Aircraft.h"
-#include <AP_HAL/utility/Socket.h>
+#include <AP_HAL/utility/Socket_native.h>
 
 namespace SITL {
 
@@ -35,7 +43,7 @@ public:
 
     /* static object creator */
     static Aircraft *create(const char *frame_str) {
-        return new Gazebo(frame_str);
+        return NEW_NOTHROW Gazebo(frame_str);
     }
 
     /*  Create and set in/out socket for Gazebo simulator */
@@ -68,10 +76,13 @@ private:
 
     double last_timestamp;
 
-    SocketAPM socket_sitl;
+    SocketAPM_native socket_sitl;
     const char *_gazebo_address = "127.0.0.1";
     int _gazebo_port = 9002;
     static const uint64_t GAZEBO_TIMEOUT_US = 5000000;
 };
 
 }  // namespace SITL
+
+
+#endif  // HAL_SIM_GAZEBO_ENABLED

@@ -33,7 +33,9 @@ public:
     Vector2f get_pilot_desired_acceleration() const { return Vector2f{_desired_accel.x, _desired_accel.y}; }
 
     /// clear pilot desired acceleration
-    void clear_pilot_desired_acceleration() { _desired_accel.zero(); }
+    void clear_pilot_desired_acceleration() {
+        set_pilot_desired_acceleration(0, 0);
+    }
 
     /// get vector to stopping point based on a horizontal position and velocity
     void get_stopping_point_xy(Vector2f& stopping_point) const;
@@ -64,7 +66,7 @@ protected:
 
     /// updates desired velocity (i.e. feed forward) with pilot requested acceleration and fake wind resistance
     ///		updated velocity sent directly to position controller
-    void calc_desired_velocity(float nav_dt, bool avoidance_on = true);
+    void calc_desired_velocity(bool avoidance_on = true);
 
     // references and pointers to external libraries
     const AP_InertialNav&   _inav;

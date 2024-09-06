@@ -1,5 +1,9 @@
 #pragma once
 
+#include "AP_RangeFinder_config.h"
+
+#if AP_RANGEFINDER_ENABLED
+
 #include <AP_Param/AP_Param.h>
 #include <AP_Math/AP_Math.h>
 
@@ -10,8 +14,7 @@ public:
     AP_RangeFinder_Params(void);
 
     /* Do not allow copies */
-    AP_RangeFinder_Params(const AP_RangeFinder_Params &other) = delete;
-    AP_RangeFinder_Params &operator=(const AP_RangeFinder_Params&) = delete;
+    CLASS_NO_COPY(AP_RangeFinder_Params);
 
     AP_Vector3f pos_offset; // position offset in body frame
     AP_Float scaling;
@@ -28,3 +31,5 @@ public:
     AP_Int8  address;
     AP_Int8  orientation;
 };
+
+#endif  // AP_RANGEFINDER_ENABLED

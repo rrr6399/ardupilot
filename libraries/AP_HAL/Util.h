@@ -1,7 +1,13 @@
 #pragma once
 
 #include <stdarg.h>
+#include <AP_Common/AP_Common.h> // for FMT_PRINTF
 #include "AP_HAL_Namespace.h"
+#include <AP_Logger/AP_Logger_config.h>
+
+#ifndef ENABLE_HEAP
+#define ENABLE_HEAP 0
+#endif
 
 class ExpandingString;
 
@@ -13,7 +19,7 @@ public:
     int vsnprintf(char* str, size_t size,
                   const char *format, va_list ap);
 
-    void set_soft_armed(const bool b);
+    virtual void set_soft_armed(const bool b);
     bool get_soft_armed() const { return soft_armed; }
 
     // return the time that the armed state last changed
@@ -42,13 +48,10 @@ public:
     // set command line parameters to the eeprom on start
     virtual void set_cmdline_parameters() {};
 
-    // run a debug shall on the given stream if possible. This is used
-    // to support dropping into a debug shell to run firmware upgrade
-    // commands
-    virtual bool run_debug_shell(AP_HAL::BetterStream *stream) = 0;
-
     enum safety_state : uint8_t {
-        SAFETY_NONE, SAFETY_DISARMED, SAFETY_ARMED
+        SAFETY_NONE,
+        SAFETY_DISARMED,
+        SAFETY_ARMED,
     };
 
     /*
@@ -80,6 +83,7 @@ public:
         int8_t scheduler_task;
         bool armed; // true if vehicle was armed
         enum safety_state safety_state;
+        bool boot_to_dfu; // true if we should reboot to DFU on boot
     };
     struct PersistentData persistent_data;
     // last_persistent_data is only filled in if we've suffered a watchdog reset
@@ -93,18 +97,19 @@ public:
     /*
       set HW RTC in UTC microseconds
      */
-    virtual void set_hw_rtc(uint64_t time_utc_usec);
+    virtual void set_hw_rtc(uint64_t time_utc_usec) = 0;
 
     /*
       get system clock in UTC microseconds
      */
-    virtual uint64_t get_hw_rtc() const;
+    virtual uint64_t get_hw_rtc() const = 0;
 
     enum class FlashBootloader {
         OK=0,
         NO_CHANGE=1,
         FAIL=2,
         NOT_AVAILABLE=3,
+        NOT_SIGNED=4,
     };
 
     // overwrite bootloader (probably with one from ROMFS)
@@ -117,7 +122,7 @@ public:
       Buf should be filled with a printable string and must be null
       terminated
      */
-    virtual bool get_system_id(char buf[40]) { return false; }
+    virtual bool get_system_id(char buf[50]) { return false; }
     virtual bool get_system_id_unformatted(uint8_t buf[], uint8_t &len) { return false; }
 
     /**
@@ -128,11 +133,6 @@ public:
     virtual bool toneAlarm_init(uint8_t types) { return false;}
     virtual void toneAlarm_set_buzzer_tone(float frequency, float volume, uint32_t duration_ms) {}
 
-    /*
-      return a stream for access to a system shell, if available
-     */
-    virtual AP_HAL::BetterStream *get_shell_stream() { return nullptr; }
-
     /* Support for an imu heating system */
     virtual void set_imu_temp(float current) {}
 
@@ -142,15 +142,16 @@ public:
     // allocate and free DMA-capable memory if possible. Otherwise return normal memory
     enum Memory_Type {
         MEM_DMA_SAFE,
-        MEM_FAST
+        MEM_FAST,
+        MEM_FILESYSTEM
     };
     virtual void *malloc_type(size_t size, Memory_Type mem_type) { return calloc(1, size); }
     virtual void free_type(void *ptr, size_t size, Memory_Type mem_type) { return free(ptr); }
 
-#ifdef ENABLE_HEAP
+#if ENABLE_HEAP
     // heap functions, note that a heap once alloc'd cannot be dealloc'd
     virtual void *allocate_heap_memory(size_t size) = 0;
-    virtual void *heap_realloc(void *heap, void *ptr, size_t new_size) = 0;
+    virtual void *heap_realloc(void *heap, void *ptr, size_t old_size, size_t new_size) = 0;
 #if USE_LIBC_REALLOC
     virtual void *std_realloc(void *ptr, size_t new_size) { return realloc(ptr, new_size); }
 #else
@@ -179,8 +180,22 @@ public:
     // load persistent parameters from bootloader sector
     virtual bool load_persistent_params(ExpandingString &str) const { return false; }
 
+    virtual bool get_persistent_param_by_name(const char *name, char* value, size_t& len) const {
+        return false;
+    }
+
+#if HAL_UART_STATS_ENABLED
     // request information on uart I/O
     virtual void uart_info(ExpandingString &str) {}
+
+#if HAL_LOGGING_ENABLED
+    // Log UART message for each serial port
+    virtual void uart_log() {};
+#endif
+#endif // HAL_UART_STATS_ENABLED
+
+    // request information on timer frequencies
+    virtual void timer_info(ExpandingString &str) {}
 
     // generate Random values
     virtual bool get_random_vals(uint8_t* data, size_t size) { return false; }
@@ -188,6 +203,17 @@ public:
     // generate Random values, will block until enough entropy is available
     virtual bool get_true_random_vals(uint8_t* data, size_t size, uint32_t timeout_us) { return false; }
 
+    // log info on stack usage
+    virtual void log_stack_info(void) {}
+
+#if AP_CRASHDUMP_ENABLED
+    virtual size_t last_crash_dump_size() const { return 0; }
+    virtual void* last_crash_dump_ptr() const { return nullptr; }
+#endif
+
+#if HAL_ENABLE_DFU_BOOT
+    virtual void boot_to_dfu(void) {}
+#endif
 protected:
     // we start soft_armed false, so that actuators don't send any
     // values until the vehicle code has fully started

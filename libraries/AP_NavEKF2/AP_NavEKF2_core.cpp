@@ -1,8 +1,10 @@
+#include "AP_NavEKF2_core.h"
+
 #include <AP_HAL/AP_HAL.h>
+#include <AP_DAL/AP_DAL.h>
+#include <GCS_MAVLink/GCS.h>
 
 #include "AP_NavEKF2.h"
-#include "AP_NavEKF2_core.h"
-#include <GCS_MAVLink/GCS.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -99,7 +101,7 @@ bool NavEKF2_core::setup_core(uint8_t _imu_index, uint8_t _core_index)
         }
 
         // try to instantiate
-        yawEstimator = new EKFGSF_yaw();
+        yawEstimator = NEW_NOTHROW EKFGSF_yaw();
         if (yawEstimator == nullptr) {
             GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "EKF2 IMU%uGSF: allocation failed",(unsigned)imu_index);
             return false;
@@ -243,9 +245,11 @@ void NavEKF2_core::InitialiseVariables()
     delAngBiasLearned = false;
     memset(&filterStatus, 0, sizeof(filterStatus));
     activeHgtSource = 0;
+#if AP_RANGEFINDER_ENABLED
     memset(&rngMeasIndex, 0, sizeof(rngMeasIndex));
     memset(&storedRngMeasTime_ms, 0, sizeof(storedRngMeasTime_ms));
     memset(&storedRngMeas, 0, sizeof(storedRngMeas));
+#endif
     terrainHgtStable = true;
     ekfOriginHgtVar = 0.0f;
     ekfGpsRefHgt = 0.0;
@@ -263,7 +267,9 @@ void NavEKF2_core::InitialiseVariables()
     varInnovRngBcn = 0.0f;
     innovRngBcn = 0.0f;
     memset(&lastTimeRngBcn_ms, 0, sizeof(lastTimeRngBcn_ms));
+#if AP_BEACON_ENABLED
     rngBcnDataToFuse = false;
+#endif
     beaconVehiclePosNED.zero();
     beaconVehiclePosErr = 1.0f;
     rngBcnLast3DmeasTime_ms = 0;
@@ -573,8 +579,10 @@ void NavEKF2_core::UpdateFilter(bool predict)
         // Muat be run after SelectVelPosFusion() so that fresh GPS data is available
         runYawEstimatorCorrection();
 
+#if AP_BEACON_ENABLED
         // Update states using range beacon data
         SelectRngBcnFusion();
+#endif
 
         // Update states using optical flow data
         SelectFlowFusion();
@@ -598,7 +606,7 @@ void NavEKF2_core::UpdateFilter(bool predict)
     static uint32_t timing_counter;
     total_us += dal.micros() - timing_start_us;
     if (timing_counter++ == 4000) {
-        hal.console->printf("ekf2 avg %.2f us\n", total_us / float(timing_counter));
+        DEV_PRINTF("ekf2 avg %.2f us\n", total_us / float(timing_counter));
         total_us = 0;
         timing_counter = 0;
     }

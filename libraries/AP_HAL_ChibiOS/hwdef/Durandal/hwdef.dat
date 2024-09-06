@@ -26,11 +26,6 @@ FLASH_RESERVE_START_KB 128
 # order of UARTs (and USB)
 SERIAL_ORDER OTG1 USART2 USART3 USART1 UART4 USART6 UART7 OTG2
 
-# default the 2nd interface to MAVLink2 until MissionPlanner updates drivers
-define HAL_OTG2_PROTOCOL SerialProtocol_MAVLink2
-
-define HAL_STORAGE_SIZE 32768
-
 define CONFIG_HAL_BOARD_SUBTYPE HAL_BOARD_SUBTYPE_CHIBIOS_FMUV5
 define HAL_CHIBIOS_ARCH_FMUV5 1
 define BOARD_TYPE_DEFAULT 24
@@ -112,11 +107,9 @@ define HAL_I2C_INTERNAL_MASK 1
 # enable pins
 PE3 VDD_3V3_SENSORS_EN OUTPUT LOW
 
-# start peripheral power off, then enable after init
-# this prevents a problem with radios that use RTS for
-# bootloader hold
-PF12 nVDD_5V_HIPOWER_EN OUTPUT HIGH
-PG4  nVDD_5V_PERIPH_EN OUTPUT HIGH
+# start peripheral power on
+PF12 nVDD_5V_HIPOWER_EN OUTPUT LOW
+PG4  nVDD_5V_PERIPH_EN OUTPUT LOW
 
 PG5  VDD_5V_RC_EN OUTPUT HIGH
 PG6  VDD_5V_WIFI_EN OUTPUT HIGH
@@ -204,6 +197,9 @@ PB0 RSSI_IN ADC1 SCALE(1)
 PC0 VDD_5V_SENS ADC1 SCALE(2)
 PC1 SCALED_V3V3 ADC1 SCALE(2)
 
+# voltage divider 1/(16.9/(33+16.9))
+define HAL_IOMCU_VSERVO_SCALAR 1 / (16.9 / (33 + 16.9))
+
 # CAN bus
 PI9  CAN1_RX CAN1
 PH13 CAN1_TX CAN1
@@ -245,6 +241,7 @@ SPIDEV icm20602       SPI1 DEVID2  ICM20602_CS  MODE3  2*MHZ  8*MHZ
 SPIDEV bmi055_g       SPI1 DEVID3  BMI055_G_CS  MODE3 10*MHZ 10*MHZ
 SPIDEV bmi055_a       SPI1 DEVID4  BMI055_A_CS  MODE3 10*MHZ 10*MHZ
 SPIDEV ramtron        SPI2 DEVID1  FRAM_CS      MODE3  8*MHZ  8*MHZ 
+SPIDEV icm20602_2     SPI1 DEVID4  BMI055_G_CS  MODE3  2*MHZ  8*MHZ
 
 # SPI5 external connections
 SPIDEV external1m0   SPI5 DEVID1  EXT1_CS1   MODE0  2*MHZ  2*MHZ
@@ -275,6 +272,8 @@ IMU Invensense SPI:icm20689 ROTATION_NONE
 IMU BMI088 SPI:bmi055_a SPI:bmi055_g ROTATION_ROLL_180_YAW_90
 # These are here for compatibility with pre-release boards
 IMU BMI055 SPI:bmi055_a SPI:bmi055_g ROTATION_ROLL_180_YAW_90
+# alternative 20602 IMU for some variants
+IMU Invensense SPI:icm20602_2 ROTATION_NONE
 
 define HAL_DEFAULT_INS_FAST_SAMPLE 7
 
@@ -297,9 +296,9 @@ PC6 LED_GREEN OUTPUT GPIO(91) LOW
 PC7 LED_BLUE OUTPUT GPIO(92) HIGH
 
 # setup for BoardLED2
+define AP_NOTIFY_GPIO_LED_2_ENABLED 1
 define HAL_GPIO_A_LED_PIN 90
 define HAL_GPIO_B_LED_PIN 92
-define HAL_GPIO_LED_ON 0
 
 # enable RAMTROM parameter storage
 define HAL_STORAGE_SIZE 32768
@@ -311,14 +310,10 @@ define HAL_HAVE_SAFETY_SWITCH 1
 # one baro
 BARO MS56XX SPI:ms5611
 
-define HAL_COMPASS_DEFAULT HAL_COMPASS_NONE
 define HAL_COMPASS_AUTO_ROT_DEFAULT 2
 
 # enable FAT filesystem support (needs a microSD defined via SDMMC)
 define HAL_OS_FATFS_IO 1
-
-define HAL_BOARD_LOG_DIRECTORY "/APM/LOGS"
-define HAL_BOARD_TERRAIN_DIRECTORY "/APM/TERRAIN"
 
 ROMFS io_firmware.bin Tools/IO_Firmware/iofirmware_lowpolh.bin
 
@@ -341,3 +336,14 @@ define HAL_BATT_CURR_SCALE 36.364
 # before we enable it
 #define HAL_SPI_USE_POLLED
 
+# Enable Sagetech MXS ADSB transponder
+define HAL_ADSB_SAGETECH_MXS_ENABLED HAL_ADSB_ENABLED
+
+# enable DFU reboot for installing bootloader
+# note that if firmware is build with --secure-bl then DFU is
+# disabled
+ENABLE_DFU_BOOT 1
+
+# enable support for dshot on iomcu
+ROMFS io_firmware_dshot.bin Tools/IO_Firmware/iofirmware_dshot_lowpolh.bin
+define HAL_WITH_IO_MCU_DSHOT 1

@@ -1,9 +1,8 @@
-#include <AP_HAL/AP_HAL.h>
-
-#include "AP_NavEKF2.h"
 #include "AP_NavEKF2_core.h"
 
-extern const AP_HAL::HAL& hal;
+#include <AP_DAL/AP_DAL.h>
+
+#include "AP_NavEKF2.h"
 
 /********************************************************
 *                   RESET FUNCTIONS                     *
@@ -113,6 +112,12 @@ void NavEKF2_core::FuseAirspeed()
         bool tasHealth = ((tasTestRatio < 1.0f) || badIMUdata);
         tasTimeout = (imuSampleTime_ms - lastTasPassTime_ms) > frontend->tasRetryTime_ms;
 
+        if (!tasHealth) {
+            lastTasFailTime_ms = imuSampleTime_ms;
+        } else {
+            lastTasFailTime_ms = 0;
+        }
+        
         // test the ratio before fusing data, forcing fusion if airspeed and position are timed out as we have no choice but to try and use airspeed to constrain error growth
         if (tasHealth || (tasTimeout && posTimeout)) {
 

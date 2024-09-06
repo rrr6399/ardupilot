@@ -14,6 +14,8 @@
  */
 #include "AP_RangeFinder_PulsedLightLRF.h"
 
+#if AP_RANGEFINDER_PULSEDLIGHTLRF_ENABLED
+
 #include <utility>
 #include <stdio.h>
 
@@ -60,7 +62,7 @@ AP_RangeFinder_Backend *AP_RangeFinder_PulsedLightLRF::detect(uint8_t bus,
                                                                   RangeFinder::Type rftype)
 {
     AP_RangeFinder_PulsedLightLRF *sensor
-        = new AP_RangeFinder_PulsedLightLRF(bus, _state, _params, rftype);
+        = NEW_NOTHROW AP_RangeFinder_PulsedLightLRF(bus, _state, _params, rftype);
     if (!sensor ||
         !sensor->init()) {
         delete sensor;
@@ -91,7 +93,7 @@ void AP_RangeFinder_PulsedLightLRF::timer(void)
             uint16_t _distance_cm = be16toh(val);
             // remove momentary spikes
             if (abs(_distance_cm - last_distance_cm) < 100) {
-                state.distance_cm = _distance_cm;
+                state.distance_m = _distance_cm * 0.01f;
                 state.last_reading_ms = AP_HAL::millis();
                 update_status();                
             }
@@ -205,7 +207,7 @@ bool AP_RangeFinder_PulsedLightLRF::init(void)
         }
     }
 
-    printf("Found LidarLite device=0x%x v2=%d v3hp=%d\n", _dev->get_bus_id(), (int)v2_hardware, (int)v3hp_hardware);
+    printf("Found LidarLite device=0x%x v2=%d v3hp=%d\n", unsigned(_dev->get_bus_id()), (int)v2_hardware, (int)v3hp_hardware);
     
     _dev->get_semaphore()->give();
 
@@ -218,3 +220,4 @@ failed:
     return false;
 }
 
+#endif  // AP_RANGEFINDER_PULSEDLIGHTLRF_ENABLED

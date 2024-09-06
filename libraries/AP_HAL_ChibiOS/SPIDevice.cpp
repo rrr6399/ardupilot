@@ -12,6 +12,8 @@
  * You should have received a copy of the GNU General Public License along
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
+#include <hal.h>
 #include "SPIDevice.h"
 
 #include <AP_HAL/AP_HAL.h>
@@ -67,6 +69,7 @@ static const struct SPIDriverInfo {
     uint8_t busid; // used for device IDs in parameters
     uint8_t dma_channel_rx;
     uint8_t dma_channel_tx;
+    ioline_t sck_line;
 } spi_devices[] = { HAL_SPI_BUS_LIST };
 
 // device list comes from hwdef.dat
@@ -79,11 +82,15 @@ SPIBus::SPIBus(uint8_t _bus) :
     chMtxObjectInit(&dma_lock);
 
     // allow for sharing of DMA channels with other peripherals
-    dma_handle = new Shared_DMA(spi_devices[bus].dma_channel_rx,
+    dma_handle = NEW_NOTHROW Shared_DMA(spi_devices[bus].dma_channel_rx,
                                 spi_devices[bus].dma_channel_tx,
                                 FUNCTOR_BIND_MEMBER(&SPIBus::dma_allocate, void, Shared_DMA *),
                                 FUNCTOR_BIND_MEMBER(&SPIBus::dma_deallocate, void, Shared_DMA *));
 
+    // remember the SCK line for stop_peripheral()/start_peripheral()
+#if HAL_SPI_SCK_SAVE_RESTORE
+    sck_mode = palReadLineMode(spi_devices[bus].sck_line);
+#endif
 }
 
 /*
@@ -101,10 +108,7 @@ void SPIBus::dma_deallocate(Shared_DMA *ctx)
 {
     chMtxLock(&dma_lock);
     // another non-SPI peripheral wants one of our DMA channels
-    if (spi_started) {
-        spiStop(spi_devices[bus].driver);
-        spi_started = false;
-    }
+    stop_peripheral();
     chMtxUnlock(&dma_lock);
 }
 
@@ -124,6 +128,7 @@ SPIDevice::SPIDevice(SPIBus &_bus, SPIDesc &_device_desc)
              device_desc.name,
              (unsigned)bus.bus, (unsigned)device_desc.device);
     AP_HAL::SPIDevice::setup_bankselect_callback(device_desc.bank_select_cb);
+    AP_HAL::SPIDevice::set_register_rw_callback(device_desc.register_rw_cb);
     //printf("SPI device %s on %u:%u at speed %u mode %u\n",
     //       device_desc.name,
     //       (unsigned)bus.bus, (unsigned)device_desc.device,
@@ -337,6 +342,48 @@ bool SPIDevice::adjust_periodic_callback(AP_HAL::Device::PeriodicHandle h, uint3
 }
 
 /*
+  stop the SPI peripheral and set the SCK line as a GPIO to prevent the clock
+  line floating while we are waiting for the next spiStart()
+ */
+void SPIBus::stop_peripheral(void)
+{
+    if (!spi_started) {
+        return;
+    }
+    const auto &sbus = spi_devices[bus];
+#if HAL_SPI_SCK_SAVE_RESTORE
+    if (spi_mode == SPIDEV_MODE0 || spi_mode == SPIDEV_MODE1) {
+        // Clock polarity is 0, so we need to set the clock line low before spi reset
+        palClearLine(sbus.sck_line);
+    } else {
+        // Clock polarity is 1, so we need to set the clock line high before spi reset
+        palSetLine(sbus.sck_line);
+    }
+    palSetLineMode(sbus.sck_line, PAL_MODE_OUTPUT_PUSHPULL);
+#endif
+    spiStop(sbus.driver);
+    spi_started = false;
+}
+
+/*
+  start the SPI peripheral and restore the IO mode of the SCK line
+ */
+void SPIBus::start_peripheral(void)
+{
+    if (spi_started) {
+        return;
+    }
+
+    /* start driver and setup transfer parameters */
+    spiStart(spi_devices[bus].driver, &spicfg);
+#if HAL_SPI_SCK_SAVE_RESTORE
+    // restore sck pin mode from stop_peripheral()
+    palSetLineMode(spi_devices[bus].sck_line, sck_mode);
+#endif
+    spi_started = true;
+}
+
+/*
  used to acquire bus and (optionally) assert cs
 */
 bool SPIDevice::acquire_bus(bool set, bool skip_cs)
@@ -360,9 +407,9 @@ bool SPIDevice::acquire_bus(bool set, bool skip_cs)
     } else {
         bus.dma_handle->lock();
         spiAcquireBus(spi_devices[device_desc.bus].driver);              /* Acquire ownership of the bus.    */
-        bus.spicfg.end_cb = nullptr;
         bus.spicfg.ssport = PAL_PORT(device_desc.pal_line);
         bus.spicfg.sspad = PAL_PAD(device_desc.pal_line);
+        bus.spicfg.end_cb = nullptr;
 #if defined(STM32H7)
         bus.spicfg.cfg1 = freq_flag;
         bus.spicfg.cfg2 = device_desc.mode;
@@ -377,12 +424,9 @@ bool SPIDevice::acquire_bus(bool set, bool skip_cs)
         bus.spicfg.cr1 = (uint16_t)(freq_flag | device_desc.mode);
         bus.spicfg.cr2 = 0;
 #endif
-        if (bus.spi_started) {
-            spiStop(spi_devices[device_desc.bus].driver);
-            bus.spi_started = false;
-        }
-        spiStart(spi_devices[device_desc.bus].driver, &bus.spicfg);        /* Setup transfer parameters.       */
-        bus.spi_started = true;
+        bus.spi_mode = device_desc.mode;
+        bus.stop_peripheral();
+        bus.start_peripheral();
         if(!skip_cs) {
             spiSelectI(spi_devices[device_desc.bus].driver);                /* Slave Select assertion.          */
         }
@@ -426,7 +470,7 @@ SPIDeviceManager::get_device(const char *name)
     }
     if (busp == nullptr) {
         // create a new one
-        busp = new SPIBus(desc.bus);
+        busp = NEW_NOTHROW SPIBus(desc.bus);
         if (busp == nullptr) {
             return nullptr;
         }
@@ -436,8 +480,26 @@ SPIDeviceManager::get_device(const char *name)
         buses = busp;
     }
 
-    return AP_HAL::OwnPtr<AP_HAL::SPIDevice>(new SPIDevice(*busp, desc));
+    return AP_HAL::OwnPtr<AP_HAL::SPIDevice>(NEW_NOTHROW SPIDevice(*busp, desc));
 }
+
+void SPIDeviceManager::set_register_rw_callback(const char* name, AP_HAL::Device::RegisterRWCb cb)
+{
+    /* Find the bus description in the table */
+    uint8_t i;
+    for (i = 0; i<ARRAY_SIZE(device_table); i++) {
+        if (strcmp(device_table[i].name, name) == 0) {
+            break;
+        }
+    }
+    if (i == ARRAY_SIZE(device_table)) {
+        return;
+    }
+
+    device_table[i].register_rw_cb = cb;
+
+}
+
 
 #ifdef HAL_SPI_CHECK_CLOCK_FREQ
 
@@ -449,16 +511,16 @@ SPIDeviceManager::get_device(const char *name)
 void SPIDevice::test_clock_freq(void)
 {
     // delay for USB to come up
-    hal.console->printf("Waiting for USB\n");
+    DEV_PRINTF("Waiting for USB\n");
     for (uint8_t i=0; i<3; i++) {
         hal.scheduler->delay(1000);
-        hal.console->printf("Waiting %u\n", (unsigned)AP_HAL::millis());
+        DEV_PRINTF("Waiting %u\n", (unsigned)AP_HAL::millis());
     }
-    hal.console->printf("CLOCKS=\n");
+    DEV_PRINTF("CLOCKS=\n");
     for (uint8_t i=0; i<ARRAY_SIZE(bus_clocks); i++) {
-        hal.console->printf("%u:%u ", unsigned(i+1), unsigned(bus_clocks[i]));
+        DEV_PRINTF("%u:%u ", unsigned(i+1), unsigned(bus_clocks[i]));
     }
-    hal.console->printf("\n");
+    DEV_PRINTF("\n");
 
     // we will send 1024 bytes without any CS asserted and measure the
     // time it takes to do the transfer
@@ -479,11 +541,11 @@ void SPIDevice::test_clock_freq(void)
         uint32_t t0 = AP_HAL::micros();
         spiStartExchange(spi_devices[i].driver, len, buf1, buf2);
         chSysLock();
-        msg_t msg = osalThreadSuspendTimeoutS(&spi_devices[i].driver->thread, TIME_MS2I(100));
+        msg_t msg = osalThreadSuspendTimeoutS(&spi_devices[i].driver->thread, chTimeMS2I(100));
         chSysUnlock();
         if (msg == MSG_TIMEOUT) {
             spiAbort(spi_devices[i].driver);
-            hal.console->printf("SPI[%u] FAIL %p %p\n", spi_devices[i].busid, buf1, buf2);
+            DEV_PRINTF("SPI[%u] FAIL %p %p\n", spi_devices[i].busid, buf1, buf2);
             spiStop(spi_devices[i].driver);
             spiReleaseBus(spi_devices[i].driver);
             continue;
@@ -491,7 +553,7 @@ void SPIDevice::test_clock_freq(void)
         uint32_t t1 = AP_HAL::micros();
         spiStop(spi_devices[i].driver);
         spiReleaseBus(spi_devices[i].driver);
-        hal.console->printf("SPI[%u] clock=%u\n", unsigned(spi_devices[i].busid), unsigned(1000000ULL * len * 8ULL / uint64_t(t1 - t0)));
+        DEV_PRINTF("SPI[%u] clock=%u\n", unsigned(spi_devices[i].busid), unsigned(1000000ULL * len * 8ULL / uint64_t(t1 - t0)));
     }
     hal.util->free_type(buf1, len, AP_HAL::Util::MEM_DMA_SAFE);
     hal.util->free_type(buf2, len, AP_HAL::Util::MEM_DMA_SAFE);

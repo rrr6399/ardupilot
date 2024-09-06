@@ -16,13 +16,13 @@
 //
 //  MAVLINK GPS driver
 //
+
+#include "AP_GPS_config.h"
+
+#if AP_GPS_MAV_ENABLED
+
 #include "AP_GPS_MAV.h"
 #include <stdint.h>
-
-AP_GPS_MAV::AP_GPS_MAV(AP_GPS &_gps, AP_GPS::GPS_State &_state, AP_HAL::UARTDriver *_port) :
-    AP_GPS_Backend(_gps, _state, _port)
-{
-}
 
 // Reading does nothing in this class; we simply return whether or not
 // the latest reading has been consumed.  By calling this function we assume
@@ -46,6 +46,11 @@ void AP_GPS_MAV::handle_msg(const mavlink_message_t &msg)
         case MAVLINK_MSG_ID_GPS_INPUT: {
             mavlink_gps_input_t packet;
             mavlink_msg_gps_input_decode(&msg, &packet);
+
+            // check if target instance belongs to incoming gps data.
+            if (state.instance != packet.gps_id) {
+                return;
+            }
 
             bool have_alt    = ((packet.ignore_flags & GPS_INPUT_IGNORE_FLAG_ALT) == 0);
             bool have_hdop   = ((packet.ignore_flags & GPS_INPUT_IGNORE_FLAG_HDOP) == 0);
@@ -85,8 +90,7 @@ void AP_GPS_MAV::handle_msg(const mavlink_message_t &msg)
                 }
 
                 state.velocity = vel;
-                state.ground_course = wrap_360(degrees(atan2f(vel.y, vel.x)));
-                state.ground_speed = vel.xy().length();
+                velocity_to_speed_course(state);
             }
 
             if (have_sa) {
@@ -124,7 +128,12 @@ void AP_GPS_MAV::handle_msg(const mavlink_message_t &msg)
                 }
                 uint32_t timestamp_ms = (packet.time_week - first_week) * AP_MSEC_PER_WEEK + packet.time_week_ms;
                 uint32_t corrected_ms = jitter.correct_offboard_timestamp_msec(timestamp_ms, now_ms);
-                state.uart_timestamp_ms = corrected_ms;
+                state.last_corrected_gps_time_us = (corrected_ms * 1000ULL);
+                state.corrected_timestamp_updated = true;
+                if (state.last_corrected_gps_time_us) {
+                    _last_itow_ms = state.time_week_ms;
+                    _have_itow = true;
+                }
                 if (have_yaw) {
                     state.gps_yaw_time_ms = corrected_ms;
                 }
@@ -136,9 +145,15 @@ void AP_GPS_MAV::handle_msg(const mavlink_message_t &msg)
             break;
             }
 
+#if AP_MAVLINK_MSG_HIL_GPS_ENABLED
         case MAVLINK_MSG_ID_HIL_GPS: {
             mavlink_hil_gps_t packet;
             mavlink_msg_hil_gps_decode(&msg, &packet);
+
+            // check if target instance belongs to incoming gps data.
+            if (state.instance != packet.id) {
+                return;
+            }
 
             state.time_week = 0;
             state.time_week_ms  = packet.time_usec/1000;
@@ -172,8 +187,10 @@ void AP_GPS_MAV::handle_msg(const mavlink_message_t &msg)
             _new_data = true;
             break;
             }
+#endif  // AP_MAVLINK_MSG_HIL_GPS_ENABLED
         default:
             // ignore all other messages
             break;
     }
 }
+#endif

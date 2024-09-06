@@ -12,13 +12,17 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
+#include "AP_Compass_AK8963.h"
+
+#if AP_COMPASS_AK8963_ENABLED
+
 #include <assert.h>
 #include <utility>
 
 #include <AP_Math/AP_Math.h>
 #include <AP_HAL/AP_HAL.h>
 
-#include "AP_Compass_AK8963.h"
 #include <AP_InertialSensor/AP_InertialSensor_Invensense.h>
 
 #define AK8963_I2C_ADDR                                 0x0c
@@ -45,11 +49,6 @@
 
 #define AK8963_MILLIGAUSS_SCALE 10.0f
 
-struct PACKED sample_regs {
-    int16_t val[3];
-    uint8_t st2;
-};
-
 extern const AP_HAL::HAL &hal;
 
 AP_Compass_AK8963::AP_Compass_AK8963(AP_AK8963_BusDriver *bus,
@@ -70,12 +69,12 @@ AP_Compass_Backend *AP_Compass_AK8963::probe(AP_HAL::OwnPtr<AP_HAL::I2CDevice> d
     if (!dev) {
         return nullptr;
     }
-    AP_AK8963_BusDriver *bus = new AP_AK8963_BusDriver_HALDevice(std::move(dev));
+    AP_AK8963_BusDriver *bus = NEW_NOTHROW AP_AK8963_BusDriver_HALDevice(std::move(dev));
     if (!bus) {
         return nullptr;
     }
 
-    AP_Compass_AK8963 *sensor = new AP_Compass_AK8963(bus, rotation);
+    AP_Compass_AK8963 *sensor = NEW_NOTHROW AP_Compass_AK8963(bus, rotation);
     if (!sensor || !sensor->init()) {
         delete sensor;
         return nullptr;
@@ -90,7 +89,7 @@ AP_Compass_Backend *AP_Compass_AK8963::probe_mpu9250(AP_HAL::OwnPtr<AP_HAL::I2CD
     if (!dev) {
         return nullptr;
     }
-#if HAL_INS_ENABLED
+#if AP_INERTIALSENSOR_ENABLED
     AP_InertialSensor &ins = *AP_InertialSensor::get_singleton();
 
     /* Allow MPU9250 to shortcut auxiliary bus and host bus */
@@ -103,16 +102,16 @@ AP_Compass_Backend *AP_Compass_AK8963::probe_mpu9250(AP_HAL::OwnPtr<AP_HAL::I2CD
 AP_Compass_Backend *AP_Compass_AK8963::probe_mpu9250(uint8_t mpu9250_instance,
                                                      enum Rotation rotation)
 {
-#if HAL_INS_ENABLED
+#if AP_INERTIALSENSOR_ENABLED
     AP_InertialSensor &ins = *AP_InertialSensor::get_singleton();
 
     AP_AK8963_BusDriver *bus =
-        new AP_AK8963_BusDriver_Auxiliary(ins, HAL_INS_MPU9250_SPI, mpu9250_instance, AK8963_I2C_ADDR);
+        NEW_NOTHROW AP_AK8963_BusDriver_Auxiliary(ins, HAL_INS_MPU9250_SPI, mpu9250_instance, AK8963_I2C_ADDR);
     if (!bus) {
         return nullptr;
     }
 
-    AP_Compass_AK8963 *sensor = new AP_Compass_AK8963(bus, rotation);
+    AP_Compass_AK8963 *sensor = NEW_NOTHROW AP_Compass_AK8963(bus, rotation);
     if (!sensor || !sensor->init()) {
         delete sensor;
         return nullptr;
@@ -135,27 +134,27 @@ bool AP_Compass_AK8963::init()
     _bus->get_semaphore()->take_blocking();
 
     if (!_bus->configure()) {
-        hal.console->printf("AK8963: Could not configure the bus\n");
+        DEV_PRINTF("AK8963: Could not configure the bus\n");
         goto fail;
     }
 
     if (!_check_id()) {
-        hal.console->printf("AK8963: Wrong id\n");
+        DEV_PRINTF("AK8963: Wrong id\n");
         goto fail;
     }
 
     if (!_calibrate()) {
-        hal.console->printf("AK8963: Could not read calibration data\n");
+        DEV_PRINTF("AK8963: Could not read calibration data\n");
         goto fail;
     }
 
     if (!_setup_mode()) {
-        hal.console->printf("AK8963: Could not setup mode\n");
+        DEV_PRINTF("AK8963: Could not setup mode\n");
         goto fail;
     }
 
     if (!_bus->start_measurements()) {
-        hal.console->printf("AK8963: Could not start measurements\n");
+        DEV_PRINTF("AK8963: Could not start measurements\n");
         goto fail;
     }
 
@@ -312,7 +311,7 @@ AP_AK8963_BusDriver_Auxiliary::AP_AK8963_BusDriver_Auxiliary(AP_InertialSensor &
      * Only initialize members. Fails are handled by configure or while
      * getting the semaphore
      */
-#if HAL_INS_ENABLED
+#if AP_INERTIALSENSOR_ENABLED
     _bus = ins.get_auxiliary_bus(backend_id, backend_instance);
     if (!_bus) {
         return;
@@ -375,7 +374,7 @@ bool AP_AK8963_BusDriver_Auxiliary::configure()
 
 bool AP_AK8963_BusDriver_Auxiliary::start_measurements()
 {
-    if (_bus->register_periodic_read(_slave, AK8963_HXL, sizeof(sample_regs)) < 0) {
+    if (_bus->register_periodic_read(_slave, AK8963_HXL, sizeof(AP_Compass_AK8963::sample_regs)) < 0) {
         return false;
     }
 
@@ -400,3 +399,5 @@ uint32_t AP_AK8963_BusDriver_Auxiliary::get_bus_id(void) const
 {
     return _bus->get_bus_id();
 }
+
+#endif  // AP_COMPASS_AK8963_ENABLED

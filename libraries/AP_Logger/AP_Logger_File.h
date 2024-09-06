@@ -22,8 +22,12 @@ class AP_Logger_File : public AP_Logger_Backend
 public:
     // constructor
     AP_Logger_File(AP_Logger &front,
-                   LoggerMessageWriter_DFLogStart *,
-                   const char *log_directory);
+                   LoggerMessageWriter_DFLogStart *);
+
+    static AP_Logger_Backend  *probe(AP_Logger &front,
+                                     LoggerMessageWriter_DFLogStart *ls) {
+        return NEW_NOTHROW AP_Logger_File(front, ls);
+    }
 
     // initialisation
     void Init() override;
@@ -41,6 +45,7 @@ public:
     void get_log_boundaries(uint16_t log_num, uint32_t & start_page, uint32_t & end_page) override;
     void get_log_info(uint16_t log_num, uint32_t &size, uint32_t &time_utc) override;
     int16_t get_log_data(uint16_t log_num, uint16_t page, uint32_t offset, uint16_t len, uint8_t *data) override;
+    void end_log_transfer() override;
     uint16_t get_num_logs() override;
     void start_new_log(void) override;
     uint16_t find_oldest_log() override;
@@ -66,8 +71,9 @@ protected:
 private:
     int _write_fd = -1;
     char *_write_filename;
+    bool last_log_is_marked_discard;
     uint32_t _last_write_ms;
-#if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
+#if AP_RTC_ENABLED && CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
     bool _need_rtc_update;
 #endif
     
@@ -96,6 +102,9 @@ private:
     bool file_exists(const char *filename) const;
     bool log_exists(const uint16_t lognum) const;
 
+    bool dirent_to_log_num(const dirent *de, uint16_t &log_num) const;
+    bool write_lastlog_file(uint16_t log_num);
+
     // write buffer
     ByteBuffer _writebuf{0};
     const uint16_t _writebuf_chunk = HAL_LOGGER_WRITE_CHUNK_SIZE;
@@ -103,8 +112,6 @@ private:
 
     /* construct a file name given a log number. Caller must free. */
     char *_log_file_name(const uint16_t log_num) const;
-    char *_log_file_name_long(const uint16_t log_num) const;
-    char *_log_file_name_short(const uint16_t log_num) const;
     char *_lastlog_file_name() const;
     uint32_t _get_log_size(const uint16_t log_num);
     uint32_t _get_log_time(const uint16_t log_num);

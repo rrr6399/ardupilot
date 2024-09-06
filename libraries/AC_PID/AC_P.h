@@ -20,10 +20,10 @@ public:
     ///
     /// @param  initial_p       Initial value for the P term.
     ///
-    AC_P(const float &initial_p = 0.0f)
+    AC_P(const float &initial_p = 0.0f) :
+        default_kp(initial_p)
     {
-		AP_Param::setup_object_defaults(this, var_info);
-        _kp = initial_p;
+        AP_Param::setup_object_defaults(this, var_info);
     }
 
     CLASS_NO_COPY(AC_P);
@@ -53,16 +53,15 @@ public:
     /// @name	parameter accessors
     //@{
 
-    /// Overload the function call operator to permit relatively easy initialisation
-    void operator() (const float p) { _kp = p; }
-
     // accessors
     AP_Float    &kP() { return _kp; }
     const AP_Float &kP() const { return _kp; }
-    void        kP(const float v) { _kp.set(v); }
+    void        set_kP(const float v) { _kp.set(v); }
 
     static const struct AP_Param::GroupInfo        var_info[];
 
 private:
     AP_Float        _kp;
+
+    const float default_kp;
 };

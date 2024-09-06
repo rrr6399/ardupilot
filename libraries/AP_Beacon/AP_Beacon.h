@@ -14,36 +14,36 @@
  */
 #pragma once
 
+#include "AP_Beacon_config.h"
+
+#if AP_BEACON_ENABLED
+
 #include <AP_Common/AP_Common.h>
-#include <AP_HAL/AP_HAL.h>
 #include <AP_Param/AP_Param.h>
 #include <AP_Math/AP_Math.h>
-#include <AP_SerialManager/AP_SerialManager.h>
 #include <AP_Common/Location.h>
 
 class AP_Beacon_Backend;
-
-#define AP_BEACON_MAX_BEACONS 4
-#define AP_BEACON_TIMEOUT_MS 300
-#define AP_BEACON_MINIMUM_FENCE_BEACONS 3
 
 class AP_Beacon
 {
 public:
     friend class AP_Beacon_Backend;
 
-    AP_Beacon(AP_SerialManager &_serial_manager);
+    AP_Beacon();
 
     // get singleton instance
     static AP_Beacon *get_singleton() { return _singleton; }
 
     // external position backend types (used by _TYPE parameter)
-    enum AP_BeaconType {
-        AP_BeaconType_None   = 0,
-        AP_BeaconType_Pozyx  = 1,
-        AP_BeaconType_Marvelmind = 2,
-        AP_BeaconType_Nooploop  = 3,
-        AP_BeaconType_SITL   = 10
+    enum class Type : uint8_t {
+        None   = 0,
+        Pozyx  = 1,
+        Marvelmind = 2,
+        Nooploop  = 3,
+#if AP_BEACON_SITL_ENABLED
+        SITL   = 10
+#endif
     };
 
     // The AP_BeaconState structure is filled in by the backend driver
@@ -104,6 +104,9 @@ public:
 
     static const struct AP_Param::GroupInfo var_info[];
 
+    // a method for vehicles to call to make onboard log messages:
+    void log();
+
 private:
 
     static AP_Beacon *_singleton;
@@ -120,7 +123,7 @@ private:
     static bool get_next_boundary_point(const Vector2f* boundary, uint8_t num_points, uint8_t current_index, float start_angle, uint8_t& next_index, float& next_angle);
 
     // parameters
-    AP_Int8 _type;
+    AP_Enum<Type> _type;
     AP_Float origin_lat;
     AP_Float origin_lon;
     AP_Float origin_alt;
@@ -128,7 +131,6 @@ private:
 
     // external references
     AP_Beacon_Backend *_driver;
-    AP_SerialManager &serial_manager;
 
     // last known position
     Vector3f veh_pos_ned;
@@ -148,3 +150,5 @@ private:
 namespace AP {
     AP_Beacon *beacon();
 };
+
+#endif  // AP_BEACON_ENABLED

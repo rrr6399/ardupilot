@@ -12,6 +12,8 @@
  * You should have received a copy of the GNU General Public License along
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
+#include <hal.h>
 #include "Device.h"
 
 #include <AP_HAL/AP_HAL.h>
@@ -132,7 +134,7 @@ AP_HAL::Device::PeriodicHandle DeviceBus::register_periodic_callback(uint32_t pe
             AP_HAL::panic("Failed to create bus thread %s", name);
         }
     }
-    DeviceBus::callback_info *callback = new DeviceBus::callback_info;
+    DeviceBus::callback_info *callback = NEW_NOTHROW DeviceBus::callback_info;
     if (callback == nullptr) {
         return nullptr;
     }

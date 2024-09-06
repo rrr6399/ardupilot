@@ -31,15 +31,7 @@
 //
 
 #ifndef CIRCLE_NAV_ENABLED
-# define CIRCLE_NAV_ENABLED ENABLED
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
-// RPM
-//
-
-#ifndef RPM_ENABLED
-# define RPM_ENABLED DISABLED
+# define CIRCLE_NAV_ENABLED 1
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -47,27 +39,15 @@
 //
 
 #ifndef RCMAP_ENABLED
-# define RCMAP_ENABLED DISABLED
+# define RCMAP_ENABLED 0
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
 // Rangefinder
 //
 
-#ifndef RANGEFINDER_ENABLED
-# define RANGEFINDER_ENABLED ENABLED
-#endif
-
 #ifndef RANGEFINDER_HEALTH_MAX
 # define RANGEFINDER_HEALTH_MAX 3          // number of good reads that indicates a healthy rangefinder
-#endif
-
-#ifndef RANGEFINDER_GAIN_DEFAULT
-# define RANGEFINDER_GAIN_DEFAULT 0.8f     // gain for controlling how quickly rangefinder range adjusts target altitude (lower means slower reaction)
-#endif
-
-#ifndef THR_SURFACE_TRACKING_VELZ_MAX
-# define THR_SURFACE_TRACKING_VELZ_MAX 150 // max vertical speed change while surface tracking with rangefinder
 #endif
 
 #ifndef RANGEFINDER_TIMEOUT_MS
@@ -78,17 +58,25 @@
 # define RANGEFINDER_WPNAV_FILT_HZ   0.25f // filter frequency for rangefinder altitude provided to waypoint navigation class
 #endif
 
-#ifndef RANGEFINDER_TILT_CORRECTION         // by disable tilt correction for use of range finder data by EKF
-# define RANGEFINDER_TILT_CORRECTION ENABLED
+#ifndef RANGEFINDER_TILT_CORRECTION        // by disable tilt correction for use of range finder data by EKF
+# define RANGEFINDER_TILT_CORRECTION 0
+#endif
+
+#ifndef RANGEFINDER_SIGNAL_MIN_DEFAULT
+# define RANGEFINDER_SIGNAL_MIN_DEFAULT 90 // rangefinder readings with signal quality below this value are ignored
+#endif
+
+#ifndef SURFTRAK_DEPTH_DEFAULT
+# define SURFTRAK_DEPTH_DEFAULT -50.0f     // surftrak will try to keep the sub below this depth
 #endif
 
 // Avoidance (relies on Proximity and Fence)
 #ifndef AVOIDANCE_ENABLED
-# define AVOIDANCE_ENABLED DISABLED
+# define AVOIDANCE_ENABLED 0
 #endif
 
-#if AVOIDANCE_ENABLED == ENABLED // Avoidance Library relies on Fence
-# define FENCE_ENABLED ENABLED
+#if AVOIDANCE_ENABLED // Avoidance Library relies on Fence
+# define FENCE_ENABLED 1
 #endif
 
 #ifndef MAV_SYSTEM_ID
@@ -100,28 +88,9 @@
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
-//  OPTICAL_FLOW
-#ifndef OPTFLOW
-# define OPTFLOW       DISABLED
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
-//  gripper
-#ifndef GRIPPER_ENABLED
-# define GRIPPER_ENABLED DISABLED
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
 // Nav-Guided - allows external nav computer to control vehicle
 #ifndef NAV_GUIDED
-# define NAV_GUIDED    ENABLED
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
-// CAMERA TRIGGER AND CONTROL
-//
-#ifndef CAMERA
-# define CAMERA        DISABLED
+# define NAV_GUIDED    1
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -187,7 +156,7 @@
 // PosHold parameter defaults
 //
 #ifndef POSHOLD_ENABLED
-# define POSHOLD_ENABLED               ENABLED // PosHold flight mode enabled by default
+# define POSHOLD_ENABLED               1 // PosHold flight mode enabled by default
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -213,9 +182,6 @@
 //////////////////////////////////////////////////////////////////////////////
 // Logging control
 //
-#ifndef LOGGING_ENABLED
-# define LOGGING_ENABLED                ENABLED
-#endif
 
 // Default logging bitmask
 #ifndef DEFAULT_LOG_BITMASK
@@ -234,13 +200,4 @@
     MASK_LOG_COMPASS | \
     MASK_LOG_CAMERA | \
     MASK_LOG_MOTBATT
-#endif
-
-// Enable/disable Fence
-#ifndef AC_FENCE
-#define AC_FENCE ENABLED
-#endif
-
-#ifndef AC_RALLY
-#define AC_RALLY   DISABLED
 #endif

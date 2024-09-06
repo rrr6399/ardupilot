@@ -19,12 +19,6 @@
  */
 #include "AC_AttitudeControl_TS.h"
 
-
-AC_AttitudeControl_TS::AC_AttitudeControl_TS(AP_AHRS_View &ahrs, const AP_Vehicle::MultiCopter &aparm, AP_MotorsMulticopter& motors, float dt) :
-    AC_AttitudeControl_Multi(ahrs, aparm, motors, dt)
-{
-}
-
 void AC_AttitudeControl_TS::relax_attitude_controllers(bool exclude_pitch)
 {
     // If exclude_pitch: relax roll and yaw rate controller outputs only,
@@ -48,7 +42,7 @@ void AC_AttitudeControl_TS::relax_attitude_controllers(bool exclude_pitch)
 
         // Initialize the roll and yaw angular rate variables to the current rate
         _ang_vel_target = _ahrs.get_gyro();
-        ang_vel_to_euler_rate(_euler_angle_target, _ang_vel_target, _euler_rate_target);
+        ang_vel_to_euler_rate(_attitude_target, _ang_vel_target, _euler_rate_target);
         _ang_vel_body.x = _ahrs.get_gyro().x;
         _ang_vel_body.z = _ahrs.get_gyro().z;
 

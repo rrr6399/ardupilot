@@ -13,15 +13,15 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "AP_VisualOdom.h"
+#include "AP_VisualOdom_config.h"
 
 #if HAL_VISUALODOM_ENABLED
 
+#include "AP_VisualOdom.h"
 #include "AP_VisualOdom_Backend.h"
 #include "AP_VisualOdom_MAV.h"
 #include "AP_VisualOdom_IntelT265.h"
 #include <AP_AHRS/AP_AHRS.h>
-#include <AP_Logger/AP_Logger.h>
 
 extern const AP_HAL::HAL &hal;
 
@@ -31,7 +31,7 @@ const AP_Param::GroupInfo AP_VisualOdom::var_info[] = {
     // @Param: _TYPE
     // @DisplayName: Visual odometry camera connection type
     // @Description: Visual odometry camera connection type
-    // @Values: 0:None,1:MAVLink,2:IntelT265
+    // @Values: 0:None,1:MAVLink,2:IntelT265,3:VOXL(ModalAI)
     // @User: Advanced
     // @RebootRequired: True
     AP_GROUPINFO_FLAGS("_TYPE", 0, AP_VisualOdom, _type, 0, AP_PARAM_FLAG_ENABLE),
@@ -106,6 +106,14 @@ const AP_Param::GroupInfo AP_VisualOdom::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("_YAW_M_NSE", 7, AP_VisualOdom, _yaw_noise, 0.2f),
 
+    // @Param: _QUAL_MIN
+    // @DisplayName: Visual odometry minimum quality
+    // @Description: Visual odometry will only be sent to EKF if over this value. -1 to always send (even bad values), 0 to send if good or unknown
+    // @Units: %
+    // @Range: -1 100
+    // @User: Advanced
+    AP_GROUPINFO("_QUAL_MIN", 8, AP_VisualOdom, _quality_min, 0),
+
     AP_GROUPEND
 };
 
@@ -124,23 +132,28 @@ AP_VisualOdom::AP_VisualOdom()
 void AP_VisualOdom::init()
 {
     // create backend
-    switch (_type) {
-    case AP_VisualOdom_Type_None:
+    switch (VisualOdom_Type(_type.get())) {
+    case VisualOdom_Type::None:
         // do nothing
         break;
-    case AP_VisualOdom_Type_MAV:
-        _driver = new AP_VisualOdom_MAV(*this);
+#if AP_VISUALODOM_MAV_ENABLED
+    case VisualOdom_Type::MAV:
+        _driver = NEW_NOTHROW AP_VisualOdom_MAV(*this);
         break;
-    case AP_VisualOdom_Type_IntelT265:
-        _driver = new AP_VisualOdom_IntelT265(*this);
+#endif
+#if AP_VISUALODOM_INTELT265_ENABLED
+    case VisualOdom_Type::IntelT265:
+    case VisualOdom_Type::VOXL:
+        _driver = NEW_NOTHROW AP_VisualOdom_IntelT265(*this);
         break;
+#endif
     }
 }
 
 // return true if sensor is enabled
 bool AP_VisualOdom::enabled() const
 {
-    return ((_type != AP_VisualOdom_Type_None));
+    return ((_type != VisualOdom_Type::None));
 }
 
 // return true if sensor is basically healthy (we are receiving data)
@@ -154,6 +167,16 @@ bool AP_VisualOdom::healthy() const
         return false;
     }
     return _driver->healthy();
+}
+
+// return quality as a measure from 0 ~ 100
+// -1 means failed, 0 means unknown, 1 is worst, 100 is best
+int8_t AP_VisualOdom::quality() const
+{
+    if (_driver == nullptr) {
+        return 0;
+    }
+    return _driver->quality();
 }
 
 #if HAL_GCS_ENABLED
@@ -174,7 +197,8 @@ void AP_VisualOdom::handle_vision_position_delta_msg(const mavlink_message_t &ms
 
 // general purpose method to consume position estimate data and send to EKF
 // distances in meters, roll, pitch and yaw are in radians
-void AP_VisualOdom::handle_vision_position_estimate(uint64_t remote_time_us, uint32_t time_ms, float x, float y, float z, float roll, float pitch, float yaw, float posErr, float angErr, uint8_t reset_counter)
+// quality of -1 means failed, 0 means unknown, 1 is worst, 100 is best
+void AP_VisualOdom::handle_pose_estimate(uint64_t remote_time_us, uint32_t time_ms, float x, float y, float z, float roll, float pitch, float yaw, float posErr, float angErr, uint8_t reset_counter, int8_t quality)
 {
     // exit immediately if not enabled
     if (!enabled()) {
@@ -186,12 +210,13 @@ void AP_VisualOdom::handle_vision_position_estimate(uint64_t remote_time_us, uin
         // convert attitude to quaternion and call backend
         Quaternion attitude;
         attitude.from_euler(roll, pitch, yaw);
-        _driver->handle_vision_position_estimate(remote_time_us, time_ms, x, y, z, attitude, posErr, angErr, reset_counter);
+        _driver->handle_pose_estimate(remote_time_us, time_ms, x, y, z, attitude, posErr, angErr, reset_counter, quality);
     }
 }
 
 // general purpose method to consume position estimate data and send to EKF
-void AP_VisualOdom::handle_vision_position_estimate(uint64_t remote_time_us, uint32_t time_ms, float x, float y, float z, const Quaternion &attitude, uint8_t reset_counter)
+// quality of -1 means failed, 0 means unknown, 1 is worst, 100 is best
+void AP_VisualOdom::handle_pose_estimate(uint64_t remote_time_us, uint32_t time_ms, float x, float y, float z, const Quaternion &attitude, float posErr, float angErr, uint8_t reset_counter, int8_t quality)
 {
     // exit immediately if not enabled
     if (!enabled()) {
@@ -200,11 +225,14 @@ void AP_VisualOdom::handle_vision_position_estimate(uint64_t remote_time_us, uin
 
     // call backend
     if (_driver != nullptr) {
-        _driver->handle_vision_position_estimate(remote_time_us, time_ms, x, y, z, attitude, 0, 0, reset_counter);
+        _driver->handle_pose_estimate(remote_time_us, time_ms, x, y, z, attitude, posErr, angErr, reset_counter, quality);
     }
 }
 
-void AP_VisualOdom::handle_vision_speed_estimate(uint64_t remote_time_us, uint32_t time_ms, const Vector3f &vel, uint8_t reset_counter)
+// general purpose methods to consume velocity estimate data and send to EKF
+// velocity in NED meters per second
+// quality of -1 means failed, 0 means unknown, 1 is worst, 100 is best
+void AP_VisualOdom::handle_vision_speed_estimate(uint64_t remote_time_us, uint32_t time_ms, const Vector3f &vel, uint8_t reset_counter, int8_t quality)
 {
     // exit immediately if not enabled
     if (!enabled()) {
@@ -213,12 +241,12 @@ void AP_VisualOdom::handle_vision_speed_estimate(uint64_t remote_time_us, uint32
 
     // call backend
     if (_driver != nullptr) {
-        _driver->handle_vision_speed_estimate(remote_time_us, time_ms, vel, reset_counter);
+        _driver->handle_vision_speed_estimate(remote_time_us, time_ms, vel, reset_counter, quality);
     }
 }
 
-// calibrate camera attitude to align with vehicle's AHRS/EKF attitude
-void AP_VisualOdom::align_sensor_to_vehicle()
+// request sensor's yaw be aligned with vehicle's AHRS/EKF attitude
+void AP_VisualOdom::request_align_yaw_to_ahrs()
 {
     // exit immediately if not enabled
     if (!enabled()) {
@@ -227,7 +255,7 @@ void AP_VisualOdom::align_sensor_to_vehicle()
 
     // call backend
     if (_driver != nullptr) {
-        _driver->align_sensor_to_vehicle();
+        _driver->request_align_yaw_to_ahrs();
     }
 }
 
@@ -253,15 +281,15 @@ bool AP_VisualOdom::pre_arm_check(char *failure_msg, uint8_t failure_msg_len) co
         return true;
     }
 
-    // check healthy
-    if (!healthy()) {
-        hal.util->snprintf(failure_msg, failure_msg_len, "not healthy");
-        return false;
-    }
-
     // if no backend we must have failed to create because out of memory
     if (_driver == nullptr) {
         hal.util->snprintf(failure_msg, failure_msg_len, "out of memory");
+        return false;
+    }
+
+    // check healthy
+    if (!healthy()) {
+        hal.util->snprintf(failure_msg, failure_msg_len, "not healthy");
         return false;
     }
 

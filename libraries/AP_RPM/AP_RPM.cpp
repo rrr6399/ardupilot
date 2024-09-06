@@ -14,11 +14,19 @@
  */
 
 #include "AP_RPM.h"
+
+#if AP_RPM_ENABLED
+
+#include "RPM_Backend.h"
 #include "RPM_Pin.h"
 #include "RPM_SITL.h"
 #include "RPM_EFI.h"
+#include "RPM_Generator.h"
 #include "RPM_HarmonicNotch.h"
 #include "RPM_ESC_Telem.h"
+#include "RPM_DroneCAN.h"
+
+#include <AP_Logger/AP_Logger.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -34,6 +42,18 @@ const AP_Param::GroupInfo AP_RPM::var_info[] = {
     // @Group: 2_
     // @Path: AP_RPM_Params.cpp
     AP_SUBGROUPINFO(_params[1], "2_", 15, AP_RPM, AP_RPM_Params),
+#endif
+
+#if RPM_MAX_INSTANCES > 2
+    // @Group: 3_
+    // @Path: AP_RPM_Params.cpp
+    AP_SUBGROUPINFO(_params[2], "3_", 16, AP_RPM, AP_RPM_Params),
+#endif
+
+#if RPM_MAX_INSTANCES > 3
+    // @Group: 4_
+    // @Path: AP_RPM_Params.cpp
+    AP_SUBGROUPINFO(_params[3], "4_", 17, AP_RPM, AP_RPM_Params),
 #endif
 
     AP_GROUPEND
@@ -63,31 +83,45 @@ void AP_RPM::init(void)
 
     for (uint8_t i=0; i<RPM_MAX_INSTANCES; i++) {
         switch (_params[i].type) {
-#if CONFIG_HAL_BOARD != HAL_BOARD_SITL
+#if AP_RPM_PIN_ENABLED
         case RPM_TYPE_PWM:
         case RPM_TYPE_PIN:
             // PWM option same as PIN option, for upgrade
-            drivers[i] = new AP_RPM_Pin(*this, i, state[i]);
+            drivers[i] = NEW_NOTHROW AP_RPM_Pin(*this, i, state[i]);
             break;
-#endif
+#endif  // AP_RPM_PIN_ENABLED
+#if AP_RPM_ESC_TELEM_ENABLED
         case RPM_TYPE_ESC_TELEM:
-            drivers[i] = new AP_RPM_ESC_Telem(*this, i, state[i]);
+            drivers[i] = NEW_NOTHROW AP_RPM_ESC_Telem(*this, i, state[i]);
             break;
-#if HAL_EFI_ENABLED
+#endif  // AP_RPM_ESC_TELEM_ENABLED
+#if AP_RPM_EFI_ENABLED
         case RPM_TYPE_EFI:
-            drivers[i] = new AP_RPM_EFI(*this, i, state[i]);
+            drivers[i] = NEW_NOTHROW AP_RPM_EFI(*this, i, state[i]);
             break;
-#endif
+#endif  // AP_RPM_EFI_ENABLED
+#if AP_RPM_GENERATOR_ENABLED
+        case RPM_TYPE_GENERATOR:
+            drivers[i] = NEW_NOTHROW AP_RPM_Generator(*this, i, state[i]);
+            break;
+#endif  // AP_RPM_GENERATOR_ENABLED
+#if AP_RPM_HARMONICNOTCH_ENABLED
         // include harmonic notch last
         // this makes whatever process is driving the dynamic notch appear as an RPM value
         case RPM_TYPE_HNTCH:
-            drivers[i] = new AP_RPM_HarmonicNotch(*this, i, state[i]);
+            drivers[i] = NEW_NOTHROW AP_RPM_HarmonicNotch(*this, i, state[i]);
             break;
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+#endif  // AP_RPM_HARMONICNOTCH_ENABLED
+#if AP_RPM_DRONECAN_ENABLED
+        case RPM_TYPE_DRONECAN:
+            drivers[i] = NEW_NOTHROW AP_RPM_DroneCAN(*this, i, state[i]);
+            break;
+#endif // AP_RPM_DRONECAN_ENABLED
+#if AP_RPM_SIM_ENABLED
         case RPM_TYPE_SITL:
-            drivers[i] = new AP_RPM_SITL(*this, i, state[i]);
+            drivers[i] = NEW_NOTHROW AP_RPM_SITL(*this, i, state[i]);
             break;
-#endif
+#endif  // AP_RPM_SIM_ENABLED
         }
         if (drivers[i] != nullptr) {
             // we loaded a driver for this instance, so it must be
@@ -102,8 +136,8 @@ PARAMETER_CONVERSION - Added: Aug-2021
 */
 void AP_RPM::convert_params(void)
 {
-    if (_params[0].type.configured_in_storage()) {
-        // _params[0].type will always be configured in storage after conversion is done the first time
+    if (_params[0].type.configured()) {
+        // _params[0].type will always be configured after conversion is done the first time
         return;
     }
 
@@ -184,8 +218,16 @@ void AP_RPM::update(void)
             }
 
             drivers[i]->update();
+
+#if AP_RPM_ESC_TELEM_OUTBOUND_ENABLED
+            drivers[i]->update_esc_telem_outbound();
+#endif
         }
     }
+
+#if HAL_LOGGING_ENABLED
+    Log_RPM();
+#endif
 }
 
 /*
@@ -237,21 +279,63 @@ bool AP_RPM::arming_checks(size_t buflen, char *buffer) const
 {
     for (uint8_t i=0; i<RPM_MAX_INSTANCES; i++) {
         switch (_params[i].type) {
+#if AP_RPM_PIN_ENABLED
         case RPM_TYPE_PWM:
         case RPM_TYPE_PIN:
             if (_params[i].pin == -1) {
-                hal.util->snprintf(buffer, buflen, "RPM[%u] no pin set", i + 1);
+                hal.util->snprintf(buffer, buflen, "RPM%u_PIN not set", unsigned(i + 1));
                 return false;
             }
             if (!hal.gpio->valid_pin(_params[i].pin)) {
-                hal.util->snprintf(buffer, buflen, "RPM[%u] pin %d invalid", unsigned(i + 1), int(_params[i].pin.get()));
+                uint8_t servo_ch;
+                if (hal.gpio->pin_to_servo_channel(_params[i].pin, servo_ch)) {
+                    hal.util->snprintf(buffer, buflen, "RPM%u_PIN=%d, set SERVO%u_FUNCTION=-1", unsigned(i + 1), int(_params[i].pin.get()), unsigned(servo_ch+1));
+                } else {
+                    hal.util->snprintf(buffer, buflen, "RPM%u_PIN=%d invalid", unsigned(i + 1), int(_params[i].pin.get()));
+                }
                 return false;
             }
             break;
+#endif
         }
     }
     return true;
 }
+
+#if HAL_LOGGING_ENABLED
+void AP_RPM::Log_RPM() const
+{
+    // update logging for each instance
+    for (uint8_t i=0; i<num_instances; i++) {
+        if (drivers[i] == nullptr || !enabled(i)) {
+            // don't log unused instances
+            continue;
+        }
+
+        const struct log_RPM pkt{
+            LOG_PACKET_HEADER_INIT(LOG_RPM_MSG),
+            time_us     : AP_HAL::micros64(),
+            inst        : i,
+            rpm         : state[i].rate_rpm,
+            quality     : get_signal_quality(i),
+            health      : uint8_t(healthy(i))
+        };
+        AP::logger().WriteBlock(&pkt, sizeof(pkt));
+    }
+}
+#endif
+
+#ifdef HAL_PERIPH_ENABLE_RPM_STREAM
+// Return the sensor id to use for streaming over DroneCAN, negative number disables
+int8_t AP_RPM::get_dronecan_sensor_id(uint8_t instance) const
+{
+    if (!enabled(instance)) {
+        return -1;
+    }
+    return _params[instance].dronecan_sensor_id;
+}
+#endif
+
 
 // singleton instance
 AP_RPM *AP_RPM::_singleton;
@@ -264,3 +348,5 @@ AP_RPM *rpm()
 }
 
 }
+
+#endif  // AP_RPM_ENABLED

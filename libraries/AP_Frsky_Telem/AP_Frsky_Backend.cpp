@@ -1,8 +1,11 @@
 #include "AP_Frsky_Backend.h"
 
+#if AP_FRSKY_TELEM_ENABLED
+
 #include <AP_Baro/AP_Baro.h>
 #include <AP_AHRS/AP_AHRS.h>
 #include <AP_RPM/AP_RPM.h>
+#include <AP_RCTelemetry/AP_RCTelemetry.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -43,50 +46,16 @@ void AP_Frsky_Backend::loop(void)
 }
 
 /*
- * get vertical speed from ahrs, if not available fall back to baro climbrate, units is m/s
- * for FrSky D and SPort protocols
- */
-float AP_Frsky_Backend::get_vspeed_ms(void)
-{
-
-    {
-        // release semaphore as soon as possible
-        AP_AHRS &_ahrs = AP::ahrs();
-        Vector3f v;
-        WITH_SEMAPHORE(_ahrs.get_semaphore());
-        if (_ahrs.get_velocity_NED(v)) {
-            return -v.z;
-        }
-    }
-
-    auto &_baro = AP::baro();
-    WITH_SEMAPHORE(_baro.get_semaphore());
-    return _baro.get_climb_rate();
-}
-
-/*
  * prepare altitude between vehicle and home location data
  * for FrSky D and SPort protocols
  */
 void AP_Frsky_Backend::calc_nav_alt(void)
 {
-    _SPort_data.vario_vspd = (int32_t)(get_vspeed_ms()*100); //convert to cm/s
+    _SPort_data.vario_vspd = (int32_t)(AP_RCTelemetry::get_vspeed_ms()*100); //convert to cm/s
 
-    Location loc;
-    float current_height = 0; // in centimeters above home
-
-    AP_AHRS &_ahrs = AP::ahrs();
-    WITH_SEMAPHORE(_ahrs.get_semaphore());
-    if (_ahrs.get_position(loc)) {
-        current_height = loc.alt*0.01f;
-        if (!loc.relative_alt) {
-            // loc.alt has home altitude added, remove it
-            current_height -= _ahrs.get_home().alt*0.01f;
-        }
-    }
-
-    _SPort_data.alt_nav_meters = (int16_t)current_height;
-    _SPort_data.alt_nav_cm = (current_height - _SPort_data.alt_nav_meters) * 100;
+    float current_height = AP_RCTelemetry::get_nav_alt_m();
+    _SPort_data.alt_nav_meters = float_to_uint16(current_height);
+    _SPort_data.alt_nav_cm = float_to_uint16((current_height - _SPort_data.alt_nav_meters) * 100);
 }
 
 /*
@@ -109,7 +78,7 @@ void AP_Frsky_Backend::calc_gps_position(void)
 
     Location loc;
 
-    if (_ahrs.get_position(loc)) {
+    if (_ahrs.get_location(loc)) {
         float lat = format_gps(fabsf(loc.lat/10000000.0f));
         _SPort_data.latdddmm = lat;
         _SPort_data.latmmmm = (lat - _SPort_data.latdddmm) * 10000;
@@ -121,12 +90,12 @@ void AP_Frsky_Backend::calc_gps_position(void)
         _SPort_data.lon_ew = (loc.lng < 0) ? 'W' : 'E';
 
         float alt = loc.alt * 0.01f;
-        _SPort_data.alt_gps_meters = (int16_t)alt;
-        _SPort_data.alt_gps_cm = (alt - _SPort_data.alt_gps_meters) * 100;
+        _SPort_data.alt_gps_meters = float_to_uint16(alt);
+        _SPort_data.alt_gps_cm = float_to_uint16((alt - _SPort_data.alt_gps_meters) * 100);
 
         const float speed = AP::ahrs().groundspeed();
-        _SPort_data.speed_in_meter = speed;
-        _SPort_data.speed_in_centimeter = (speed - _SPort_data.speed_in_meter) * 100;
+        _SPort_data.speed_in_meter = float_to_int16(speed);
+        _SPort_data.speed_in_centimeter = float_to_uint16((speed - _SPort_data.speed_in_meter) * 100);
     } else {
         _SPort_data.latdddmm = 0;
         _SPort_data.latmmmm = 0;
@@ -148,6 +117,7 @@ void AP_Frsky_Backend::calc_gps_position(void)
  */
 bool AP_Frsky_Backend::calc_rpm(const uint8_t instance, int32_t &value) const
 {
+#if AP_RPM_ENABLED
     const AP_RPM* rpm = AP::rpm();
     if (rpm == nullptr) {
         return false;
@@ -159,4 +129,9 @@ bool AP_Frsky_Backend::calc_rpm(const uint8_t instance, int32_t &value) const
     }
     value = static_cast<int32_t>(roundf(rpm_value));
     return true;
+#else
+    return false;
+#endif
 }
+
+#endif  // AP_FRSKY_TELEM_ENABLED

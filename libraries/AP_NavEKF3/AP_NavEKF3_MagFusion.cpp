@@ -6,6 +6,13 @@
 #include <GCS_MAVLink/GCS.h>
 #include <AP_DAL/AP_DAL.h>
 
+// minimum GPS horizontal speed required to use GPS ground course for yaw alignment (m/s)
+#if APM_BUILD_TYPE(APM_BUILD_ArduPlane)
+  #define GPS_VEL_YAW_ALIGN_MIN_SPD 5.0F
+#else
+  #define GPS_VEL_YAW_ALIGN_MIN_SPD 1.0F
+#endif
+
 /********************************************************
 *                   RESET FUNCTIONS                     *
 ********************************************************/
@@ -55,9 +62,15 @@ void NavEKF3_core::controlMagYawReset()
     bool finalResetRequest = false;
     bool interimResetRequest = false;
     if (flightResetAllowed && !assume_zero_sideslip()) {
+#if APM_BUILD_TYPE(APM_BUILD_ArduSub)
+        // for sub, we'd like to be far enough away from metal structures like docks and vessels
+        // diving 0.5m is reasonable for both open water and pools
+        finalResetRequest = (stateStruct.position.z  - posDownAtTakeoff) > EKF3_MAG_FINAL_RESET_ALT_SUB;
+#else
         // check that we have reached a height where ground magnetic interference effects are insignificant
         // and can perform a final reset of the yaw and field states
         finalResetRequest = (stateStruct.position.z  - posDownAtTakeoff) < -EKF3_MAG_FINAL_RESET_ALT;
+#endif
 
         // check for increasing height
         bool hgtIncreasing = (posDownAtLastMagReset-stateStruct.position.z) > 0.5f;
@@ -128,13 +141,13 @@ void NavEKF3_core::controlMagYawReset()
 
 // this function is used to do a forced re-alignment of the yaw angle to align with the horizontal velocity
 // vector from GPS. It is used to align the yaw angle after launch or takeoff.
-void NavEKF3_core::realignYawGPS()
+void NavEKF3_core::realignYawGPS(bool emergency_reset)
 {
     // get quaternion from existing filter states and calculate roll, pitch and yaw angles
     Vector3F eulerAngles;
     stateStruct.quat.to_euler(eulerAngles.x, eulerAngles.y, eulerAngles.z);
 
-    if ((sq(gpsDataDelayed.vel.x) + sq(gpsDataDelayed.vel.y)) > 25.0f) {
+    if (gpsDataDelayed.vel.xy().length_squared() > sq(GPS_VEL_YAW_ALIGN_MIN_SPD)) {
         // calculate course yaw angle
         ftype velYaw = atan2F(stateStruct.velocity.y,stateStruct.velocity.x);
 
@@ -147,32 +160,52 @@ void NavEKF3_core::realignYawGPS()
         // If the angles disagree by more than 45 degrees and GPS innovations are large or no previous yaw alignment, we declare the magnetic yaw as bad
         bool badMagYaw = ((yawErr > 0.7854f) && (velTestRatio > 1.0f) && (PV_AidingMode == AID_ABSOLUTE)) || !yawAlignComplete;
 
+        // get yaw variance from GPS speed uncertainty
+        const ftype gpsVelAcc = fmaxF(gpsSpdAccuracy, ftype(frontend->_gpsHorizVelNoise));
+        const ftype gps_yaw_variance = sq(asinF(constrain_float(gpsVelAcc/gpsDataDelayed.vel.xy().length(), -1.0F, 1.0F)));
+        if (gps_yaw_variance < sq(radians(GPS_VEL_YAW_ALIGN_MAX_ANG_ERR))) {
+            yawAlignGpsValidCount++;
+        } else {
+            yawAlignGpsValidCount = 0;
+        }
+
         // correct yaw angle using GPS ground course if compass yaw bad
         if (badMagYaw) {
             // attempt to use EKF-GSF estimate if available as it is more robust to GPS glitches
-            if (EKFGSF_resetMainFilterYaw(true)) {
+            // by default fly forward vehicles use ground course for initial yaw unless the GSF is explicitly selected as the yaw source
+            const bool useGSF = !assume_zero_sideslip() || (yaw_source_last == AP_NavEKF_Source::SourceYaw::GSF);
+            if (useGSF && EKFGSF_resetMainFilterYaw(emergency_reset)) {
                 return;
             }
 
-            // keep roll and pitch and reset yaw
-            rotationOrder order;
-            bestRotationOrder(order);
-            resetQuatStateYawOnly(gpsYaw, sq(radians(45.0f)), order);
+            if (yawAlignGpsValidCount >= GPS_VEL_YAW_ALIGN_COUNT_THRESHOLD) {
+                yawAlignGpsValidCount = 0;
+                // keep roll and pitch and reset yaw
+                rotationOrder order;
+                bestRotationOrder(order);
+                resetQuatStateYawOnly(gpsYaw, gps_yaw_variance, order);
 
-            // reset the velocity and position states as they will be inaccurate due to bad yaw
-            ResetVelocity(resetDataSource::GPS);
-            ResetPosition(resetDataSource::GPS);
+                // reset the velocity and position states as they will be inaccurate due to bad yaw
+                ResetVelocity(resetDataSource::GPS);
+                ResetPosition(resetDataSource::GPS);
 
-            // send yaw alignment information to console
-            GCS_SEND_TEXT(MAV_SEVERITY_INFO, "EKF3 IMU%u yaw aligned to GPS velocity",(unsigned)imu_index);
+                // send yaw alignment information to console
+                GCS_SEND_TEXT(MAV_SEVERITY_INFO, "EKF3 IMU%u yaw aligned to GPS velocity",(unsigned)imu_index);
 
-            if (use_compass()) {
-                // request a mag field reset which may enable us to use the magnetometer if the previous fault was due to bad initialisation
-                magStateResetRequest = true;
-                // clear the all sensors failed status so that the magnetometers sensors get a second chance now that we are flying
-                allMagSensorsFailed = false;
+                if (use_compass()) {
+                    // request a mag field reset which may enable us to use the magnetometer if the previous fault was due to bad initialisation
+                    magStateResetRequest = true;
+                    // clear the all sensors failed status so that the magnetometers sensors get a second chance now that we are flying
+                    allMagSensorsFailed = false;
+                }
             }
+        } else if (yawAlignGpsValidCount >= GPS_VEL_YAW_ALIGN_COUNT_THRESHOLD) {
+                // There is no need to do a yaw reset
+                yawAlignGpsValidCount = 0;
+                recordYawResetsCompleted();
         }
+    } else {
+        yawAlignGpsValidCount = 0;
     }
 }
 
@@ -197,13 +230,6 @@ void NavEKF3_core::SelectMagFusion()
     // used for load levelling
     magFusePerformed = false;
 
-    // get default yaw source
-    const AP_NavEKF_Source::SourceYaw yaw_source = frontend->sources.getYawSource();
-    if (yaw_source != yaw_source_last) {
-        yaw_source_last = yaw_source;
-        yaw_source_reset = true;
-    }
-
     // Store yaw angle when moving for use as a static reference when not moving
     if (!onGroundNotMoving) {
         if (fabsF(prevTnb[0][2]) < fabsF(prevTnb[1][2])) {
@@ -220,17 +246,17 @@ void NavEKF3_core::SelectMagFusion()
     }
 
     // Handle case where we are not using a yaw sensor of any type and attempt to reset the yaw in
-    // flight using the output from the GSF yaw estimator.
-    if ((yaw_source == AP_NavEKF_Source::SourceYaw::GSF) ||
+    // flight using the output from the GSF yaw estimator or GPS ground course.
+    if ((yaw_source_last == AP_NavEKF_Source::SourceYaw::GSF) ||
         (!use_compass() &&
-         yaw_source != AP_NavEKF_Source::SourceYaw::GPS &&
-         yaw_source != AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK &&
-         yaw_source != AP_NavEKF_Source::SourceYaw::EXTNAV)) {
+         yaw_source_last != AP_NavEKF_Source::SourceYaw::GPS &&
+         yaw_source_last != AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK &&
+         yaw_source_last != AP_NavEKF_Source::SourceYaw::EXTNAV)) {
 
-        // because this type of reset event is not as time critical, require a continuous history of valid estimates
-        if ((!yawAlignComplete || yaw_source_reset) && EKFGSF_yaw_valid_count >= GSF_YAW_VALID_HISTORY_THRESHOLD) {
-            const bool emergency_reset = (yaw_source != AP_NavEKF_Source::SourceYaw::GSF);
-            yawAlignComplete = EKFGSF_resetMainFilterYaw(emergency_reset);
+        if ((!yawAlignComplete || yaw_source_reset) && ((yaw_source_last != AP_NavEKF_Source::SourceYaw::GSF) || (EKFGSF_yaw_valid_count >= GSF_YAW_VALID_HISTORY_THRESHOLD))) {
+            realignYawGPS(false);
+            yaw_source_reset = false;
+        } else {
             yaw_source_reset = false;
         }
 
@@ -238,7 +264,7 @@ void NavEKF3_core::SelectMagFusion()
             // use the EKF-GSF yaw estimator output as this is more robust than the EKF can achieve without a yaw measurement
             // for non fixed wing platform types
             ftype gsfYaw, gsfYawVariance;
-            const bool didUseEKFGSF = yawAlignComplete && EKFGSF_getYaw(gsfYaw, gsfYawVariance) && !assume_zero_sideslip() && fuseEulerYaw(yawFusionMethod::GSF);
+            const bool didUseEKFGSF = yawAlignComplete && (yaw_source_last == AP_NavEKF_Source::SourceYaw::GSF) && EKFGSF_getYaw(gsfYaw, gsfYawVariance) && !assume_zero_sideslip() && fuseEulerYaw(yawFusionMethod::GSF);
 
             // fallback methods
             if (!didUseEKFGSF) {
@@ -259,7 +285,7 @@ void NavEKF3_core::SelectMagFusion()
     }
 
     // Handle case where we are using GPS yaw sensor instead of a magnetomer
-    if (yaw_source == AP_NavEKF_Source::SourceYaw::GPS || yaw_source == AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK) {
+    if (yaw_source_last == AP_NavEKF_Source::SourceYaw::GPS || yaw_source_last == AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK) {
         bool have_fused_gps_yaw = false;
         if (storedYawAng.recall(yawAngDataDelayed,imuDataDelayed.time_ms)) {
             if (tiltAlignComplete && (!yawAlignComplete || yaw_source_reset)) {
@@ -268,6 +294,7 @@ void NavEKF3_core::SelectMagFusion()
                 have_fused_gps_yaw = true;
                 lastSynthYawTime_ms = imuSampleTime_ms;
                 last_gps_yaw_fuse_ms = imuSampleTime_ms;
+                recordYawResetsCompleted();
             } else if (tiltAlignComplete && yawAlignComplete) {
                 have_fused_gps_yaw = fuseEulerYaw(yawFusionMethod::GPS);
                 if (have_fused_gps_yaw) {
@@ -278,7 +305,7 @@ void NavEKF3_core::SelectMagFusion()
         } else if (tiltAlignComplete && !yawAlignComplete) {
             // External yaw sources can take significant time to start providing yaw data so
             // wuile waiting, fuse a 'fake' yaw observation at 7Hz to keeop the filter stable
-            if(imuSampleTime_ms - lastSynthYawTime_ms > 140) {
+            if (imuSampleTime_ms - lastSynthYawTime_ms > 140) {
                 yawAngDataDelayed.yawAngErr = MAX(frontend->_yawNoise, 0.05f);
                 // update the yaw angle using the last estimate which will be used as a static yaw reference when movement stops
                 if (!onGroundNotMoving) {
@@ -295,7 +322,7 @@ void NavEKF3_core::SelectMagFusion()
             yaw_source_reset = true;
         }
 
-        if (yaw_source == AP_NavEKF_Source::SourceYaw::GPS) {
+        if (yaw_source_last == AP_NavEKF_Source::SourceYaw::GPS) {
             // no fallback
             return;
         }
@@ -338,7 +365,7 @@ void NavEKF3_core::SelectMagFusion()
 #if EK3_FEATURE_EXTERNAL_NAV
     // Handle case where we are using an external nav for yaw
     const bool extNavYawDataToFuse = storedExtNavYawAng.recall(extNavYawAngDataDelayed, imuDataDelayed.time_ms);
-    if (yaw_source == AP_NavEKF_Source::SourceYaw::EXTNAV) {
+    if (yaw_source_last == AP_NavEKF_Source::SourceYaw::EXTNAV) {
         if (extNavYawDataToFuse) {
             if (tiltAlignComplete && (!yawAlignComplete || yaw_source_reset)) {
                 alignYawAngle(extNavYawAngDataDelayed);
@@ -373,7 +400,7 @@ void NavEKF3_core::SelectMagFusion()
         magTimeout = true;
     }
 
-    if (yaw_source != AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK) {
+    if (yaw_source_last != AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK) {
         // check for and read new magnetometer measurements. We don't
         // read for GPS_COMPASS_FALLBACK as it has already been read
         // above
@@ -385,8 +412,8 @@ void NavEKF3_core::SelectMagFusion()
 
     // Control reset of yaw and magnetic field states if we are using compass data
     if (magDataToFuse) {
-        if (yaw_source_reset && (yaw_source == AP_NavEKF_Source::SourceYaw::COMPASS ||
-                                 yaw_source == AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK)) {
+        if (yaw_source_reset && (yaw_source_last == AP_NavEKF_Source::SourceYaw::COMPASS ||
+                                 yaw_source_last == AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK)) {
             magYawResetRequest = true;
             yaw_source_reset = false;
         }
@@ -399,12 +426,14 @@ void NavEKF3_core::SelectMagFusion()
     if (dataReady) {
         // use the simple method of declination to maintain heading if we cannot use the magnetic field states
         if(inhibitMagStates || magStateResetRequest || !magStateInitComplete) {
+            magFusionSel = MagFuseSel::FUSE_YAW;
             fuseEulerYaw(yawFusionMethod::MAGNETOMETER);
 
             // zero the test ratio output from the inactive 3-axis magnetometer fusion
             magTestRatio.zero();
 
         } else {
+            magFusionSel = MagFuseSel::FUSE_MAG;
             // if we are not doing aiding with earth relative observations (eg GPS) then the declination is
             // maintained by fusing declination as a synthesised observation
             // We also fuse declination if we are using the WMM tables
@@ -443,26 +472,6 @@ void NavEKF3_core::SelectMagFusion()
 */
 void NavEKF3_core::FuseMagnetometer()
 {
-    // declarations
-    ftype &q0 = mag_state.q0;
-    ftype &q1 = mag_state.q1;
-    ftype &q2 = mag_state.q2;
-    ftype &q3 = mag_state.q3;
-    ftype &magN = mag_state.magN;
-    ftype &magE = mag_state.magE;
-    ftype &magD = mag_state.magD;
-    ftype &magXbias = mag_state.magXbias;
-    ftype &magYbias = mag_state.magYbias;
-    ftype &magZbias = mag_state.magZbias;
-    Matrix3F &DCM = mag_state.DCM;
-    Vector3F &MagPred = mag_state.MagPred;
-    ftype &R_MAG = mag_state.R_MAG;
-    ftype *SH_MAG = &mag_state.SH_MAG[0];
-    Vector24 H_MAG;
-    Vector5 SK_MX;
-    Vector5 SK_MY;
-    Vector5 SK_MZ;
-
     // perform sequential fusion of magnetometer measurements.
     // this assumes that the errors in the different components are
     // uncorrelated which is not true, however in the absence of covariance
@@ -471,51 +480,56 @@ void NavEKF3_core::FuseMagnetometer()
     // associated with sequential fusion
     // calculate observation jacobians and Kalman gains
 
-    // copy required states to local variable names
-    q0       = stateStruct.quat[0];
-    q1       = stateStruct.quat[1];
-    q2       = stateStruct.quat[2];
-    q3       = stateStruct.quat[3];
-    magN     = stateStruct.earth_magfield[0];
-    magE     = stateStruct.earth_magfield[1];
-    magD     = stateStruct.earth_magfield[2];
-    magXbias = stateStruct.body_magfield[0];
-    magYbias = stateStruct.body_magfield[1];
-    magZbias = stateStruct.body_magfield[2];
+    // create aliases for state to make code easier to read:
+    const ftype q0       = stateStruct.quat[0];
+    const ftype q1       = stateStruct.quat[1];
+    const ftype q2       = stateStruct.quat[2];
+    const ftype q3       = stateStruct.quat[3];
+    const ftype magN     = stateStruct.earth_magfield[0];
+    const ftype magE     = stateStruct.earth_magfield[1];
+    const ftype magD     = stateStruct.earth_magfield[2];
+    const ftype magXbias = stateStruct.body_magfield[0];
+    const ftype magYbias = stateStruct.body_magfield[1];
+    const ftype magZbias = stateStruct.body_magfield[2];
 
     // rotate predicted earth components into body axes and calculate
     // predicted measurements
-    DCM[0][0] = q0*q0 + q1*q1 - q2*q2 - q3*q3;
-    DCM[0][1] = 2.0f*(q1*q2 + q0*q3);
-    DCM[0][2] = 2.0f*(q1*q3-q0*q2);
-    DCM[1][0] = 2.0f*(q1*q2 - q0*q3);
-    DCM[1][1] = q0*q0 - q1*q1 + q2*q2 - q3*q3;
-    DCM[1][2] = 2.0f*(q2*q3 + q0*q1);
-    DCM[2][0] = 2.0f*(q1*q3 + q0*q2);
-    DCM[2][1] = 2.0f*(q2*q3 - q0*q1);
-    DCM[2][2] = q0*q0 - q1*q1 - q2*q2 + q3*q3;
-    MagPred[0] = DCM[0][0]*magN + DCM[0][1]*magE  + DCM[0][2]*magD + magXbias;
-    MagPred[1] = DCM[1][0]*magN + DCM[1][1]*magE  + DCM[1][2]*magD + magYbias;
-    MagPred[2] = DCM[2][0]*magN + DCM[2][1]*magE  + DCM[2][2]*magD + magZbias;
+    const Matrix3F DCM {
+        q0*q0 + q1*q1 - q2*q2 - q3*q3,
+        2.0f*(q1*q2 + q0*q3),
+        2.0f*(q1*q3-q0*q2),
+        2.0f*(q1*q2 - q0*q3),
+        q0*q0 - q1*q1 + q2*q2 - q3*q3,
+        2.0f*(q2*q3 + q0*q1),
+        2.0f*(q1*q3 + q0*q2),
+        2.0f*(q2*q3 - q0*q1),
+        q0*q0 - q1*q1 - q2*q2 + q3*q3
+    };
+
+    const Vector3F MagPred {
+        DCM[0][0]*magN + DCM[0][1]*magE  + DCM[0][2]*magD + magXbias,
+        DCM[1][0]*magN + DCM[1][1]*magE  + DCM[1][2]*magD + magYbias,
+        DCM[2][0]*magN + DCM[2][1]*magE  + DCM[2][2]*magD + magZbias
+    };
 
     // calculate the measurement innovation for each axis
-    for (uint8_t i = 0; i<=2; i++) {
-        innovMag[i] = MagPred[i] - magDataDelayed.mag[i];
-    }
+    innovMag = MagPred - magDataDelayed.mag;
 
     // scale magnetometer observation error with total angular rate to allow for timing errors
-    R_MAG = sq(constrain_ftype(frontend->_magNoise, 0.01f, 0.5f)) + sq(frontend->magVarRateScale*imuDataDelayed.delAng.length() / imuDataDelayed.delAngDT);
+    const ftype R_MAG = sq(constrain_ftype(frontend->_magNoise, 0.01f, 0.5f)) + sq(frontend->magVarRateScale*imuDataDelayed.delAng.length() / imuDataDelayed.delAngDT);
 
     // calculate common expressions used to calculate observation jacobians an innovation variance for each component
-    SH_MAG[0] = 2.0f*magD*q3 + 2.0f*magE*q2 + 2.0f*magN*q1;
-    SH_MAG[1] = 2.0f*magD*q0 - 2.0f*magE*q1 + 2.0f*magN*q2;
-    SH_MAG[2] = 2.0f*magD*q1 + 2.0f*magE*q0 - 2.0f*magN*q3;
-    SH_MAG[3] = sq(q3);
-    SH_MAG[4] = sq(q2);
-    SH_MAG[5] = sq(q1);
-    SH_MAG[6] = sq(q0);
-    SH_MAG[7] = 2.0f*magN*q0;
-    SH_MAG[8] = 2.0f*magE*q3;
+    const Vector9 SH_MAG {
+        2.0f*magD*q3 + 2.0f*magE*q2 + 2.0f*magN*q1,
+        2.0f*magD*q0 - 2.0f*magE*q1 + 2.0f*magN*q2,
+        2.0f*magD*q1 + 2.0f*magE*q0 - 2.0f*magN*q3,
+        sq(q3),
+        sq(q2),
+        sq(q1),
+        sq(q0),
+        2.0f*magN*q0,
+        2.0f*magE*q3
+    };
 
     // Calculate the innovation variance for each axis
     // X axis
@@ -567,6 +581,7 @@ void NavEKF3_core::FuseMagnetometer()
         return;
     }
 
+    Vector24 H_MAG;
     for (uint8_t obsIndex = 0; obsIndex <= 2; obsIndex++) {
 
         if (obsIndex == 0) {
@@ -584,11 +599,13 @@ void NavEKF3_core::FuseMagnetometer()
             H_MAG[21] = 0.0f;
 
             // calculate Kalman gain
-            SK_MX[0] = 1.0f / varInnovMag[0];
-            SK_MX[1] = SH_MAG[3] + SH_MAG[4] - SH_MAG[5] - SH_MAG[6];
-            SK_MX[2] = SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2;
-            SK_MX[3] = 2.0f*q0*q2 - 2.0f*q1*q3;
-            SK_MX[4] = 2.0f*q0*q3 + 2.0f*q1*q2;
+            const Vector5 SK_MX {
+                1.0f / varInnovMag[0],
+                SH_MAG[3] + SH_MAG[4] - SH_MAG[5] - SH_MAG[6],
+                SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2,
+                2.0f*q0*q2 - 2.0f*q1*q3,
+                2.0f*q0*q3 + 2.0f*q1*q2
+            };
 
             Kfusion[0] = SK_MX[0]*(P[0][19] + P[0][1]*SH_MAG[0] - P[0][2]*SH_MAG[1] + P[0][3]*SH_MAG[2] + P[0][0]*SK_MX[2] - P[0][16]*SK_MX[1] + P[0][17]*SK_MX[4] - P[0][18]*SK_MX[3]);
             Kfusion[1] = SK_MX[0]*(P[1][19] + P[1][1]*SH_MAG[0] - P[1][2]*SH_MAG[1] + P[1][3]*SH_MAG[2] + P[1][0]*SK_MX[2] - P[1][16]*SK_MX[1] + P[1][17]*SK_MX[4] - P[1][18]*SK_MX[3]);
@@ -637,7 +654,7 @@ void NavEKF3_core::FuseMagnetometer()
             }
 
             // zero Kalman gains to inhibit wind state estimation
-            if (!inhibitWindStates) {
+            if (!inhibitWindStates && !treatWindStatesAsTruth) {
                 Kfusion[22] = SK_MX[0]*(P[22][19] + P[22][1]*SH_MAG[0] - P[22][2]*SH_MAG[1] + P[22][3]*SH_MAG[2] + P[22][0]*SK_MX[2] - P[22][16]*SK_MX[1] + P[22][17]*SK_MX[4] - P[22][18]*SK_MX[3]);
                 Kfusion[23] = SK_MX[0]*(P[23][19] + P[23][1]*SH_MAG[0] - P[23][2]*SH_MAG[1] + P[23][3]*SH_MAG[2] + P[23][0]*SK_MX[2] - P[23][16]*SK_MX[1] + P[23][17]*SK_MX[4] - P[23][18]*SK_MX[3]);
             } else {
@@ -664,11 +681,13 @@ void NavEKF3_core::FuseMagnetometer()
             H_MAG[21] = 0.0f;
 
             // calculate Kalman gain
-            SK_MY[0] = 1.0f / varInnovMag[1];
-            SK_MY[1] = SH_MAG[3] - SH_MAG[4] + SH_MAG[5] - SH_MAG[6];
-            SK_MY[2] = SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2;
-            SK_MY[3] = 2.0f*q0*q3 - 2.0f*q1*q2;
-            SK_MY[4] = 2.0f*q0*q1 + 2.0f*q2*q3;
+            const Vector5 SK_MY {
+                1.0f / varInnovMag[1],
+                SH_MAG[3] - SH_MAG[4] + SH_MAG[5] - SH_MAG[6],
+                SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2,
+                2.0f*q0*q3 - 2.0f*q1*q2,
+                2.0f*q0*q1 + 2.0f*q2*q3
+            };
 
             Kfusion[0] = SK_MY[0]*(P[0][20] + P[0][0]*SH_MAG[2] + P[0][1]*SH_MAG[1] + P[0][2]*SH_MAG[0] - P[0][3]*SK_MY[2] - P[0][17]*SK_MY[1] - P[0][16]*SK_MY[3] + P[0][18]*SK_MY[4]);
             Kfusion[1] = SK_MY[0]*(P[1][20] + P[1][0]*SH_MAG[2] + P[1][1]*SH_MAG[1] + P[1][2]*SH_MAG[0] - P[1][3]*SK_MY[2] - P[1][17]*SK_MY[1] - P[1][16]*SK_MY[3] + P[1][18]*SK_MY[4]);
@@ -718,7 +737,7 @@ void NavEKF3_core::FuseMagnetometer()
             }
 
             // zero Kalman gains to inhibit wind state estimation
-            if (!inhibitWindStates) {
+            if (!inhibitWindStates && !treatWindStatesAsTruth) {
                 Kfusion[22] = SK_MY[0]*(P[22][20] + P[22][0]*SH_MAG[2] + P[22][1]*SH_MAG[1] + P[22][2]*SH_MAG[0] - P[22][3]*SK_MY[2] - P[22][17]*SK_MY[1] - P[22][16]*SK_MY[3] + P[22][18]*SK_MY[4]);
                 Kfusion[23] = SK_MY[0]*(P[23][20] + P[23][0]*SH_MAG[2] + P[23][1]*SH_MAG[1] + P[23][2]*SH_MAG[0] - P[23][3]*SK_MY[2] - P[23][17]*SK_MY[1] - P[23][16]*SK_MY[3] + P[23][18]*SK_MY[4]);
             } else {
@@ -746,11 +765,13 @@ void NavEKF3_core::FuseMagnetometer()
             H_MAG[21] = 1.0f;
 
             // calculate Kalman gain
-            SK_MZ[0] = 1.0f / varInnovMag[2];
-            SK_MZ[1] = SH_MAG[3] - SH_MAG[4] - SH_MAG[5] + SH_MAG[6];
-            SK_MZ[2] = SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2;
-            SK_MZ[3] = 2.0f*q0*q1 - 2.0f*q2*q3;
-            SK_MZ[4] = 2.0f*q0*q2 + 2.0f*q1*q3;
+            const Vector5 SK_MZ {
+                1.0f / varInnovMag[2],
+                SH_MAG[3] - SH_MAG[4] - SH_MAG[5] + SH_MAG[6],
+                SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2,
+                2.0f*q0*q1 - 2.0f*q2*q3,
+                2.0f*q0*q2 + 2.0f*q1*q3
+            };
 
             Kfusion[0] = SK_MZ[0]*(P[0][21] + P[0][0]*SH_MAG[1] - P[0][1]*SH_MAG[2] + P[0][3]*SH_MAG[0] + P[0][2]*SK_MZ[2] + P[0][18]*SK_MZ[1] + P[0][16]*SK_MZ[4] - P[0][17]*SK_MZ[3]);
             Kfusion[1] = SK_MZ[0]*(P[1][21] + P[1][0]*SH_MAG[1] - P[1][1]*SH_MAG[2] + P[1][3]*SH_MAG[0] + P[1][2]*SK_MZ[2] + P[1][18]*SK_MZ[1] + P[1][16]*SK_MZ[4] - P[1][17]*SK_MZ[3]);
@@ -800,7 +821,7 @@ void NavEKF3_core::FuseMagnetometer()
             }
 
             // zero Kalman gains to inhibit wind state estimation
-            if (!inhibitWindStates) {
+            if (!inhibitWindStates && !treatWindStatesAsTruth) {
                 Kfusion[22] = SK_MZ[0]*(P[22][21] + P[22][0]*SH_MAG[1] - P[22][1]*SH_MAG[2] + P[22][3]*SH_MAG[0] + P[22][2]*SK_MZ[2] + P[22][18]*SK_MZ[1] + P[22][16]*SK_MZ[4] - P[22][17]*SK_MZ[3]);
                 Kfusion[23] = SK_MZ[0]*(P[23][21] + P[23][0]*SH_MAG[1] - P[23][1]*SH_MAG[2] + P[23][3]*SH_MAG[0] + P[23][2]*SK_MZ[2] + P[23][18]*SK_MZ[1] + P[23][16]*SK_MZ[4] - P[23][17]*SK_MZ[3]);
             } else {
@@ -1336,7 +1357,7 @@ void NavEKF3_core::FuseDeclination(ftype declErr)
         zero_range(&Kfusion[0], 16, 21);
     }
 
-    if (!inhibitWindStates) {
+    if (!inhibitWindStates && !treatWindStatesAsTruth) {
         Kfusion[22] = -t4*t13*(P[22][16]*magE-P[22][17]*magN);
         Kfusion[23] = -t4*t13*(P[23][16]*magE-P[23][17]*magN);
     } else {
@@ -1534,7 +1555,7 @@ bool NavEKF3_core::learnMagBiasFromGPS(void)
 // Reset states using yaw from EKF-GSF and velocity and position from GPS
 bool NavEKF3_core::EKFGSF_resetMainFilterYaw(bool emergency_reset)
 {
-    // Don't do a reset unless permitted by the EK3_GSF_USE and EK3_GSF_RUN parameter masks
+    // Don't do a reset unless permitted by the EK3_GSF_USE_MASK and EK3_GSF_RUN_MASK parameter masks
     if ((yawEstimator == nullptr)
         || !(frontend->_gsfUseMask & (1U<<core_index))) {
         return false;
@@ -1557,7 +1578,7 @@ bool NavEKF3_core::EKFGSF_resetMainFilterYaw(bool emergency_reset)
         EKFGSF_yaw_reset_ms = imuSampleTime_ms;
         EKFGSF_yaw_reset_count++;
 
-        if ((frontend->sources.getYawSource() == AP_NavEKF_Source::SourceYaw::GSF) ||
+        if ((yaw_source_last == AP_NavEKF_Source::SourceYaw::GSF) ||
             !use_compass() || (dal.compass().get_num_enabled() == 0)) {
             GCS_SEND_TEXT(MAV_SEVERITY_INFO, "EKF3 IMU%u yaw aligned using GPS",(unsigned)imu_index);
         } else {
@@ -1570,7 +1591,7 @@ bool NavEKF3_core::EKFGSF_resetMainFilterYaw(bool emergency_reset)
         }
 
         // record the yaw reset event
-        recordYawReset();
+        recordYawResetsCompleted();
 
         // reset velocity and position states to GPS - if yaw is fixed then the filter should start to operate correctly
         ResetVelocity(resetDataSource::DEFAULT);
@@ -1646,10 +1667,5 @@ void NavEKF3_core::resetQuatStateYawOnly(ftype yaw, ftype yawVariance, rotationO
     lastYawReset_ms = imuSampleTime_ms;
 
     // record the yaw reset event
-    recordYawReset();
-
-    // clear all pending yaw reset requests
-    gpsYawResetRequest = false;
-    magYawResetRequest = false;
-    
+    recordYawResetsCompleted();
 }

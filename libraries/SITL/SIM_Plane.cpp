@@ -20,6 +20,7 @@
 #include "SIM_Plane.h"
 
 #include <stdio.h>
+#include <AP_Filesystem/AP_Filesystem_config.h>
 
 using namespace SITL;
 
@@ -34,7 +35,6 @@ Plane::Plane(const char *frame_str) :
     */
     thrust_scale = (mass * GRAVITY_MSS) / hover_throttle;
     frame_height = 0.1f;
-    num_motors = 1;
 
     ground_behavior = GROUND_BEHAVIOR_FWD_ONLY;
     lock_step_scheduled = true;
@@ -80,6 +80,19 @@ Plane::Plane(const char *frame_str) :
         ground_behavior = GROUND_BEHAVIOR_TAILSITTER;
         thrust_scale *= 1.5;
     }
+    if (strstr(frame_str, "-steering")) {
+        have_steering = true;
+    }
+
+#if AP_FILESYSTEM_FILE_READING_ENABLED
+    if (strstr(frame_str, "-3d")) {
+        aerobatic = true;
+        thrust_scale *= 1.5;
+        // setup parameters for plane-3d
+        AP_Param::load_defaults_file("@ROMFS/models/plane.parm", false);
+        AP_Param::load_defaults_file("@ROMFS/models/plane-3d.parm", false);
+    }
+#endif
 
     if (strstr(frame_str, "-ice")) {
         ice_engine = true;
@@ -141,7 +154,7 @@ Vector3f Plane::getTorque(float inputAileron, float inputElevator, float inputRu
 	//calculate aerodynamic torque
     float effective_airspeed = airspeed;
 
-    if (tailsitter) {
+    if (tailsitter || aerobatic) {
         /*
           tailsitters get airspeed from prop-wash
          */
@@ -195,7 +208,7 @@ Vector3f Plane::getTorque(float inputAileron, float inputElevator, float inputRu
 	}
 
 
-	// Add torque to to force misalignment with CG
+	// Add torque to force misalignment with CG
 	// r x F, where r is the distance from CoG to CoL
 	la +=  CGOffset.y * force.z - CGOffset.z * force.y;
 	ma += -CGOffset.x * force.z + CGOffset.z * force.x;
@@ -310,7 +323,7 @@ void Plane::calculate_forces(const struct sitl_input &input, Vector3f &rot_accel
     float thrust     = throttle;
 
     battery_voltage = sitl->batt_voltage - 0.7*throttle;
-    battery_current = 50.0f*throttle;
+    battery_current = (battery_voltage/sitl->batt_voltage)*50.0f*sq(throttle);
 
     if (ice_engine) {
         thrust = icengine.update(input);
@@ -320,7 +333,7 @@ void Plane::calculate_forces(const struct sitl_input &input, Vector3f &rot_accel
     angle_of_attack = atan2f(velocity_air_bf.z, velocity_air_bf.x);
     beta = atan2f(velocity_air_bf.y,velocity_air_bf.x);
 
-    if (tailsitter) {
+    if (tailsitter || aerobatic) {
         /*
           tailsitters get 4x the control surfaces
          */
@@ -352,7 +365,8 @@ void Plane::calculate_forces(const struct sitl_input &input, Vector3f &rot_accel
     }
     
     // simulate engine RPM
-    rpm[0] = thrust * 7000;
+    motor_mask |= (1U<<2);
+    rpm[2] = thrust * 7000;
     
     // scale thrust to newtons
     thrust *= thrust_scale;
@@ -384,6 +398,18 @@ void Plane::update(const struct sitl_input &input)
     calculate_forces(input, rot_accel);
     
     update_dynamics(rot_accel);
+
+    /*
+      add in ground steering, this should be replaced with a proper
+      calculation of a nose wheel effect
+    */
+    if (have_steering && on_ground()) {
+        const float steering = filtered_servo_angle(input, 4);
+        const Vector3f velocity_bf = dcm.transposed() * velocity_ef;
+        const float steer_scale = radians(5);
+        gyro.z += steering * velocity_bf.x * steer_scale;
+    }
+
     update_external_payload(input);
 
     // update lat/lon/altitude

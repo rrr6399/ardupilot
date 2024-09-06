@@ -15,9 +15,9 @@
 
 #pragma once
 
-#include <AP_Common/AP_Common.h>
-#include <AP_HAL/AP_HAL.h>
-#include <AP_Param/AP_Param.h>
+#include "AP_Notify_config.h"
+
+#if AP_NOTIFY_EXTERNALLED_ENABLED
 
 #include "NotifyDevice.h"
 
@@ -68,3 +68,5 @@ private:
     void motor_led1(bool on_off);
     void motor_led2(bool on_off);
 };
+
+#endif  // AP_NOTIFY_EXTERNALLED_ENABLED

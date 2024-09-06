@@ -1,11 +1,8 @@
-#include <AP_HAL/AP_HAL.h>
-
 #include "AP_NavEKF2_core.h"
-#include <AP_Vehicle/AP_Vehicle.h>
-#include <GCS_MAVLink/GCS.h>
 
-extern const AP_HAL::HAL& hal;
+#include "AP_NavEKF2.h"
 
+#include <AP_DAL/AP_DAL.h>
 
 /* Monitor GPS data to see if quality is good enough to initialise the EKF
    Monitor magnetometer innovations to see if the heading is good enough to use GPS
@@ -54,7 +51,7 @@ void NavEKF2_core::calcGpsGoodToAlign(void)
 
     // Check for significant change in GPS position if disarmed which indicates bad GPS
     // This check can only be used when the vehicle is stationary
-    const struct Location &gpsloc = gps.location(); // Current location
+    const Location &gpsloc = gps.location(); // Current location
     const ftype posFiltTimeConst = 10.0f; // time constant used to decay position drift
     // calculate time lapsed since last update and limit to prevent numerical errors
     ftype deltaTime = constrain_ftype(float(imuDataDelayed.time_ms - lastPreAlignGpsCheckTime_ms)*0.001f,0.01f,posFiltTimeConst);

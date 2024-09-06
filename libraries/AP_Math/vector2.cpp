@@ -176,7 +176,7 @@ bool Vector2<T>::segment_intersection(const Vector2<T>& seg1_start, const Vector
     const Vector2<T> ss2_ss1 = seg2_start - seg1_start;
     const T r1xr2 = r1 % r2;
     const T q_pxr = ss2_ss1 % r1;
-    if (fabsf(r1xr2) < FLT_EPSILON) {
+    if (::is_zero(r1xr2)) {
         // either collinear or parallel and non-intersecting
         return false;
     } else {
@@ -241,7 +241,7 @@ bool Vector2<T>::circle_segment_intersection(const Vector2<T>& seg_start, const 
     //       ->  o                     o ->              | -> |
     // FallShort (t1>1,t2>1), Past (t1<0,t2<0), CompletelyInside(t1<0, t2>1)
 
-    // intersection = new Vector3(E.x + t1 * d.x, secondPoint.y, E.y + t1 * d.y);
+    // intersection = NEW_NOTHROW Vector3(E.x + t1 * d.x, secondPoint.y, E.y + t1 * d.y);
     //   intersection.x = seg_start.x + t1 * seg_end_minus_start.x;
     //   intersection.y = seg_start.y + t1 * seg_end_minus_start.y;
 
@@ -295,7 +295,7 @@ void Vector2<T>::project(const Vector2<T> &v)
 
 // returns this vector projected onto v
 template <typename T>
-Vector2<T> Vector2<T>::projected(const Vector2<T> &v)
+Vector2<T> Vector2<T>::projected(const Vector2<T> &v) const
 {
     return v * (*this * v)/(v*v);
 }

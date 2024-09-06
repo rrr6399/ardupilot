@@ -13,6 +13,10 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "AP_RSSI_config.h"
+
+#if AP_RSSI_ENABLED
+
 #include <AP_RSSI/AP_RSSI.h>
 #include <GCS_MAVLink/GCS.h>
 #include <RC_Channel/RC_Channel.h>
@@ -44,14 +48,14 @@ const AP_Param::GroupInfo AP_RSSI::var_info[] = {
 
     // @Param: ANA_PIN
     // @DisplayName: Receiver RSSI sensing pin
-    // @Description: Pin used to read the RSSI voltage or PWM value
+    // @Description: Pin used to read the RSSI voltage or PWM value. Analog Airspeed ports can be used for Analog inputs (some autopilots provide others also), Non-IOMCU Servo/MotorOutputs can be used for PWM input when configured as "GPIOs". Values for some autopilots are given as examples. Search wiki for "Analog pins" for analog pin or "GPIOs", if PWM input type, to determine pin number.
     // @Values: 8:V5 Nano,11:Pixracer,13:Pixhawk ADC4,14:Pixhawk ADC3,15:Pixhawk ADC6/Pixhawk2 ADC,50:AUX1,51:AUX2,52:AUX3,53:AUX4,54:AUX5,55:AUX6,103:Pixhawk SBUS
     // @User: Standard
     AP_GROUPINFO("ANA_PIN", 1, AP_RSSI, rssi_analog_pin,  BOARD_RSSI_ANA_PIN),
 
     // @Param: PIN_LOW
     // @DisplayName: RSSI pin's lowest voltage
-    // @Description: RSSI pin's voltage received on the RSSI_ANA_PIN when the signal strength is the weakest. Some radio receivers put out inverted values so this value may be higher than RSSI_PIN_HIGH
+    // @Description: RSSI pin's voltage received on the RSSI_ANA_PIN when the signal strength is the weakest. Some radio receivers put out inverted values so this value may be higher than RSSI_PIN_HIGH. When using pin 103, the maximum value of the parameter is 3.3V.
     // @Units: V
     // @Increment: 0.01
     // @Range: 0 5.0
@@ -60,7 +64,7 @@ const AP_Param::GroupInfo AP_RSSI::var_info[] = {
 
     // @Param: PIN_HIGH
     // @DisplayName: RSSI pin's highest voltage
-    // @Description: RSSI pin's voltage received on the RSSI_ANA_PIN when the signal strength is the strongest. Some radio receivers put out inverted values so this value may be lower than RSSI_PIN_LOW
+    // @Description: RSSI pin's voltage received on the RSSI_ANA_PIN when the signal strength is the strongest. Some radio receivers put out inverted values so this value may be lower than RSSI_PIN_LOW. When using pin 103, the maximum value of the parameter is 3.3V.
     // @Units: V
     // @Increment: 0.01
     // @Range: 0 5.0
@@ -141,7 +145,7 @@ float AP_RSSI::read_receiver_rssi()
         case RssiType::RECEIVER: {
             int16_t rssi = RC_Channels::get_receiver_rssi();
             if (rssi != -1) {
-                return rssi / 255.0;
+                return rssi * (1/255.0);
             }
             return 0.0f;
         }
@@ -225,7 +229,11 @@ float AP_RSSI::read_pwm_pin_rssi()
 
 float AP_RSSI::read_telemetry_radio_rssi()
 {
+#if HAL_GCS_ENABLED
     return GCS_MAVLINK::telemetry_radio_rssi();
+#else
+    return 0;
+#endif
 }
 
 // Scale and constrain a float rssi value to 0.0 to 1.0 range 
@@ -268,3 +276,5 @@ AP_RSSI *rssi()
 }
 
 };
+
+#endif  // AP_RSSI_ENABLED

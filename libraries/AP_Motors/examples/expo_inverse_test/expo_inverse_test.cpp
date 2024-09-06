@@ -30,25 +30,25 @@ const AP_HAL::HAL& hal = AP_HAL::get_HAL();
 class AP_MotorsMulticopter_test : public AP_MotorsMulticopter {
 public:
 
-    AP_MotorsMulticopter_test(uint16_t loop_rate, uint16_t speed_hz = AP_MOTORS_SPEED_DEFAULT) :
-        AP_MotorsMulticopter(loop_rate, speed_hz)
+    AP_MotorsMulticopter_test(uint16_t speed_hz = AP_MOTORS_SPEED_DEFAULT) :
+        AP_MotorsMulticopter(speed_hz)
     {
     };
 
     // have to have these functions as they are pure virtual
     void init(motor_frame_class frame_class, motor_frame_type frame_type) override {};
     void set_frame_class_and_type(motor_frame_class frame_class, motor_frame_type frame_type) override {};
-    void output_test_seq(uint8_t motor_seq, int16_t pwm) override {};
-    const char* get_frame_string() const override { return "TEST"; }
+    void _output_test_seq(uint8_t motor_seq, int16_t pwm) override {};
+    const char* _get_frame_string() const override { return "TEST"; }
     void output_armed_stabilizing() override {};
     void output_to_motors() override {};
 
     // helper function to allow setting of expo
-    void set_expo(float v) { _thrust_curve_expo.set(v); }
+    void set_expo(float v) { thr_lin.curve_expo.set(v); }
 
 };
 
-AP_MotorsMulticopter_test motors{1};
+AP_MotorsMulticopter_test motors;
 
 /*
  *  rotation tests
@@ -66,6 +66,7 @@ void setup(void)
     float max_diff_expo = 0;
 
     float expo = -1.0;
+    motors.set_dt(1);
     while (expo < 1.0+expo_step*0.5) {
         hal.console->printf("expo: %0.4f\n",expo);
         motors.set_expo(expo);
@@ -73,7 +74,7 @@ void setup(void)
         float throttle = 0.0;
         while (throttle < 1.0+throttle_step*0.5) {
 
-            const float throttle_out = motors.actuator_to_thrust(motors.thrust_to_actuator(throttle));
+            const float throttle_out = motors.thr_lin.actuator_to_thrust(motors.thr_lin.thrust_to_actuator(throttle));
             const double diff = fabsf(throttle_out - throttle);
             if (diff > max_diff) {
                 max_diff_throttle = throttle;

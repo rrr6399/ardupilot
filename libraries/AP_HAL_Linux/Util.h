@@ -29,7 +29,6 @@ public:
     }
 
     void init(int argc, char *const *argv);
-    bool run_debug_shell(AP_HAL::BetterStream *stream) override { return false; }
 
     /**
        return commandline arguments, if available
@@ -37,9 +36,11 @@ public:
     void commandline_arguments(uint8_t &argc, char * const *&argv) override;
 
     /*
-      set system clock in UTC microseconds
+      get/set system clock in UTC microseconds
      */
     void set_hw_rtc(uint64_t time_utc_usec) override;
+    uint64_t get_hw_rtc() const override;
+
     const char *get_custom_log_directory() const override final { return custom_log_directory; }
     const char *get_custom_terrain_directory() const override final { return custom_terrain_directory; }
     const char *get_custom_storage_directory() const override final { return custom_storage_directory; }
@@ -67,13 +68,13 @@ public:
 
     uint32_t available_memory(void) override;
 
-    bool get_system_id(char buf[40]) override;
+    bool get_system_id(char buf[50]) override;
     bool get_system_id_unformatted(uint8_t buf[], uint8_t &len) override;
 
-#ifdef ENABLE_HEAP
+#if ENABLE_HEAP
     // heap functions, note that a heap once alloc'd cannot be dealloc'd
     virtual void *allocate_heap_memory(size_t size) override;
-    virtual void *heap_realloc(void *h, void *ptr, size_t new_size) override;
+    virtual void *heap_realloc(void *h, void *ptr, size_t old_size, size_t new_size) override;
 #endif // ENABLE_HEAP
     
     /*
@@ -115,7 +116,7 @@ private:
     const char *custom_defaults = HAL_PARAM_DEFAULTS_PATH;
     static const char *_hw_names[UTIL_NUM_HARDWARES];
 
-#ifdef ENABLE_HEAP
+#if ENABLE_HEAP
     struct heap_allocation_header {
         size_t allocation_size; // size of allocated block, not including this header
     };

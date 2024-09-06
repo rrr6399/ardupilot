@@ -25,7 +25,7 @@ void Blimp::set_home_to_current_location_inflight()
     // get current location from EKF
     Location temp_loc;
     Location ekf_origin;
-    if (ahrs.get_position(temp_loc) && ahrs.get_origin(ekf_origin)) {
+    if (ahrs.get_location(temp_loc) && ahrs.get_origin(ekf_origin)) {
         temp_loc.alt = ekf_origin.alt;
         if (!set_home(temp_loc, false)) {
             return;
@@ -38,7 +38,7 @@ bool Blimp::set_home_to_current_location(bool lock)
 {
     // get current location from EKF
     Location temp_loc;
-    if (ahrs.get_position(temp_loc)) {
+    if (ahrs.get_location(temp_loc)) {
         if (!set_home(temp_loc, lock)) {
             return false;
         }
@@ -58,22 +58,9 @@ bool Blimp::set_home(const Location& loc, bool lock)
         return false;
     }
 
-    // check home is close to EKF origin
-    if (far_from_EKF_origin(loc)) {
-        return false;
-    }
-
-    const bool home_was_set = ahrs.home_is_set();
-
     // set ahrs home (used for RTL)
     if (!ahrs.set_home(loc)) {
         return false;
-    }
-
-    // init inav and compass declination
-    if (!home_was_set) {
-        // record home is set
-        AP::logger().Write_Event(LogEvent::SET_HOME);
     }
 
     // lock home position
@@ -83,18 +70,4 @@ bool Blimp::set_home(const Location& loc, bool lock)
 
     // return success
     return true;
-}
-
-// far_from_EKF_origin - checks if a location is too far from the EKF origin
-//  returns true if too far
-bool Blimp::far_from_EKF_origin(const Location& loc)
-{
-    // check distance to EKF origin
-    Location ekf_origin;
-    if (ahrs.get_origin(ekf_origin) && ((ekf_origin.get_distance(loc) > EKF_ORIGIN_MAX_DIST_M) || (labs(ekf_origin.alt - loc.alt) > EKF_ORIGIN_MAX_DIST_M))) {
-        return true;
-    }
-
-    // close enough to origin
-    return false;
 }

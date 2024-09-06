@@ -22,6 +22,10 @@
    FRSKY Telemetry library
 */
 
+#include "AP_Frsky_config.h"
+
+#if AP_FRSKY_TELEM_ENABLED
+
 #include "AP_Frsky_Telem.h"
 #include "AP_Frsky_Parameters.h"
 
@@ -61,11 +65,17 @@ bool AP_Frsky_Telem::init(bool use_external_data)
     // check for protocol configured for a serial port - only the first serial port with one of these protocols will then run (cannot have FrSky on multiple serial ports)
     AP_HAL::UARTDriver *port;
     if ((port = serial_manager.find_serial(AP_SerialManager::SerialProtocol_FrSky_D, 0))) {
-        _backend = new AP_Frsky_D(port);
+#if AP_FRSKY_D_TELEM_ENABLED
+        _backend = NEW_NOTHROW AP_Frsky_D(port);
+#endif
     } else if ((port = serial_manager.find_serial(AP_SerialManager::SerialProtocol_FrSky_SPort, 0))) {
-        _backend = new AP_Frsky_SPort(port);
+#if AP_FRSKY_SPORT_TELEM_ENABLED
+        _backend = NEW_NOTHROW AP_Frsky_SPort(port);
+#endif
     } else if (use_external_data || (port = serial_manager.find_serial(AP_SerialManager::SerialProtocol_FrSky_SPort_Passthrough, 0))) {
-        _backend = new AP_Frsky_SPort_Passthrough(port, use_external_data, _frsky_parameters);
+#if AP_FRSKY_SPORT_PASSTHROUGH_ENABLED
+        _backend = NEW_NOTHROW AP_Frsky_SPort_Passthrough(port, use_external_data, _frsky_parameters);
+#endif
     }
 
     if (_backend == nullptr) {
@@ -106,7 +116,7 @@ void AP_Frsky_Telem::try_create_singleton_for_external_data()
 {
     // try to allocate an AP_Frsky_Telem object only if we are disarmed
     if (!singleton && !hal.util->get_soft_armed()) {
-        new AP_Frsky_Telem();
+        NEW_NOTHROW AP_Frsky_Telem();
         // initialize the passthrough scheduler
         if (singleton) {
             singleton->init(true);
@@ -147,3 +157,5 @@ AP_Frsky_Telem *frsky_telem()
     return AP_Frsky_Telem::get_singleton();
 }
 };
+
+#endif  // AP_FRSKY_TELEM_ENABLED

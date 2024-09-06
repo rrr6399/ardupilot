@@ -12,12 +12,15 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
+#include "AP_Compass_LSM303D.h"
+
+#if AP_COMPASS_LSM303D_ENABLED
+
 #include <utility>
 
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Math/AP_Math.h>
-
-#include "AP_Compass_LSM303D.h"
 
 extern const AP_HAL::HAL &hal;
 
@@ -161,7 +164,7 @@ AP_Compass_Backend *AP_Compass_LSM303D::probe(AP_HAL::OwnPtr<AP_HAL::Device> dev
     if (!dev) {
         return nullptr;
     }
-    AP_Compass_LSM303D *sensor = new AP_Compass_LSM303D(std::move(dev));
+    AP_Compass_LSM303D *sensor = NEW_NOTHROW AP_Compass_LSM303D(std::move(dev));
     if (!sensor || !sensor->init(rotation)) {
         delete sensor;
         return nullptr;
@@ -222,7 +225,7 @@ bool AP_Compass_LSM303D::_read_sample()
     } rx;
 
     if (_register_read(ADDR_CTRL_REG7) != _reg7_expected) {
-        hal.console->printf("LSM303D _read_data_transaction_accel: _reg7_expected unexpected\n");
+        DEV_PRINTF("LSM303D _read_data_transaction_accel: _reg7_expected unexpected\n");
         return false;
     }
 
@@ -316,7 +319,7 @@ bool AP_Compass_LSM303D::_hardware_init()
         }
     }
     if (tries == 5) {
-        hal.console->printf("Failed to boot LSM303D 5 times\n");
+        DEV_PRINTF("Failed to boot LSM303D 5 times\n");
         goto fail_tries;
     }
 
@@ -428,3 +431,5 @@ bool AP_Compass_LSM303D::_mag_set_samplerate(uint16_t frequency)
 
     return true;
 }
+
+#endif  // AP_COMPASS_LSM303D_ENABLED

@@ -14,10 +14,11 @@
 */
 #pragma once
 
-#include <AP_HAL/AP_HAL.h>
-#include <AP_Notify/AP_Notify.h>
+#include <AP_HAL/Semaphores.h>
 #include <AP_HAL/utility/RingBuffer.h>
 #include <AP_Math/AP_Math.h>
+#include <GCS_MAVLink/GCS_MAVLink.h>
+#include <AP_Common/Location.h>
 
 #define TELEM_PAYLOAD_STATUS_CAPACITY          5 // size of the message buffer queue (max number of messages waiting to be sent)
 
@@ -31,8 +32,7 @@ public:
     virtual ~AP_RCTelemetry() {};
 
     /* Do not allow copies */
-    AP_RCTelemetry(const AP_RCTelemetry &other) = delete;
-    AP_RCTelemetry &operator=(const AP_RCTelemetry&) = delete;
+    CLASS_NO_COPY(AP_RCTelemetry);
 
     // add statustext message to message queue
     virtual void queue_message(MAV_SEVERITY severity, const char *text);
@@ -77,6 +77,9 @@ public:
     uint16_t get_max_packet_rate() const {
         return _scheduler.max_packet_rate;
     }
+
+    static float get_vspeed_ms(void);
+    static float get_nav_alt_m(Location::AltFrame frame = Location::AltFrame::ABSOLUTE);
 
 protected:
     uint8_t run_wfq_scheduler(const bool use_shaper = true);

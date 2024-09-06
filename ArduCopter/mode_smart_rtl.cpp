@@ -1,6 +1,6 @@
 #include "Copter.h"
 
-#if MODE_SMARTRTL_ENABLED == ENABLED
+#if MODE_SMARTRTL_ENABLED
 
 /*
  * Init and run calls for Smart_RTL flight mode
@@ -35,6 +35,14 @@ bool ModeSmartRTL::init(bool ignore_checks)
 // perform cleanup required when leaving smart_rtl
 void ModeSmartRTL::exit()
 {
+    // restore last point if we hadn't reached it
+    if (smart_rtl_state == SubMode::PATH_FOLLOW && !dest_NED_backup.is_zero()) {
+        if (!g2.smart_rtl.add_point(dest_NED_backup)) {
+            GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "SmartRTL: lost one point");
+        }
+    }
+    dest_NED_backup.zero();
+
     g2.smart_rtl.cancel_request_for_thorough_cleanup();
 }
 
@@ -70,7 +78,7 @@ void ModeSmartRTL::wait_cleanup_run()
     motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
     wp_nav->update_wpnav();
     pos_control->update_z_controller();
-    attitude_control->input_thrust_vector_heading(wp_nav->get_thrust_vector(), auto_yaw.yaw());
+    attitude_control->input_thrust_vector_heading(pos_control->get_thrust_vector(), auto_yaw.get_heading());
 
     // check if return path is computed and if yes, begin journey home
     if (g2.smart_rtl.request_thorough_cleanup()) {
@@ -81,21 +89,18 @@ void ModeSmartRTL::wait_cleanup_run()
 
 void ModeSmartRTL::path_follow_run()
 {
-    float target_yaw_rate = 0.0f;
-    if (!copter.failsafe.radio && use_pilot_yaw()) {
-        // get pilot's desired yaw rate
-        target_yaw_rate = get_pilot_desired_yaw_rate(channel_yaw->norm_input_dz());
-        if (!is_zero(target_yaw_rate)) {
-            auto_yaw.set_mode(AUTO_YAW_HOLD);
-        }
-    }
-
     // if we are close to current target point, switch the next point to be our target.
     if (wp_nav->reached_wp_destination()) {
-        Vector3f dest_NED;
+
+        // clear destination backup so that it cannot be restored
+        dest_NED_backup.zero();
+
         // this pop_point can fail if the IO task currently has the
         // path semaphore.
+        Vector3f dest_NED;
         if (g2.smart_rtl.pop_point(dest_NED)) {
+            // backup destination in case we exit smart_rtl mode and need to restore it to the path
+            dest_NED_backup = dest_NED;
             path_follow_last_pop_fail_ms = 0;
             if (g2.smart_rtl.get_num_points() == 0) {
                 // this is the very last point, add 2m to the target alt and move to pre-land state
@@ -140,14 +145,8 @@ void ModeSmartRTL::path_follow_run()
     wp_nav->update_wpnav();
     pos_control->update_z_controller();
 
-    // call attitude controller
-    if (auto_yaw.mode() == AUTO_YAW_HOLD) {
-        // roll & pitch from waypoint controller, yaw rate from pilot
-        attitude_control->input_thrust_vector_rate_heading(wp_nav->get_thrust_vector(), target_yaw_rate);
-    } else {
-        // roll, pitch from waypoint controller, yaw heading from auto_heading()
-        attitude_control->input_thrust_vector_heading(wp_nav->get_thrust_vector(), auto_yaw.yaw());
-    }
+    // call attitude controller with auto yaw
+    attitude_control->input_thrust_vector_heading(pos_control->get_thrust_vector(), auto_yaw.get_heading());
 }
 
 void ModeSmartRTL::pre_land_position_run()
@@ -169,7 +168,7 @@ void ModeSmartRTL::pre_land_position_run()
     motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
     wp_nav->update_wpnav();
     pos_control->update_z_controller();
-    attitude_control->input_thrust_vector_heading(wp_nav->get_thrust_vector(), auto_yaw.yaw());
+    attitude_control->input_thrust_vector_heading(pos_control->get_thrust_vector(), auto_yaw.get_heading());
 }
 
 // save current position for use by the smart_rtl flight mode
@@ -209,7 +208,9 @@ int32_t ModeSmartRTL::wp_bearing() const
 
 bool ModeSmartRTL::use_pilot_yaw() const
 {
-    return g2.smart_rtl.use_pilot_yaw();
+    const bool land_repositioning = g.land_repositioning && (smart_rtl_state == SubMode::DESCEND);
+    const bool final_landing = smart_rtl_state == SubMode::LAND;
+    return g2.smart_rtl.use_pilot_yaw() || land_repositioning || final_landing;
 }
 
 #endif

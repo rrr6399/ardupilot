@@ -1,7 +1,7 @@
 
 #include "GPIO.h"
 
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL && !defined(HAL_BUILD_AP_PERIPH)
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
 
 using namespace HALSITL;
 
@@ -29,6 +29,9 @@ uint8_t GPIO::read(uint8_t pin)
     if (!_sitlState->_sitl) {
         return 0;
     }
+    if (!valid_pin(pin)) {
+        return 0;
+    }
     
     // weight on wheels pin support
     if (pin == _sitlState->_sitl->wow_pin.get()) {
@@ -45,6 +48,9 @@ void GPIO::write(uint8_t pin, uint8_t value)
         return;
     }
 
+    if (!valid_pin(pin)) {
+        return;
+    }
     if (pin < 8) {
         if (!(pin_mode_is_write & (1U<<pin))) {
             // ignore setting of pull-up resistors
@@ -76,7 +82,7 @@ void GPIO::toggle(uint8_t pin)
 /* Alternative interface: */
 AP_HAL::DigitalSource* GPIO::channel(uint16_t n) {
     if (n < 16) {  // (ie. sizeof(pin_mask)*8)
-        return new DigitalSource(static_cast<uint8_t>(n));
+        return NEW_NOTHROW DigitalSource(static_cast<uint8_t>(n));
     } else {
         return nullptr;
     }

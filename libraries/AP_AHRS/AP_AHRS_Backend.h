@@ -22,13 +22,10 @@
 
 #include <AP_Math/AP_Math.h>
 #include <inttypes.h>
-#include <AP_Compass/AP_Compass.h>
 #include <AP_Airspeed/AP_Airspeed.h>
 #include <AP_InertialSensor/AP_InertialSensor.h>
-#include <AP_Param/AP_Param.h>
 #include <AP_Common/Location.h>
 
-class OpticalFlow;
 #define AP_AHRS_TRIM_LIMIT 10.0f        // maximum trim angle in degrees
 #define AP_AHRS_RP_P_MIN   0.05f        // minimum value for AHRS_RP_P parameter
 #define AP_AHRS_YAW_P_MIN  0.05f        // minimum value for AHRS_YAW_P parameter
@@ -59,8 +56,16 @@ public:
         Matrix3f dcm_matrix;
         Vector3f gyro_estimate;
         Vector3f gyro_drift;
-        Vector3f accel_ef[INS_MAX_INSTANCES];  // must be INS_MAX_INSTANCES
-        Vector3f accel_ef_blended;
+        Vector3f accel_ef;
+        Vector3f accel_bias;
+
+        Location location;
+        bool location_valid;
+
+        bool get_location(Location &loc) const {
+            loc = location;
+            return location_valid;
+        };
     };
 
     // init sets up INS board orientation
@@ -71,12 +76,20 @@ public:
 
     // get the index of the current primary accelerometer sensor
     virtual uint8_t get_primary_accel_index(void) const {
-        return AP::ins().get_primary_accel();
+#if AP_INERTIALSENSOR_ENABLED
+        return AP::ins().get_first_usable_accel();
+#else
+        return 0;
+#endif
     }
 
     // get the index of the current primary gyro sensor
     virtual uint8_t get_primary_gyro_index(void) const {
-        return AP::ins().get_primary_gyro();
+#if AP_INERTIALSENSOR_ENABLED
+        return AP::ins().get_first_usable_gyro();
+#else
+        return 0;
+#endif
     }
 
     // Methods
@@ -113,15 +126,11 @@ public:
     // reset the current attitude, used on new IMU calibration
     virtual void reset() = 0;
 
-    // get our current position estimate. Return true if a position is available,
-    // otherwise false. This call fills in lat, lng and alt
-    virtual bool get_position(struct Location &loc) const WARN_IF_UNUSED = 0;
-
     // get latest altitude estimate above ground level in meters and validity flag
     virtual bool get_hagl(float &height) const WARN_IF_UNUSED { return false; }
 
     // return a wind estimation vector, in m/s
-    virtual Vector3f wind_estimate(void) const = 0;
+    virtual bool wind_estimate(Vector3f &wind) const = 0;
 
     // return an airspeed estimate if available. return true
     // if we have an estimate
@@ -144,27 +153,29 @@ public:
         return false;
     }
 
-    // return a synthetic airspeed estimate (one derived from sensors
-    // other than an actual airspeed sensor), if available. return
-    // true if we have a synthetic airspeed.  ret will not be modified
-    // on failure.
-    virtual bool synthetic_airspeed(float &ret) const WARN_IF_UNUSED = 0;
-
     // get apparent to true airspeed ratio
-    float get_EAS2TAS(void) const;
+    static float get_EAS2TAS(void);
 
     // return true if airspeed comes from an airspeed sensor, as
     // opposed to an IMU estimate
-    bool airspeed_sensor_enabled(void) const {
+    static bool airspeed_sensor_enabled(void) {
+    #if AP_AIRSPEED_ENABLED
         const AP_Airspeed *_airspeed = AP::airspeed();
         return _airspeed != nullptr && _airspeed->use() && _airspeed->healthy();
+    #else
+        return false;
+    #endif
     }
 
     // return true if airspeed comes from a specific airspeed sensor, as
     // opposed to an IMU estimate
-    bool airspeed_sensor_enabled(uint8_t airspeed_index) const {
+    static bool airspeed_sensor_enabled(uint8_t airspeed_index) {
+    #if AP_AIRSPEED_ENABLED
         const AP_Airspeed *_airspeed = AP::airspeed();
         return _airspeed != nullptr && _airspeed->use(airspeed_index) && _airspeed->healthy(airspeed_index);
+    #else
+        return false;
+    #endif
     }
 
     // return a ground vector estimate in meters/second, in North/East order
@@ -179,7 +190,7 @@ public:
 
     // Get a derivative of the vertical position in m/s which is kinematically consistent with the vertical position is required by some control loops.
     // This is different to the vertical velocity from the EKF which is not always consistent with the vertical position due to the various errors that are being corrected for.
-    virtual bool get_vert_pos_rate(float &velocity) const = 0;
+    virtual bool get_vert_pos_rate_D(float &velocity) const = 0;
 
     // returns the estimated magnetic field offsets in body frame
     virtual bool get_mag_field_correction(Vector3f &ret) const WARN_IF_UNUSED {
@@ -286,12 +297,12 @@ public:
         return false;
     }
 
-    virtual bool get_filter_status(nav_filter_status &status) const {
+    virtual bool get_filter_status(union nav_filter_status &status) const {
         return false;
     }
 
     // get_variances - provides the innovations normalised using the innovation variance where a value of 0
-    // indicates perfect consistency between the measurement and the EKF solution and a value of of 1 is the maximum
+    // indicates perfect consistency between the measurement and the EKF solution and a value of 1 is the maximum
     // inconsistency that will be accepted by the filter
     // boolean false is returned if variances are not available
     virtual bool get_variances(float &velVar, float &posVar, float &hgtVar, Vector3f &magVar, float &tasVar) const {
@@ -304,13 +315,7 @@ public:
         return false;
     }
 
-    virtual void send_ekf_status_report(mavlink_channel_t chan) const = 0;
-
-    // Retrieves the corrected NED delta velocity in use by the inertial navigation
-    virtual void getCorrectedDeltaVelocityNED(Vector3f& ret, float& dt) const {
-        ret.zero();
-        AP::ins().get_delta_velocity(ret, dt);
-    }
+    virtual void send_ekf_status_report(class GCS_MAVLINK &link) const = 0;
 
     // get_hgt_ctrl_limit - get maximum height to be observed by the
     // control loops in meters and a validity flag.  It will return
@@ -321,4 +326,5 @@ public:
     // this is not related to terrain following
     virtual void set_terrain_hgt_stable(bool stable) {}
 
+    virtual void get_control_limits(float &ekfGndSpdLimit, float &controlScaleXY) const = 0;
 };

@@ -3,6 +3,7 @@
 #include "AP_NavEKF3.h"
 #include "AP_NavEKF3_core.h"
 #include <AP_DAL/AP_DAL.h>
+#include <GCS_MAVLink/GCS.h>
 
 // Check basic filter health metrics and return a consolidated health status
 bool NavEKF3_core::healthy(void) const
@@ -67,12 +68,16 @@ bool NavEKF3_core::getHeightControlLimit(float &height) const
     // only ask for limiting if we are doing optical flow navigation
     if (frontend->sources.useVelXYSource(AP_NavEKF_Source::SourceXY::OPTFLOW) && (PV_AidingMode == AID_RELATIVE) && flowDataValid) {
         // If are doing optical flow nav, ensure the height above ground is within range finder limits after accounting for vehicle tilt and control errors
+#if AP_RANGEFINDER_ENABLED
         const auto *_rng = dal.rangefinder();
         if (_rng == nullptr) {
             // we really, really shouldn't be here.
             return false;
         }
         height = MAX(float(_rng->max_distance_cm_orient(ROTATION_PITCH_270)) * 0.007f - 1.0f, 1.0f);
+#else
+        return false;
+#endif
         // If we are are not using the range finder as the height reference, then compensate for the difference between terrain and EKF origin
         if (frontend->sources.getPosZSource() != AP_NavEKF_Source::SourceZ::RANGEFINDER) {
             height -= terrainState;
@@ -87,7 +92,7 @@ bool NavEKF3_core::getHeightControlLimit(float &height) const
 // return the Euler roll, pitch and yaw angle in radians
 void NavEKF3_core::getEulerAngles(Vector3f &euler) const
 {
-    outputDataNew.quat.to_euler(euler.x, euler.y, euler.z);
+    outputDataNew.quat.to_euler(euler);
     euler = euler - dal.get_trim();
 }
 
@@ -178,18 +183,33 @@ void NavEKF3_core::getVelNED(Vector3f &vel) const
 // returns false if estimate is unavailable
 bool NavEKF3_core::getAirSpdVec(Vector3f &vel) const
 {
-    if (inhibitWindStates || PV_AidingMode == AID_NONE) {
+    if (PV_AidingMode == AID_NONE) {
         return false;
     }
     vel = (outputDataNew.velocity + velOffsetNED).tofloat();
-    vel.x -= stateStruct.wind_vel.x;
-    vel.y -= stateStruct.wind_vel.y;
+    if (!inhibitWindStates) {
+        vel.x -= stateStruct.wind_vel.x;
+        vel.y -= stateStruct.wind_vel.y;
+    }
     Matrix3f Tnb; // rotation from nav to body frame
     outputDataNew.quat.inverse().rotation_matrix(Tnb);
     vel = Tnb * vel;
     return true;
 }
 
+// return the innovation in m/s, innovation variance in (m/s)^2 and age in msec of the last TAS measurement processed
+// returns false if the data is unavailable
+bool NavEKF3_core::getAirSpdHealthData(float &innovation, float &innovationVariance, uint32_t &age_ms) const
+{
+    if (tasDataDelayed.time_ms == 0) {
+        // no data has been processed since startup
+        return false;
+    }
+    innovation = (float)innovVtas;
+    innovationVariance = (float)varInnovVtas;
+    age_ms = imuSampleTime_ms - tasDataDelayed.time_ms;
+    return true;
+}
 
 // Return the rate of change of vertical position in the down direction (dPosD/dt) of the body frame origin in m/s
 float NavEKF3_core::getPosDownDerivative(void) const
@@ -216,14 +236,16 @@ bool NavEKF3_core::getPosNE(Vector2f &posNE) const
             auto &gps = dal.gps();
             if ((gps.status(selected_gps) >= AP_DAL_GPS::GPS_OK_FIX_2D)) {
                 // If the origin has been set and we have GPS, then return the GPS position relative to the origin
-                const struct Location &gpsloc = gps.location(selected_gps);
+                const Location &gpsloc = gps.location(selected_gps);
                 posNE = public_origin.get_distance_NE_ftype(gpsloc).tofloat();
                 return false;
-            } else if (rngBcnAlignmentStarted) {
+#if EK3_FEATURE_BEACON_FUSION
+            } else if (rngBcn.alignmentStarted) {
                 // If we are attempting alignment using range beacon data, then report the position
-                posNE.x = receiverPos.x;
-                posNE.y = receiverPos.y;
+                posNE.x = rngBcn.receiverPos.x;
+                posNE.y = rngBcn.receiverPos.y;
                 return false;
+#endif
             } else {
                 // If no GPS fix is available, all we can do is provide the last known position
                 posNE = outputDataNew.position.xy().tofloat();
@@ -238,25 +260,30 @@ bool NavEKF3_core::getPosNE(Vector2f &posNE) const
     return false;
 }
 
-// Write the last calculated D position of the body frame origin relative to the EKF origin (m).
+// Write the last calculated D position of the body frame origin relative to the EKF local origin
 // Return true if the estimate is valid
-bool NavEKF3_core::getPosD(float &posD) const
+bool NavEKF3_core::getPosD_local(float &posD) const
 {
-    // The EKF always has a height estimate regardless of mode of operation
-    // Correct for the IMU offset (EKF calculations are at the IMU)
-    // Also correct for changes to the origin height
-    if ((frontend->_originHgtMode & (1<<2)) == 0) {
-        // Any sensor height drift corrections relative to the WGS-84 reference are applied to the origin.
-        posD = outputDataNew.position.z + posOffsetNED.z;
-    } else {
-        // The origin height is static and corrections are applied to the local vertical position
-        // so that height returned by getLLH() = height returned by getOriginLLH - posD
-        posD = outputDataNew.position.z + posOffsetNED.z + 0.01f * (float)EKF_origin.alt - (float)ekfGpsRefHgt;
-    }
+    posD = outputDataNew.position.z + posOffsetNED.z;
 
     // Return the current height solution status
     return filterStatus.flags.vert_pos;
 
+}
+
+// Write the last calculated D position of the body frame origin relative to the public origin
+// Return true if the estimate is valid
+bool NavEKF3_core::getPosD(float &posD) const
+{
+    bool ret = getPosD_local(posD);
+
+    // adjust posD for difference between our origin and the public_origin
+    Location local_origin;
+    if (getOriginLLH(local_origin)) {
+        posD += (public_origin.alt - local_origin.alt) * 0.01;
+    }
+
+    return ret;
 }
 
 // return the estimated height of body frame origin above ground level
@@ -271,16 +298,14 @@ bool NavEKF3_core::getHAGL(float &HAGL) const
 // If a calculated location isn't available, return a raw GPS measurement
 // The status will return true if a calculation or raw measurement is available
 // The getFilterStatus() function provides a more detailed description of data health and must be checked if data is to be used for flight control
-bool NavEKF3_core::getLLH(struct Location &loc) const
+bool NavEKF3_core::getLLH(Location &loc) const
 {
     Location origin;
     if (getOriginLLH(origin)) {
         float posD;
-        if(getPosD(posD) && PV_AidingMode != AID_NONE) {
+        if (getPosD_local(posD) && PV_AidingMode != AID_NONE) {
             // Altitude returned is an absolute altitude relative to the WGS-84 spherioid
-            loc.alt = origin.alt - posD*100;
-            loc.relative_alt = 0;
-            loc.terrain_alt = 0;
+            loc.set_alt_cm(origin.alt - posD*100.0, Location::AltFrame::ABSOLUTE);
             if (filterStatus.flags.horiz_pos_abs || filterStatus.flags.horiz_pos_rel) {
                 // The EKF is able to provide a position estimate
                 loc.lat = EKF_origin.lat;
@@ -310,6 +335,7 @@ bool NavEKF3_core::getLLH(struct Location &loc) const
                 loc.lng = EKF_origin.lng;
                 loc.offset(lastKnownPositionNE.x + posOffsetNED.x,
                            lastKnownPositionNE.y + posOffsetNED.y);
+                loc.alt = EKF_origin.alt - lastKnownPositionD*100.0;
                 return false;
             }
         }
@@ -319,7 +345,7 @@ bool NavEKF3_core::getLLH(struct Location &loc) const
     }
 }
 
-bool NavEKF3_core::getGPSLLH(struct Location &loc) const
+bool NavEKF3_core::getGPSLLH(Location &loc) const
 {
     const auto &gps = dal.gps();
     if ((gps.status(selected_gps) >= AP_DAL_GPS::GPS_OK_FIX_3D)) {
@@ -352,7 +378,7 @@ void NavEKF3_core::getEkfControlLimits(float &ekfGndSpdLimit, float &ekfNavVelGa
 
 
 // return the LLH location of the filters NED origin
-bool NavEKF3_core::getOriginLLH(struct Location &loc) const
+bool NavEKF3_core::getOriginLLH(Location &loc) const
 {
     if (validOrigin) {
         loc = public_origin;
@@ -461,7 +487,7 @@ bool NavEKF3_core::getVelInnovationsAndVariancesForSource(AP_NavEKF_Source::Sour
     switch (source) {
     case AP_NavEKF_Source::SourceXY::GPS:
         // check for timeouts
-        if (AP_HAL::millis() - gpsVelInnovTime_ms > 500) {
+        if (dal.millis() - gpsRetrieveTime_ms > 500) {
             return false;
         }
         innovations = gpsVelInnov.tofloat();
@@ -470,7 +496,7 @@ bool NavEKF3_core::getVelInnovationsAndVariancesForSource(AP_NavEKF_Source::Sour
 #if EK3_FEATURE_EXTERNAL_NAV
     case AP_NavEKF_Source::SourceXY::EXTNAV:
         // check for timeouts
-        if (AP_HAL::millis() - extNavVelInnovTime_ms > 500) {
+        if (dal.millis() - extNavVelInnovTime_ms > 500) {
             return false;
         }
         innovations = extNavVelInnov.tofloat();
@@ -479,7 +505,7 @@ bool NavEKF3_core::getVelInnovationsAndVariancesForSource(AP_NavEKF_Source::Sour
 #endif // EK3_FEATURE_EXTERNAL_NAV
     case AP_NavEKF_Source::SourceXY::OPTFLOW:
         // check for timeouts
-        if (AP_HAL::millis() - flowInnovTime_ms > 500) {
+        if (dal.millis() - flowInnovTime_ms > 500) {
             return false;
         }
         innovations.x = flowInnov[0];
@@ -527,8 +553,9 @@ void  NavEKF3_core::getFilterStatus(nav_filter_status &status) const
     status = filterStatus;
 }
 
+#if HAL_GCS_ENABLED
 // send an EKF_STATUS message to GCS
-void NavEKF3_core::send_status_report(mavlink_channel_t chan) const
+void NavEKF3_core::send_status_report(GCS_MAVLINK &link) const
 {
     // prepare flags
     uint16_t flags = 0;
@@ -575,20 +602,29 @@ void NavEKF3_core::send_status_report(mavlink_channel_t chan) const
     Vector2f offset;
     getVariances(velVar, posVar, hgtVar, magVar, tasVar, offset);
 
+
     // Only report range finder normalised innovation levels if the EKF needs the data for primary
     // height estimation or optical flow operation. This prevents false alarms at the GCS if a
     // range finder is fitted for other applications
-    float temp;
+    float temp = 0;
     if (((frontend->_useRngSwHgt > 0) && activeHgtSource == AP_NavEKF_Source::SourceZ::RANGEFINDER) || (PV_AidingMode == AID_RELATIVE && flowDataValid)) {
         temp = sqrtF(auxRngTestRatio);
-    } else {
-        temp = 0.0f;
     }
-    const float mag_max = fmaxF(fmaxF(magVar.x,magVar.y),magVar.z);
+
+    const mavlink_ekf_status_report_t packet{
+        velVar,
+        posVar,
+        hgtVar,
+        fmaxf(fmaxf(magVar.x,magVar.y),magVar.z),
+        temp,
+        flags,
+        tasVar
+    };
 
     // send message
-    mavlink_msg_ekf_status_report_send(chan, flags, velVar, posVar, hgtVar, mag_max, temp, tasVar);
+    mavlink_msg_ekf_status_report_send_struct(link.get_chan(), &packet);
 }
+#endif  // HAL_GCS_ENABLED
 
 // report the reason for why the backend is refusing to initialise
 const char *NavEKF3_core::prearm_failure_reason(void) const

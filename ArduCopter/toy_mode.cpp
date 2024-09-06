@@ -1,6 +1,6 @@
 #include "Copter.h"
 
-#if TOY_MODE_ENABLED == ENABLED
+#if TOY_MODE_ENABLED
 
 // times in 0.1s units
 #define TOY_COMMAND_DELAY 15
@@ -430,8 +430,8 @@ void ToyMode::update()
                  */
                 if (set_and_remember_mode(Mode::Number::ALT_HOLD, ModeReason::TOY_MODE)) {
                     gcs().send_text(MAV_SEVERITY_INFO, "Tmode: ALT_HOLD update arm");
-#if AC_FENCE == ENABLED
-                    copter.fence.enable(false);
+#if AP_FENCE_ENABLED
+                    copter.fence.enable(false, AC_FENCE_ALL_FENCES);
 #endif
                     if (!copter.arming.arm(AP_Arming::Method::MAVLINK)) {
                         // go back to LOITER
@@ -459,8 +459,8 @@ void ToyMode::update()
             AP_Notify::flags.hybrid_loiter = false;
 #endif
         } else if (copter.position_ok() && set_and_remember_mode(Mode::Number::LOITER, ModeReason::TOY_MODE)) {
-#if AC_FENCE == ENABLED
-            copter.fence.enable(true);
+#if AP_FENCE_ENABLED
+            copter.fence.enable(true, AC_FENCE_ALL_FENCES);
 #endif
             gcs().send_text(MAV_SEVERITY_INFO, "Tmode: LOITER update");            
         }
@@ -490,7 +490,7 @@ void ToyMode::update()
         break;
 
     case ACTION_MODE_ACRO:
-#if MODE_ACRO_ENABLED == ENABLED
+#if MODE_ACRO_ENABLED
         new_mode = Mode::Number::ACRO;
 #else
         gcs().send_text(MAV_SEVERITY_ERROR, "Tmode: ACRO is disabled");
@@ -542,7 +542,7 @@ void ToyMode::update()
         break;
 
     case ACTION_MODE_THROW:
-#if MODE_THROW_ENABLED == ENABLED
+#if MODE_THROW_ENABLED
         new_mode = Mode::Number::THROW;
 #else
         gcs().send_text(MAV_SEVERITY_ERROR, "Tmode: THROW is disabled");
@@ -622,7 +622,7 @@ void ToyMode::update()
             copter.set_mode(Mode::Number::ALT_HOLD, ModeReason::TOY_MODE);
         } else {
             copter.set_mode(Mode::Number::ALT_HOLD, ModeReason::TOY_MODE);
-#if AC_FENCE == ENABLED
+#if AP_FENCE_ENABLED
             copter.fence.enable(false);
 #endif
             if (copter.arming.arm(AP_Arming::Method::MAVLINK)) {
@@ -643,15 +643,15 @@ void ToyMode::update()
     
     if (new_mode != copter.flightmode->mode_number()) {
         load_test.running = false;
-#if AC_FENCE == ENABLED
-        copter.fence.enable(false);
+#if AP_FENCE_ENABLED
+        copter.fence.enable(false, AC_FENCE_ALL_FENCES);
 #endif
         if (set_and_remember_mode(new_mode, ModeReason::TOY_MODE)) {
             gcs().send_text(MAV_SEVERITY_INFO, "Tmode: mode %s", copter.flightmode->name4());
             // force fence on in all GPS flight modes
-#if AC_FENCE == ENABLED
+#if AP_FENCE_ENABLED
             if (copter.flightmode->requires_GPS()) {
-                copter.fence.enable(true);
+                copter.fence.enable(true, AC_FENCE_ALL_FENCES);
             }
 #endif
         } else {
@@ -660,9 +660,9 @@ void ToyMode::update()
                 // if we can't RTL then land
                 gcs().send_text(MAV_SEVERITY_ERROR, "Tmode: LANDING");
                 set_and_remember_mode(Mode::Number::LAND, ModeReason::TOY_MODE);
-#if AC_FENCE == ENABLED
+#if AP_FENCE_ENABLED
                 if (copter.landing_with_GPS()) {
-                    copter.fence.enable(true);
+                    copter.fence.enable(true, AC_FENCE_ALL_FENCES);
                 }
 #endif
             }
@@ -799,9 +799,9 @@ void ToyMode::action_arm(void)
     arm_check_compass();
     
     if (needs_gps && copter.arming.gps_checks(false)) {
-#if AC_FENCE == ENABLED
+#if AP_FENCE_ENABLED
         // we want GPS and checks are passing, arm and enable fence
-        copter.fence.enable(true);
+        copter.fence.enable(true, AC_FENCE_ALL_FENCES);
 #endif
         copter.arming.arm(AP_Arming::Method::RUDDER);
         if (!copter.motors->armed()) {
@@ -815,9 +815,9 @@ void ToyMode::action_arm(void)
         AP_Notify::events.arming_failed = true;
         gcs().send_text(MAV_SEVERITY_ERROR, "Tmode: GPS arming failed");
     } else {
-#if AC_FENCE == ENABLED
+#if AP_FENCE_ENABLED
         // non-GPS mode
-        copter.fence.enable(false);
+        copter.fence.enable(false, AC_FENCE_ALL_FENCES);
 #endif
         copter.arming.arm(AP_Arming::Method::RUDDER);
         if (!copter.motors->armed()) {
@@ -846,7 +846,7 @@ void ToyMode::throttle_adjust(float &throttle_control)
     }
 
     // limit descent rate close to the ground
-    float height = copter.inertial_nav.get_altitude() * 0.01 - copter.arming_altitude_m;
+    float height = copter.inertial_nav.get_position_z_up_cm() * 0.01 - copter.arming_altitude_m;
     if (throttle_control < 500 &&
         height < TOY_DESCENT_SLOW_HEIGHT + TOY_DESCENT_SLOW_RAMP &&
         copter.motors->armed() && !copter.ap.land_complete) {
@@ -890,9 +890,9 @@ void ToyMode::blink_update(void)
     // let the TX know we are recording video
     uint32_t now = AP_HAL::millis();
     if (now - last_video_ms < 1000) {
-        AP_Notify::flags.video_recording = 1;
+        AP_Notify::flags.video_recording = true;
     } else {
-        AP_Notify::flags.video_recording = 0;
+        AP_Notify::flags.video_recording = false;
     }
     
     if (red_blink_count > 0 && green_blink_count > 0) {
@@ -954,9 +954,9 @@ void ToyMode::handle_message(const mavlink_message_t &msg)
         green_blink_count = 1;
         last_video_ms = AP_HAL::millis();
         // immediately update AP_Notify recording flag
-        AP_Notify::flags.video_recording = 1;
+        AP_Notify::flags.video_recording = true;
     } else if (strncmp(m.name, "WIFICHAN", 10) == 0) {
-#if HAL_RCINPUT_WITH_AP_RADIO
+#if AP_RADIO_ENABLED
         AP_Radio *radio = AP_Radio::get_singleton();
         if (radio) {
             radio->set_wifi_channel(m.value);
@@ -991,6 +991,7 @@ void ToyMode::thrust_limiting(float *thrust, uint8_t num_motors)
     uint16_t pwm[4];
     hal.rcout->read(pwm, 4);
 
+#if HAL_LOGGING_ENABLED
 // @LoggerMessage: THST
 // @Description: Maximum thrust limitation based on battery voltage in Toy Mode
 // @Field: TimeUS: Time since system startup
@@ -1008,7 +1009,7 @@ void ToyMode::thrust_limiting(float *thrust, uint8_t num_motors)
                                                (double)thrust_mul,
                                                pwm[0], pwm[1], pwm[2], pwm[3]);
     }
-                                           
+#endif
 }
 
 #if ENABLE_LOAD_TEST

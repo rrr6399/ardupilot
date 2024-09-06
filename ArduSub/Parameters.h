@@ -1,12 +1,10 @@
 #pragma once
 
+#define AP_PARAM_VEHICLE_NAME sub
+
 #include <AP_Common/AP_Common.h>
 
-#include <AP_Gripper/AP_Gripper.h>
-
-#ifdef ENABLE_SCRIPTING
-#include <AP_Scripting/AP_Scripting.h>
-#endif
+#include <AP_Arming/AP_Arming.h>
 
 // Global parameter class.
 //
@@ -45,7 +43,7 @@ public:
         // Layout version number, always key zero.
         //
         k_param_format_version = 0,
-        k_param_software_type, // unusued
+        k_param_software_type, // unused
 
         k_param_g2, // 2nd block of parameters
 
@@ -63,7 +61,7 @@ public:
         k_param_BoardConfig = 20, // Board configuration (Pixhawk/Linux/etc)
         k_param_scheduler, // Scheduler (for debugging/perf_info)
         k_param_logger, // AP_Logger Logging
-        k_param_serial_manager, // Serial ports, AP_SerialManager
+        k_param_serial_manager_old, // Serial ports, AP_SerialManager
         k_param_notify, // Notify Library, AP_Notify
         k_param_arming = 26, // Arming checks
         k_param_can_mgr,
@@ -87,7 +85,7 @@ public:
         k_param_pos_control, // Position Control
         k_param_wp_nav, // Waypoint navigation
         k_param_mission, // Mission library
-        k_param_fence, // Fence Library
+        k_param_fence_old, // only used for conversion
         k_param_terrain, // Terrain database
         k_param_rally, // Disabled
         k_param_circle_nav, // Disabled
@@ -145,6 +143,23 @@ public:
         k_param_jbtn_14,
         k_param_jbtn_15,
 
+        // 16 more for MANUAL_CONTROL extensions
+        k_param_jbtn_16,
+        k_param_jbtn_17,
+        k_param_jbtn_18,
+        k_param_jbtn_19,
+        k_param_jbtn_20,
+        k_param_jbtn_21,
+        k_param_jbtn_22,
+        k_param_jbtn_23,
+        k_param_jbtn_24,
+        k_param_jbtn_25,
+        k_param_jbtn_26,
+        k_param_jbtn_27,
+        k_param_jbtn_28,
+        k_param_jbtn_29,
+        k_param_jbtn_30,
+        k_param_jbtn_31,
 
         // PID Controllers
         k_param_p_pos_xy = 126, // deprecated
@@ -170,12 +185,13 @@ public:
         k_param_fs_batt_voltage,          // unused - moved to AP_BattMonitor
         k_param_failsafe_pilot_input,
         k_param_failsafe_pilot_input_timeout,
+        k_param_failsafe_gcs_timeout,
 
 
         // Misc Sub settings
         k_param_log_bitmask = 165,
         k_param_angle_max = 167,
-        k_param_rangefinder_gain,
+        k_param_rangefinder_gain, // deprecated
         k_param_wp_yaw_behavior = 170,
         k_param_xtrack_angle_limit, // Angle limit for crosstrack correction in Auto modes (degrees)
         k_param_pilot_speed_up,     // renamed from k_param_pilot_velocity_z_max
@@ -213,6 +229,8 @@ public:
         k_param_cam_slew_limit = 237, // deprecated
         k_param_lights_steps,
         k_param_pilot_speed_dn,
+        k_param_rangefinder_signal_min,
+        k_param_surftrak_depth,
 
         k_param_vehicle = 257, // vehicle common block of parameters
     };
@@ -226,8 +244,9 @@ public:
 
     AP_Float        throttle_filt;
 
-#if RANGEFINDER_ENABLED == ENABLED
-    AP_Float        rangefinder_gain;
+#if AP_RANGEFINDER_ENABLED
+    AP_Int8         rangefinder_signal_min;     // minimum signal quality for good rangefinder readings
+    AP_Float        surftrak_depth;             // surftrak will try to keep sub below this depth
 #endif
 
     AP_Int8         failsafe_leak;              // leak detection failsafe behavior
@@ -239,6 +258,7 @@ public:
     AP_Int8         failsafe_terrain;
     AP_Int8         failsafe_pilot_input;       // pilot input failsafe behavior
     AP_Float        failsafe_pilot_input_timeout;
+    AP_Float        failsafe_gcs_timeout;       // ground station failsafe timeout (seconds)
 
     AP_Int8         xtrack_angle_limit;
 
@@ -291,6 +311,23 @@ public:
     JSButton        jbtn_13;
     JSButton        jbtn_14;
     JSButton        jbtn_15;
+    // 16 - 31 from manual_control extension
+    JSButton        jbtn_16;
+    JSButton        jbtn_17;
+    JSButton        jbtn_18;
+    JSButton        jbtn_19;
+    JSButton        jbtn_20;
+    JSButton        jbtn_21;
+    JSButton        jbtn_22;
+    JSButton        jbtn_23;
+    JSButton        jbtn_24;
+    JSButton        jbtn_25;
+    JSButton        jbtn_26;
+    JSButton        jbtn_27;
+    JSButton        jbtn_28;
+    JSButton        jbtn_29;
+    JSButton        jbtn_30;
+    JSButton        jbtn_31;
 
     // Acro parameters
     AP_Float        acro_rp_p;
@@ -320,10 +357,6 @@ public:
     // var_info for holding Parameter information
     static const struct AP_Param::GroupInfo var_info[];
 
-#if GRIPPER_ENABLED
-    AP_Gripper gripper;
-#endif
-
 #if HAL_PROXIMITY_ENABLED
     // proximity (aka object avoidance) library
     AP_Proximity proximity;
@@ -335,14 +368,56 @@ public:
     // control over servo output ranges
     SRV_Channels servo_channels;
 
-#ifdef ENABLE_SCRIPTING
-    AP_Scripting scripting;
-#endif // ENABLE_SCRIPTING
-
-    // Airspeed
-    AP_Airspeed airspeed;
-
+    AP_Float backup_origin_lat;
+    AP_Float backup_origin_lon;
+    AP_Float backup_origin_alt;
 };
 
 extern const AP_Param::Info        var_info[];
 
+// Sub-specific default parameters
+static const struct AP_Param::defaults_table_struct defaults_table[] = {
+    { "BRD_SAFETY_DEFLT",    0 },
+    { "ARMING_CHECK",        AP_Arming::ARMING_CHECK_RC |
+                             AP_Arming::ARMING_CHECK_VOLTAGE |
+                             AP_Arming::ARMING_CHECK_BATTERY},
+    { "CIRCLE_RATE",         2.0f},
+    { "ATC_ACCEL_Y_MAX",     110000.0f},
+    { "ATC_RATE_Y_MAX",      180.0f},
+    { "RC3_TRIM",            1100},
+    { "COMPASS_OFFS_MAX",    1000},
+    { "INS_GYR_CAL",         0},
+#if HAL_MOUNT_ENABLED
+    { "MNT1_TYPE",           1},
+    { "MNT1_DEFLT_MODE",     MAV_MOUNT_MODE_RC_TARGETING},
+    { "MNT1_RC_RATE",        30},
+#endif
+    { "RC7_OPTION",          214},   // MOUNT1_YAW
+    { "RC8_OPTION",          213},   // MOUNT1_PITCH
+    { "MOT_PWM_MIN",         1100},
+    { "MOT_PWM_MAX",         1900},
+    { "PSC_JERK_Z",          50.0f},
+    { "WPNAV_SPEED",         100.0f},
+    { "PILOT_SPEED_UP",      100.0f},
+    { "PSC_VELXY_P",         6.0f},
+    { "EK3_SRC1_VELZ",       0},
+#if CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_NAVIGATOR
+#if AP_BARO_PROBE_EXT_PARAMETER_ENABLED
+    { "BARO_PROBE_EXT",      0},
+#endif
+    { "BATT_MONITOR",        4},
+    { "BATT_CAPACITY",       0},
+    { "LEAK1_PIN",           27},
+    { "SCHED_LOOP_RATE",     200},
+    { "SERVO13_FUNCTION",    59},    // k_rcin9, lights 1
+    { "SERVO14_FUNCTION",    60},    // k_rcin10, lights 2
+    { "SERVO16_FUNCTION",    7},     // k_mount_tilt
+    { "SERVO16_REVERSED",    1},
+#else
+#if AP_BARO_PROBE_EXT_PARAMETER_ENABLED
+    { "BARO_PROBE_EXT",      768},
+#endif
+    { "SERVO9_FUNCTION",     59},    // k_rcin9, lights 1
+    { "SERVO10_FUNCTION",    7},     // k_mount_tilt
+#endif
+};

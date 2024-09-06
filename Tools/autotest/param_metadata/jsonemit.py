@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 import json
 import copy
 from emit import Emit
@@ -12,7 +10,6 @@ class JSONEmit(Emit):
         json_fname = 'apm.pdef.json'
         self.f = open(json_fname, mode='w')
         self.content = {"json": {"version": 0}}
-        self.name = ''
 
     def close(self):
         json.dump(self.content, self.f, indent=2, sort_keys=True)
@@ -33,7 +30,7 @@ class JSONEmit(Emit):
         # Copy content to avoid any modification
         g = copy.deepcopy(g)
 
-        self.content[self.name] = {}
+        self.content[g.name] = {}
 
         # Check all params available
         for param in g.params:
@@ -58,9 +55,19 @@ class JSONEmit(Emit):
             if ':' in name:
                 name = name.split(':')[1]
 
-            # Remove real_path key
-            if 'real_path' in param.__dict__:
-                param.__dict__.pop('real_path')
+            # Remove various unwanted keys
+            for key in list(param.__dict__.keys()):
+                if not self.should_emit_field(param, key):
+                    param.__dict__.pop(key)
+            for key in 'real_path', 'SortValues', '__field_text':
+                try:
+                    param.__dict__.pop(key)
+                except KeyError:
+                    pass
+
+            # Remove __field_text key
+            if '__field_text' in param.__dict__:
+                param.__dict__.pop('__field_text')
 
             # Get range section if available
             range_json = {}
@@ -97,4 +104,4 @@ class JSONEmit(Emit):
 
         # Update main content with actual content
         for key in content:
-            self.content[self.name][key] = content[key]
+            self.content[g.name][key] = content[key]

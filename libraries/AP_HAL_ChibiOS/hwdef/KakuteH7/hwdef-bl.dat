@@ -18,8 +18,7 @@ FLASH_RESERVE_START_KB 0
 # the location where the bootloader will put the firmware
 FLASH_BOOTLOADER_LOAD_KB 128
 
-# reserve space for flash storage in last 2 sectors
-FLASH_RESERVE_END_KB 256
+define HAL_STORAGE_SIZE 32768
 
 # order of UARTs (and USB)
 SERIAL_ORDER OTG1
@@ -36,11 +35,7 @@ PC13 BUZZER OUTPUT LOW PULLDOWN
 PC2 LED_BOOTLOADER OUTPUT LOW
 define HAL_LED_ON 1
 
-define HAL_USE_EMPTY_STORAGE 1
-define HAL_STORAGE_SIZE 16384
 
-# default to all pins low to avoid ESD issues
-DEFAULTGPIO OUTPUT LOW PULLDOWN
 
 # Add CS pins to ensure they are high in bootloader
 PE4 IMU_CS CS
